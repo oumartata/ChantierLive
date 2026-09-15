@@ -6,7 +6,11 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test:sw": "node scripts/sw.test.mjs",
+    "test": "npm run test:sw",
+    "verify": "node scripts/quality-gate.mjs"
   },
   "dependencies": {
     "next": "16.3.5",

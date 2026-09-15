@@ -1,0 +1,38 @@
+name: CI
+
+# Préparée pour usage futur (lot B005) : aucun remote n'est configuré à ce
+# stade et aucun push n'est effectué — ce fichier ne s'exécute donc pas
+# encore, il est prêt pour le jour où le dépôt sera poussé vers GitHub.
+on:
+  push:
+  pull_request:
+
+# Permissions minimales : lecture seule, aucun droit d'écriture sur le dépôt
+# ou les packages.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Lint, types, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run quality gate (lint + typecheck + test + build)
+        run: npm run verify
