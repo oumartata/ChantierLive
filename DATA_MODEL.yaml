@@ -1,0 +1,68 @@
+phase: "5B"
+status: "VALIDATED"
+updated_at: "2026-09-14"
+
+conventions:
+  primary_keys: "uuid généré côté client pour objets hors-ligne, sinon côté serveur"
+  tenant_key: "project_id obligatoire pour toute donnée privée de chantier"
+  organization_key: "organization_id uniquement pour fonctions entreprise"
+  timestamps: [created_at_server, updated_at_server]
+  attribution: [created_by, updated_by]
+  concurrency: "revision entier incrémenté exclusivement par le serveur"
+  deletion: "pas de suppression physique métier; statut, archived_at ou revoked_at"
+  money: "bigint en unité FCFA; jamais float"
+  timezone: "timestamptz UTC; affichage selon utilisateur"
+  identifiers: "e-mail et téléphone normalisés; jetons stockés hachés"
+
+domains:
+  identity: [profiles, profile_identifiers]
+  organization: [organizations, organization_memberships]
+  tenancy: [projects, project_memberships, membership_permissions]
+  access: [invitations, role_transfers, support_access_grants]
+  construction: [phase_templates, phase_template_items, project_phases, phase_versions, daily_logs, daily_log_versions]
+  evidence: [media_assets, media_links, documents, document_versions, comments]
+  finance: [budgets, budget_versions, expense_categories, expenses, expense_versions, receipts, advances, advance_events]
+  workflow: [approval_requests, approval_decisions, incidents, incident_events]
+  service: [project_licenses, license_payments, notifications, notification_preferences, report_exports, share_links]
+  integrity: [sync_operations, sync_conflicts, audit_events, duplicate_candidates]
+
+versioning:
+  stable_identity_tables: [project_phases, daily_logs, budgets, expenses, documents]
+  append_only_version_tables: [phase_versions, daily_log_versions, budget_versions, expense_versions, document_versions]
+  append_only_event_tables: [advance_events, approval_decisions, incident_events, audit_events]
+  current_pointer: "la table identité peut pointer vers la dernière version; les anciennes restent consultables"
+  approved_finance_correction: "nouvelle version ou contre-écriture liée avec motif, jamais UPDATE du montant validé"
+
+membership:
+  roles: [OWNER, CONTRACTOR, SITE_MANAGER]
+  owner_profiles: [PRIMARY, CO_OWNER]
+  defaults:
+    primary_owner: 1
+    co_owners_max: 2
+    primary_contractor: 1
+    site_managers_max: 2
+  platform_admin: "rôle plateforme séparé, absent des adhésions métier ordinaires"
+
+critical_transactions:
+  accept_invitation: "verrou invitation + vérification cible + contrôle quotas + création adhésion + consommation jeton"
+  transfer_primary_role: "vérifications + bascule atomique + révocation délégations incompatibles + audit"
+  publish_version: "contrôle révision + insertion version + changement pointeur + audit"
+  financial_decision: "cible une version exacte + décision append-only + audit"
+  license_activation: "paiement contrôlé + activation + audit, sans modifier rôles"
+  sync_apply: "operation_uuid unique + base_revision + résultat mémorisé"
+
+storage:
+  buckets: [project-media, project-documents, generated-reports]
+  canonical_path: "{project_id}/{entity_type}/{entity_id}/{version_id}/{filename}"
+  public_bucket: false
+  access: "politique RLS liée à project_id extrait du chemin et adhésion active"
+  downloads: "URL signée courte ou flux serveur autorisé"
+
+excluded_from_database:
+  - "mots de passe: gérés par Supabase Auth"
+  - "codes OTP en clair"
+  - "secrets Orange Money, Moov Money ou fournisseur"
+  - "coordonnées bancaires inutiles"
+  - "promesse d'authenticité absolue d'une preuve"
+
+next_phase: "5C - contrats API, synchronisation et opérations serveur"

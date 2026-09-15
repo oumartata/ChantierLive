@@ -1,0 +1,21 @@
+id,risk,probability,impact,mitigation,trigger,owner,status
+RSK001,"faible adoption chef de chantier",HIGH,HIGH,"français simple, observation terrain, saisie courte","journaux non publiés",PRODUCT,OPEN
+RSK002,"connexion instable",HIGH,HIGH,"IndexedDB, file visible, compression","échecs sync répétés",TECH,OPEN
+RSK003,"conflit financier",MEDIUM,CRITICAL,"révision serveur et correction liée","STALE_REVISION finance",TECH,OPEN
+RSK004,"fuite entre chantiers",LOW,CRITICAL,"RLS refus par défaut et tests croisés","accès UUID étranger",SECURITY,OPEN
+RSK005,"numéro téléphone recyclé",MEDIUM,HIGH,"OTP, e-mail associé, nouvelle vérification sensible","changement contrôle numéro",SECURITY,OPEN
+RSK006,"OTP Mali peu fiable ou coûteux",HIGH,MEDIUM,"fournisseur testé, parcours provisional limité","taux échec ou coût élevé",FOUNDER,OPEN
+RSK007,"stockage photos coûteux",MEDIUM,HIGH,"compression, mesure réelle, politique rétention","coût par chantier dépasse modèle",PRODUCT,OPEN
+RSK008,"perte file locale",MEDIUM,HIGH,"persistance, avertissement, sync fréquente","quota ou nettoyage navigateur",TECH,OPEN
+RSK009,"fausse perception preuve absolue",MEDIUM,HIGH,"libellés capturée/importée et avertissements","réclamation authenticité",LEGAL,OPEN
+RSK010,"confusion acompte et paiement",MEDIUM,CRITICAL,"mention déclarative sur écrans et rapports","utilisateur croit fonds garantis",LEGAL,OPEN
+RSK011,"non-conformité APDP",MEDIUM,CRITICAL,"juriste local avant Bêta, minimisation","avis défavorable ou formalité manquante",LEGAL,OPEN
+RSK012,"administrateur trop puissant",LOW,CRITICAL,"grant limité, expirant et audité","accès privé sans dossier",SECURITY,OPEN
+RSK013,"restauration impossible",LOW,CRITICAL,"tests réguliers staging","test restauration échoue",TECH,OPEN
+RSK014,"support dépasse capacité fondateur",HIGH,HIGH,"Alpha limité, métrique temps support, guides courts","heures support par chantier élevées",FOUNDER,OPEN
+RSK015,"périmètre MVP trop large",HIGH,HIGH,"backlog P0, portes de validation, pas de V1","retards répétés",FOUNDER,OPEN
+RSK016,"concurrent local progresse",MEDIUM,MEDIUM,"positionnement propriétaire-entrepreneur et terrain","offre identique lancée au Mali",PRODUCT,OPEN
+RSK017,"ChantierLive indisponible juridiquement",MEDIUM,HIGH,"vérification OAPI et domaine avant commercial","nom déjà protégé",FOUNDER,OPEN
+RSK018,"Mobile Money manuel contesté",MEDIUM,HIGH,"référence, preuve, double contrôle et audit","paiement introuvable",OPERATIONS,OPEN
+RSK019,"dépendance fournisseur cloud",MEDIUM,HIGH,"SQL portable, migrations, exports, adaptateurs","hausse coût ou indisponibilité",TECH,OPEN
+RSK020,"développement dispersé entre projets",HIGH,HIGH,"terminer FuturePro et ArchivaPro avant code","travail ChantierLive commencé trop tôt",FOUNDER,OPEN

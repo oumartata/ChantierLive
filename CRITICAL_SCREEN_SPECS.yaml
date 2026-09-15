@@ -1,0 +1,158 @@
+version: "3C.1"
+selection_rule: "risque_metier|frequence|hors_ligne|action_irreversible|premiere_valeur"
+
+screens:
+  - id: SCR002
+    goal: "connecter sans créer de doublon de compte"
+    blocks: [identifier, password, login_action, recovery, signup]
+    primary: LOGIN
+    guards: [rate_limit, generic_auth_error, preserve_invitation_token]
+    success: "redirect_role_home_or_pending_invitation"
+  - id: SCR005
+    goal: "expliquer puis accepter/refuser une invitation"
+    blocks: [inviter, project, role, expiry, identity_target, warnings]
+    primary: ACCEPT_INVITATION
+    guards: [valid_single_use_token, verified_target_identifier, no_role_collision]
+    success: "active_membership_and_project_open"
+  - id: SCR009
+    goal: "permettre au chef de saisir l'essentiel en moins de deux actions"
+    blocks: [connectivity, project, today_journal, quick_actions, local_drafts, queue]
+    primary: CREATE_TODAY_JOURNAL
+    guards: [active_membership, writable_license]
+    offline: "full_draft_entry"
+  - id: SCR010
+    goal: "donner au propriétaire l'état et les décisions prioritaires"
+    blocks: [project_switcher, alerts, progress, budget, pending_decisions, recent_updates]
+    primary: VIEW_PENDING_DECISIONS
+    guards: [active_membership, visibility_scope]
+    freshness: "show_last_server_sync"
+  - id: SCR011
+    goal: "surveiller plusieurs chantiers sans fuite entre projets"
+    blocks: [portfolio_metrics, project_filters, project_cards, alerts]
+    primary: OPEN_PROJECT
+    guards: [organization_membership, per_project_scope]
+    freshness: "show_last_server_sync"
+  - id: SCR015
+    goal: "créer un chantier minimal et choisir le rôle du créateur"
+    blocks: [creator_role, name, locality, description_optional, duplicate_notice]
+    primary: SAVE_PROJECT_DRAFT
+    guards: [role_owner_or_contractor, duplicate_check]
+    offline: "draft_only"
+  - id: SCR017
+    goal: "inviter la partie principale manquante"
+    blocks: [role_locked, channel, target_identifier, expiry, preview]
+    primary: CREATE_INVITATION
+    guards: [verified_inviter, active_primary_role, online, no_existing_primary]
+    side_effects: [single_use_token, audit_event, share_link]
+  - id: SCR019
+    goal: "résumer un chantier et orienter vers l'action suivante"
+    blocks: [status, phase_progress, latest_journal, finance_summary, incidents, pending_actions]
+    primary: "role_dependent_next_action"
+    guards: [active_membership]
+    offline: "cached_read"
+  - id: SCR024
+    goal: "préparer puis publier un planning simple"
+    blocks: [template_choice, ordered_phases, phase_dates_optional, preview]
+    primary: PUBLISH_PHASE_PLAN
+    guards: [publish_permission, online_for_publish, at_least_one_phase]
+    offline: "editable_draft_only"
+  - id: SCR026
+    goal: "saisir le journal quotidien même sans réseau"
+    blocks: [date, phase, work_done, workforce_optional, observations, media, incidents_link]
+    primary: SAVE_OR_PUBLISH_JOURNAL
+    guards: [active_membership, unique_author_date_draft_warning]
+    offline: "local_uuid_queue"
+  - id: SCR028
+    goal: "valider ou refuser la fin d'une phase"
+    blocks: [phase_summary, evidence, declared_completion, prior_versions, decision]
+    primary: CONFIRM_PHASE_DECISION
+    guards: [verified_decider, online, current_version]
+    side_effects: [immutable_decision, progress_recalculation, notification]
+  - id: SCR030
+    goal: "capturer ou importer des photos avec origine claire"
+    blocks: [capture, import, phase_link, caption, geolocation_consent, queue_state]
+    primary: ADD_MEDIA
+    guards: [file_type, file_size, storage_available]
+    offline: "compress_then_queue"
+  - id: SCR032
+    goal: "présenter les finances sans suggérer que l'app détient l'argent"
+    blocks: [budget, expenses, remaining_estimate, declared_advances, alerts, tabs]
+    primary: "role_dependent_finance_action"
+    guards: [finance_visibility]
+    disclaimer: MONEY_NOT_HELD
+  - id: SCR034
+    goal: "saisir une dépense traçable"
+    blocks: [amount, date, category, supplier_optional, phase, description, receipt, author]
+    primary: SAVE_OR_PUBLISH_EXPENSE
+    guards: [amount_positive, currency_fcfa, current_revision]
+    offline: "draft_only_with_uuid"
+  - id: SCR037
+    goal: "statuer sur la version exacte d'une dépense"
+    blocks: [expense_summary, receipt, history, budget_impact, decision, reason]
+    primary: CONFIRM_EXPENSE_DECISION
+    guards: [verified_decider, online, version_unchanged]
+    side_effects: [immutable_decision, totals_refresh, notification]
+  - id: SCR039
+    goal: "prendre une décision générique sans ambiguïté"
+    blocks: [requester, subject, exact_version, attachments, options, reason]
+    primary: CONFIRM_APPROVAL_DECISION
+    guards: [verified_decider, online, open_request]
+    side_effects: [decision_timestamp, notification, audit]
+  - id: SCR040
+    goal: "tracer les acomptes externes sans les présenter comme paiements internes"
+    blocks: [disclaimer, totals_by_status, advance_list, declare_action]
+    primary: DECLARE_ADVANCE
+    guards: [owner_or_contractor, active_membership]
+    disclaimer: DECLARATIVE_ADVANCE
+  - id: SCR041
+    goal: "signaler rapidement un incident"
+    blocks: [type, severity, description, date, media, responsible_optional]
+    primary: SAVE_INCIDENT
+    guards: [description_required, active_membership]
+    offline: "local_uuid_queue"
+  - id: SCR043
+    goal: "ajouter un document essentiel avec visibilité maîtrisée"
+    blocks: [file, type, title, visibility, description_optional]
+    primary: SAVE_DOCUMENT_DRAFT
+    guards: [file_type, file_size, visibility_authorized]
+    offline: "queue_if_cached_project"
+  - id: SCR047
+    goal: "vérifier un rapport avant téléchargement ou partage"
+    blocks: [period, included_sections, generated_at, data_freshness, preview, sharing]
+    primary: DOWNLOAD_REPORT
+    guards: [report_permission, current_project_scope]
+    disclaimer: REPORT_TRACE_NOT_CERTIFICATION
+  - id: SCR052
+    goal: "déclarer le paiement externe d'une licence"
+    blocks: [formula, amount_expected, payer, operator, reference, receipt, notice]
+    primary: SUBMIT_LICENSE_PAYMENT
+    guards: [online, active_project_role, no_duplicate_reference]
+    disclaimer: MANUAL_ACTIVATION
+  - id: SCR054
+    goal: "transférer un rôle principal sans perte de contrôle"
+    blocks: [current_holder, new_holder, consequences, verification, double_confirmation]
+    primary: CONFIRM_ROLE_TRANSFER
+    guards: [online, verified_parties, eligible_recipient, latest_membership_revision]
+    side_effects: [atomic_role_change, session_refresh, audit, notifications]
+  - id: SCR057
+    goal: "rendre chaque opération locale compréhensible et récupérable"
+    blocks: [connectivity, totals, pending, failed, conflicts, retry]
+    primary: RETRY_FAILED
+    guards: [local_queue_available]
+    offline: "fully_available"
+  - id: SCR058
+    goal: "résoudre un conflit sans fusion ni écrasement silencieux"
+    blocks: [local_version, server_version, differences, keep_as_new_or_discard]
+    primary: CONFIRM_CONFLICT_CHOICE
+    guards: [conflict_exists, object_not_financially_auto_merged]
+    side_effects: [new_revision_or_local_discard, audit]
+  - id: SCR064
+    goal: "encadrer un accès exceptionnel au contenu privé"
+    blocks: [ticket, metadata, requested_scope, reason, duration, authorization, timer]
+    primary: START_BREAK_GLASS_ACCESS
+    guards: [support_ticket, strong_admin_auth, approval_policy, limited_scope]
+    side_effects: [audit, expiry, notification]
+
+completion:
+  critical_screens: 25
+  coverage: [auth, invitation, role_homes, project, phase, journal, media, finance, approval, incident, document, report, license, sync, support]

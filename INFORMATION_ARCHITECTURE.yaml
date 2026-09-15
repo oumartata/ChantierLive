@@ -1,0 +1,81 @@
+version: "3A.1"
+principles:
+  - "mobile_first"
+  - "maximum_5_primary_mobile_entries"
+  - "one_primary_action_per_screen"
+  - "project_context_always_visible"
+  - "role_based_navigation"
+  - "offline_state_always_visible"
+  - "sensitive_actions_never_hidden_behind_offline_success"
+  - "simple_french_and_icon_plus_label"
+
+shells:
+  public:
+    screens: [SCR001, SCR002, SCR003, SCR004, SCR005, SCR006, SCR007]
+  authenticated:
+    global_header: [project_switcher, connectivity_badge, sync_badge, notifications, profile]
+    mobile_pattern: "bottom_navigation_plus_context_menu"
+    desktop_pattern: "left_sidebar_plus_topbar"
+  platform_admin:
+    separation: "separate_admin_shell"
+
+role_homes:
+  OWNER:
+    home: SCR010
+    mobile_primary:
+      - {slot: 1, label: "Accueil", target: SCR010}
+      - {slot: 2, label: "Chantiers", target: SCR014}
+      - {slot: 3, label: "Décisions", target: SCR038}
+      - {slot: 4, label: "Notifications", target: SCR012}
+      - {slot: 5, label: "Plus", target: MENU_OWNER}
+    more: [SCR046, SCR048, SCR051, SCR053, SCR055, SCR013]
+  CONTRACTOR:
+    home: SCR011
+    mobile_primary:
+      - {slot: 1, label: "Accueil", target: SCR011}
+      - {slot: 2, label: "Chantiers", target: SCR014}
+      - {slot: 3, label: "Ajouter", target: ACTION_ADD}
+      - {slot: 4, label: "Notifications", target: SCR012}
+      - {slot: 5, label: "Plus", target: MENU_CONTRACTOR}
+    add_actions: [SCR026, SCR030, SCR041, SCR043]
+    more: [SCR038, SCR046, SCR048, SCR051, SCR053, SCR055, SCR013]
+  SITE_MANAGER:
+    home: SCR009
+    mobile_primary:
+      - {slot: 1, label: "Aujourd'hui", target: SCR009}
+      - {slot: 2, label: "Journal", target: SCR025}
+      - {slot: 3, label: "Ajouter", target: ACTION_ADD}
+      - {slot: 4, label: "Envois", target: SCR057}
+      - {slot: 5, label: "Plus", target: MENU_MANAGER}
+    add_actions: [SCR026, SCR030, SCR041]
+    more: [SCR021, SCR043, SCR046, SCR012, SCR013]
+  PLATFORM_ADMIN:
+    home: SCR060
+    desktop_primary: [SCR060, SCR061, SCR062, SCR063, SCR064]
+
+project_sections:
+  overview: [SCR019, SCR020, SCR021, SCR022, SCR023]
+  progress: [SCR024, SCR025, SCR026, SCR027, SCR028, SCR029, SCR030, SCR031]
+  finance: [SCR032, SCR033, SCR034, SCR035, SCR036, SCR037, SCR038, SCR039, SCR040]
+  collaboration: [SCR041, SCR042, SCR043, SCR044, SCR045, SCR046, SCR047]
+  evidence_and_reports: [SCR048, SCR049, SCR050, SCR051, SCR052]
+  administration: [SCR053, SCR054, SCR055, SCR056]
+
+responsive_rules:
+  mobile: "single_column; sticky_primary_action_when_safe; bottom_navigation"
+  tablet: "single_or_two_columns; contextual_drawer"
+  desktop: "sidebar; content; optional_context_panel"
+  destructive_or_sensitive: "dedicated_confirmation_screen_or_modal_with_explicit_summary"
+
+offline_contract:
+  visible_on_all_authenticated_screens: [connectivity_badge, pending_count]
+  local_write_screens: [SCR026, SCR030, SCR034, SCR041, SCR043]
+  online_only_screens: [SCR017, SCR028, SCR037, SCR039, SCR054, SCR059]
+  conflict_center: SCR058
+
+accessibility:
+  minimum_touch_target_px: 44
+  meaning_not_color_only: true
+  form_errors_near_field: true
+  destructive_confirmation_language: "short_and_explicit"
+  money_format: "FCFA_with_grouped_thousands"

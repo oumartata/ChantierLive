@@ -1,0 +1,26 @@
+version: "1.0"
+status: "roadmap_validated_design_pending"
+extensions:
+  - id: EXT_PLAN_LIBRARY
+    name: "Planothèque ChantierLive"
+    release:
+      v1: [catalogue, filters, plan_2d, pdf, fixed_3d_angles]
+      v2: [interactive_3d, floor_and_roof_toggle, architect_submission]
+      v3: [virtual_tour, assisted_recommendations]
+    safeguards:
+      - "plan validé par un professionnel identifié avant publication"
+      - "droits de diffusion documentés"
+      - "aucune certification automatique de constructibilité"
+      - "aperçus compressés; modèle interactif chargé à la demande"
+  - id: EXT_CONTRACTOR_SHOWCASE
+    name: "Vitrine des entrepreneurs"
+    release:
+      v1: [public_profile, specialties, service_area, approved_portfolio, quote_request]
+      v2: [confirmed_client_reviews, transparent_recommendations, comparison, document_checks]
+      v3: [full_marketplace, personalized_matching]
+    safeguards:
+      - "autorisation du propriétaire avant publication d'une réalisation"
+      - "adresse exacte et données personnelles masquées"
+      - "sponsorisé clairement indiqué"
+      - "classement expliqué; paiement sans influence cachée"
+      - "document fourni distinct de document contrôlé"

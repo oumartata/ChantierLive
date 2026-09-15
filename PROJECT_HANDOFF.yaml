@@ -1,0 +1,78 @@
+project: "ChantierLive"
+prepared_at: "2026-09-15"
+preparation_status: "COMPLETE_AND_VALIDATED"
+software_status: "IN_PROGRESS"
+current_lot: "L00/B001"
+pause_reason: "terminer FuturePro et ArchivaPro avant d'ouvrir un troisième chantier de développement (exception D075: démarrage progressif de L00/B001 autorisé par le fondateur le 15/09/2026 pendant la pause)"
+
+validated_phases:
+  - "Phase 0 - cadrage"
+  - "Phase 1 v2.1 - étude et stratégie"
+  - "Phase 2A - objectifs, rôles et permissions"
+  - "Phase 2B - exigences et règles métier"
+  - "Phase 2C - parcours, états et cas limites"
+  - "Phase 3A - architecture de l'information"
+  - "Phase 3B - wireframes et composants UX"
+  - "Phase 3C - écrans critiques et contenus"
+  - "Phase 4A - identité visuelle"
+  - "Phase 4B - UI kit responsive"
+  - "Phase 4C - maquettes haute fidélité"
+  - "Phase 4D - prototype cliquable"
+  - "Phase 5A - architecture technique"
+  - "Phase 5B - modèle de données et RLS"
+  - "Phase 5C - API et synchronisation"
+  - "Phase 6A - plan d'implémentation"
+  - "Phase 6B - tests, sécurité et lancement"
+
+sources_of_truth:
+  state: "PROJECT_STATE.yaml"
+  decisions: "DECISIONS.yaml"
+  index: "README.md"
+  scope: "REQUIREMENTS_SCOPE.yaml"
+  requirements: [FUNCTIONAL_REQUIREMENTS.csv, BUSINESS_RULES.csv, NON_FUNCTIONAL_REQUIREMENTS.csv]
+  design: [HIGH_FIDELITY_SCREENS.yaml, CHANTIERLIVE_MAQUETTES_4C.pdf, CHANTIERLIVE_PROTOTYPE_4D.html]
+  architecture: [TECH_ARCHITECTURE.yaml, DATA_MODEL.yaml, API_CONTRACTS.csv, SYNC_PROTOCOL.yaml]
+  execution: [IMPLEMENTATION_PLAN.yaml, MVP_BACKLOG.csv, MIGRATION_ORDER.csv, DELIVERY_GATES.csv]
+  quality: [TEST_STRATEGY.yaml, TEST_CATALOG.csv, SECURITY_RELEASE_CHECKLIST.csv, LAUNCH_GATES.csv]
+
+validated_scope:
+  platform: "une seule PWA responsive; mêmes comptes, données, serveur et code sur mobile et ordinateur"
+  stack: "Next.js TypeScript + Supabase PostgreSQL/Auth/Storage + IndexedDB"
+  market: "Mali d'abord: Bamako et Kati; diaspora malienne"
+  roles: [OWNER, CONTRACTOR, SITE_MANAGER, PLATFORM_ADMIN]
+  money: "traçabilité déclarative uniquement; aucune détention ni transfert"
+  corrections: "historique visible; finance validée corrigée par nouvelle version ou contre-écriture"
+
+not_executed:
+  software_development: "0 %"
+  database_migrations: "aucune déployée"
+  automated_tests: "NOT_RUN"
+  human_tests: "NOT_RUN"
+  alpha_beta: "non démarrées"
+
+restart_preconditions:
+  - "FuturePro terminé ou stabilisé par décision explicite"
+  - "ArchivaPro terminé ou stabilisé par décision explicite"
+  - "temps disponible du fondateur mesuré"
+  - "nouveau dépôt ChantierLive séparé"
+
+restart_sequence:
+  - "lire README.md, PROJECT_STATE.yaml, DECISIONS.yaml et ce fichier"
+  - "vérifier que les préconditions sont satisfaites"
+  - "ouvrir IMPLEMENTATION_PLAN.yaml et MVP_BACKLOG.csv"
+  - "commencer uniquement L00 / B001: dépôt Next.js TypeScript séparé"
+  - "valider chaque porte DELIVERY_GATES.csv avant le lot suivant"
+  - "mettre à jour TEST_CATALOG.csv uniquement avec preuves réelles"
+
+open_before_beta:
+  - "fournisseur et coût OTP SMS au Mali"
+  - "éligibilité PayDunya ou autre agrégateur"
+  - "région d'hébergement et transferts internationaux"
+  - "formalités APDP, CGU et politique de confidentialité"
+
+open_before_commercialization:
+  - "vérification OAPI et disponibilité officielle de ChantierLive"
+  - "prix final basé sur paiements et refus réels"
+  - "sauvegarde et restauration réellement démontrées"
+
+next_authorized_action: "poursuivre uniquement le lot L00/B001 (socle technique); ne démarrer aucun autre lot sans nouvelle instruction explicite du fondateur; FuturePro et ArchivaPro restent des projets séparés"

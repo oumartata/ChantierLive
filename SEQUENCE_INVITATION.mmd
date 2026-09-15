@@ -1,0 +1,15 @@
+sequenceDiagram
+  participant A as Invitant
+  participant S as Serveur
+  participant B as Invité
+  A->>S: Crée invitation ciblée
+  S-->>A: Lien à usage unique
+  B->>S: Ouvre et se connecte
+  S->>S: Vérifie cible, délai, rôle et quota
+  alt Invitation valable
+    B->>S: Accepte
+    S->>S: Crée adhésion et consomme le jeton
+    S-->>B: Accès au chantier
+  else Invitation invalide
+    S-->>B: Refus explicite sans données privées
+  end

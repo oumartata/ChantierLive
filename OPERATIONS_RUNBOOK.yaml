@@ -1,0 +1,64 @@
+phase: "6B"
+status: "DESIGN_NOT_DEPLOYED"
+
+ownership:
+  product_and_technical: "fondateur"
+  support_pilot: "fondateur"
+  legal_privacy: "juriste local à désigner"
+  provider_contacts: "à renseigner avant Alpha"
+
+severity:
+  P0: "exposition de données, perte financière logique, indisponibilité générale, corruption"
+  P1: "fonction critique bloquée pour plusieurs utilisateurs"
+  P2: "fonction secondaire dégradée avec contournement"
+  P3: "défaut mineur ou cosmétique"
+
+response_targets_not_sla:
+  P0: {acknowledge: "30 min pendant période pilote surveillée", containment: "2 h cible"}
+  P1: {acknowledge: "4 h ouvrées", plan: "1 jour ouvré"}
+  P2: {acknowledge: "2 jours ouvrés", plan: "prochain lot"}
+
+incident_steps:
+  - "enregistrer identifiant, heure serveur, impact et déclarant"
+  - "protéger les personnes: suspendre fonction ou accès concerné"
+  - "préserver logs et audit sans collecter plus de données"
+  - "identifier chantier(s), version et opérations touchées"
+  - "restaurer ou corriger par mécanisme non destructif"
+  - "informer les utilisateurs concernés avec faits confirmés"
+  - "documenter cause, correction, tests et prévention"
+
+backup_targets:
+  database_rpo: "24 h maximum au pilote"
+  media_rpo: "24 h maximum au pilote"
+  pilot_rto: "8 h ouvrées cible, pas une garantie contractuelle"
+  database: "sauvegarde quotidienne + export logique hebdomadaire chiffré"
+  storage: "inventaire quotidien + copie selon solution retenue"
+  configuration: "migrations, politiques et variables non secrètes versionnées"
+  restore_test: "avant Alpha, avant Bêta, puis mensuel pendant pilote"
+
+restore_procedure:
+  - "geler les écritures si intégrité menacée"
+  - "conserver un instantané de l'état défaillant"
+  - "restaurer d'abord dans staging isolé"
+  - "vérifier comptes, adhésions, versions, audit, totaux et médias"
+  - "exécuter les tests RLS croisés"
+  - "obtenir validation du responsable"
+  - "restaurer ou appliquer correction contrôlée en production"
+  - "communiquer résultat et données éventuellement perdues"
+
+monitoring:
+  technical: [availability, API_errors, latency, database_connections, storage_failures, email_failures]
+  integrity: [sync_conflicts, duplicate_attempts, rejected_sensitive_actions, audit_write_failures]
+  product: [invitation_completion, first_update_time, successful_sync, report_generation]
+  privacy: "aucun contenu privé dans métriques ou logs"
+
+maintenance:
+  dependency_review: "mensuel et avant chaque release"
+  access_review: "hebdomadaire pendant Alpha; mensuel ensuite"
+  backup_review: "quotidien automatisé; vérification humaine hebdomadaire"
+  support_grants_review: "quotidien; expiration automatique"
+  retention_review: "avant Bêta avec juriste"
+
+communication:
+  channels: [notification_in_app, e_mail_vérifié, WhatsApp_manuel_si_nécessaire]
+  prohibited: ["promesse de preuve incontestable", "diagnostic non confirmé", "données d'un autre chantier"]

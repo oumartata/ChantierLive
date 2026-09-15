@@ -1,0 +1,36 @@
+version: "4D.1"
+status: "prototype_ready_human_tests_pending"
+prototype: "CHANTIERLIVE_PROTOTYPE_4D.html"
+product_rule: "Un seul prototype PWA; mobile et ordinateur sont deux affichages responsive, pas deux applications."
+internal_checks:
+  completed: 10
+  passed: 10
+  checks:
+    - "12 écrans accessibles depuis le sélecteur"
+    - "bascule mobile et ordinateur"
+    - "connexion vers accueil propriétaire"
+    - "invitation vers accueil propriétaire"
+    - "accueil propriétaire vers décision"
+    - "accueil entrepreneur vers dépense"
+    - "accueil terrain vers journal"
+    - "sauvegarde locale visible"
+    - "comparaison de conflit sans écrasement"
+    - "invitation d'un participant simulée"
+human_tests:
+  participants:
+    site_managers: 3
+    remote_owners: 2
+  conditions: ["Android modeste", "ordinateur", "connexion correcte", "connexion faible"]
+  pass_thresholds:
+    task_success_percent: 80
+    critical_error_count: 0
+    journal_completion_minutes: 3
+    invitation_comprehension_percent: 100
+    finance_disclaimer_comprehension_percent: 100
+  rule: "Aucun résultat humain ne sera indiqué avant un test réel."
+critical_paths:
+  - [connexion, accueil_proprietaire, decision]
+  - [invitation, accueil_proprietaire]
+  - [accueil_entrepreneur, nouvelle_depense, decision]
+  - [accueil_terrain, journal, synchronisation]
+  - [synchronisation, comparaison_conflit]

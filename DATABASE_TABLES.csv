@@ -1,0 +1,44 @@
+id,table_name,domain,purpose,tenant_key,write_pattern,main_relations
+T001,profiles,identity,"Profil public minimal lié à Auth",none,"update contrôlé",auth.users
+T002,profile_identifiers,identity,"E-mail/téléphone normalisés et état de vérification",none,"serveur uniquement",profiles
+T003,organizations,organization,"Organisation personnelle ou entreprise d'un entrepreneur",organization_id,"archive logique",profiles
+T004,organization_memberships,organization,"Membres et rôle interne d'organisation",organization_id,"révocation logique",organizations;profiles
+T005,projects,tenancy,"Identité, statut et informations principales du chantier",project_id,"révision serveur + archive",organizations;profiles
+T006,project_memberships,tenancy,"Accès et rôle d'une personne dans un chantier",project_id,"activation/révocation par transaction",projects;profiles
+T007,membership_permissions,tenancy,"Délégations explicites et révocables",project_id,"événements datés",project_memberships
+T008,invitations,access,"Invitation bidirectionnelle, cible, rôle, expiration et jeton haché",project_id,"états irréversibles",projects;profiles
+T009,role_transfers,access,"Transfert sécurisé d'un rôle principal",project_id,"workflow append-only",project_memberships
+T010,support_access_grants,access,"Accès support exceptionnel limité et expirant",project_id,"append-only + révocation",projects;profiles
+T011,phase_templates,construction,"Modèles simples de phases",none,"versionnement administratif",phase_template_items
+T012,phase_template_items,construction,"Étapes ordonnées d'un modèle",none,"versionnement administratif",phase_templates
+T013,project_phases,construction,"Identité et ordre d'une phase du chantier",project_id,"pointeur de version + état",projects;phase_versions
+T014,phase_versions,construction,"Contenu et corrections successives d'une phase",project_id,"append-only",project_phases
+T015,daily_logs,construction,"Identité d'un journal quotidien",project_id,"pointeur de version + état",projects;daily_log_versions
+T016,daily_log_versions,construction,"Versions publiées du journal",project_id,"append-only",daily_logs;project_phases
+T017,comments,evidence,"Commentaires attribués sur objets autorisés",project_id,"append-only + modération visible",profiles
+T018,media_assets,evidence,"Métadonnées du fichier, origine, empreinte et stockage",project_id,"immuable après publication",projects;profiles
+T019,media_links,evidence,"Association d'un média à une version ou un objet",project_id,"append-only",media_assets
+T020,documents,evidence,"Identité, type et visibilité d'un document",project_id,"pointeur de version + archive",projects;document_versions
+T021,document_versions,evidence,"Fichiers et métadonnées des versions documentaires",project_id,"append-only",documents;media_assets
+T022,budgets,finance,"Identité du budget courant du chantier",project_id,"pointeur de version",projects;budget_versions
+T023,budget_versions,finance,"Montants successifs du budget avec motif",project_id,"append-only",budgets
+T024,expense_categories,finance,"Catégories système et propres au chantier",project_id,"archive logique",projects
+T025,expenses,finance,"Identité et état d'une dépense",project_id,"pointeur de version + état",projects;expense_versions
+T026,expense_versions,finance,"Montant, date, fournisseur et correction d'une dépense",project_id,"append-only",expenses;expense_categories
+T027,receipts,finance,"Justificatif lié à une version de dépense",project_id,"append-only + retrait visible",expense_versions;media_assets
+T028,advances,finance,"Déclaration initiale d'acompte et récepteur attendu",project_id,"immuable après déclaration",projects;profiles
+T029,advance_events,finance,"Réception, contestation, annulation et motifs",project_id,"append-only",advances;profiles
+T030,approval_requests,workflow,"Demande visant une version précise",project_id,"append-only + état dérivé",profiles
+T031,approval_decisions,workflow,"Décision irréversible sur une demande",project_id,"append-only",approval_requests;profiles
+T032,incidents,workflow,"Identité, gravité et responsable d'un incident",project_id,"révision serveur",projects;profiles
+T033,incident_events,workflow,"Changements, résolution et clôture",project_id,"append-only",incidents;profiles
+T034,project_licenses,service,"Période, statut, offre et payeur de la licence",project_id,"états contrôlés",projects
+T035,license_payments,service,"Déclaration et vérification manuelle du paiement",project_id,"append-only",project_licenses;profiles
+T036,notifications,service,"Notifications internes minimisées",project_id,"append-only + lecture",profiles
+T037,notification_preferences,service,"Préférences par canal et événement",none,"upsert utilisateur",profiles
+T038,report_exports,service,"Instantané, périmètre et fichier du rapport",project_id,"append-only",projects;media_assets
+T039,share_links,service,"Lien privé expirant et révocable",project_id,"append-only + révocation",report_exports;profiles
+T040,sync_operations,integrity,"Idempotence et résultat des opérations hors ligne",project_id,"insert unique + résultat serveur",profiles
+T041,sync_conflicts,integrity,"Conflit de révision et résolution choisie",project_id,"append-only",sync_operations
+T042,audit_events,integrity,"Acteur, action, cible, résultat et heure serveur",project_id,"append-only serveur",profiles
+T043,duplicate_candidates,integrity,"Doublons probables et décision de rapprochement",project_id,"workflow sans fusion automatique",projects

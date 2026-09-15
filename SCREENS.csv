@@ -1,0 +1,65 @@
+id,module,name,route,roles,entry,offline,priority,refs
+SCR001,public,Accueil public,/,PUBLIC,direct,READ_CACHE,P0,FR001
+SCR002,auth,Connexion,/connexion,PUBLIC,direct,NO,P0,FR002|FR003
+SCR003,auth,Créer un compte,/inscription,PUBLIC,direct,NO,P0,FR002|FR003|FR004
+SCR004,auth,Vérifier un identifiant,/verification,AUTHENTICATED,redirect,NO,P0,FR005|FR006
+SCR005,auth,Accepter une invitation,/invitation/:token,PUBLIC|AUTHENTICATED,deep_link,NO,P0,FR027|FR028|FR031|FR033
+SCR006,auth,Mot de passe oublié,/mot-de-passe-oublie,PUBLIC,direct,NO,P0,FR009
+SCR007,legal,Conditions et confidentialité,/legal,PUBLIC|AUTHENTICATED,direct,READ_CACHE,P0,FR012
+SCR008,onboarding,Choisir mon profil initial,/bienvenue,AUTHENTICATED,first_login,NO,P0,FR014|FR015
+SCR009,dashboard,Aujourd'hui terrain,/aujourdhui,SITE_MANAGER,home,READ_WRITE_QUEUE,P0,FR115|FR125|FR126
+SCR010,dashboard,Tableau de bord propriétaire,/accueil,OWNER,home,READ_CACHE,P0,FR113|FR116|FR117|FR118
+SCR011,dashboard,Portefeuille entrepreneur,/accueil,CONTRACTOR,home,READ_CACHE,P0,FR114|FR116|FR117
+SCR012,notifications,Notifications,/notifications,OWNER|CONTRACTOR|SITE_MANAGER,primary_nav,READ_CACHE,P0,FR130|FR131|FR132
+SCR013,account,Profil et sécurité,/profil,OWNER|CONTRACTOR|SITE_MANAGER,more_menu,READ_CACHE,P0,FR007|FR008|FR010|FR011
+SCR014,project,Liste des chantiers,/chantiers,OWNER|CONTRACTOR|SITE_MANAGER,primary_nav,READ_CACHE,P0,FR019|FR020|FR021
+SCR015,project,Créer un chantier,/chantiers/nouveau,OWNER|CONTRACTOR,action,WRITE_DRAFT,P0,FR017|FR018|FR022
+SCR016,project,Chantier similaire détecté,/chantiers/rapprochement,OWNER|CONTRACTOR,redirect,NO,P0,FR023|FR024|FR025
+SCR017,invitation,Inviter un rôle principal,/chantiers/:projectId/inviter-principal,OWNER_PRIMARY|CONTRACTOR,action,NO,P0,FR027|FR028|FR031|FR032
+SCR018,invitation,Invitations en attente,/chantiers/:projectId/invitations,OWNER_PRIMARY|CONTRACTOR,project_menu,READ_CACHE,P0,FR031|FR034|FR035|FR036
+SCR019,project,Vue d'ensemble du chantier,/chantiers/:projectId,OWNER|CONTRACTOR|SITE_MANAGER,project_home,READ_CACHE,P0,FR020|FR021|FR113|FR114|FR115
+SCR020,project,Informations du chantier,/chantiers/:projectId/informations,OWNER|CONTRACTOR|SITE_MANAGER,project_menu,READ_CACHE,P0,FR018|FR022
+SCR021,phase,Phases du chantier,/chantiers/:projectId/phases,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR042|FR043|FR044|FR050
+SCR022,membership,Participants,/chantiers/:projectId/participants,OWNER|CONTRACTOR|SITE_MANAGER,project_menu,READ_CACHE,P0,FR029|FR030|FR037|FR040
+SCR023,project,Modifier le chantier,/chantiers/:projectId/modifier,OWNER_PRIMARY|CONTRACTOR,project_menu,WRITE_DRAFT,P0,FR022|FR026
+SCR024,phase,Créer ou préparer les phases,/chantiers/:projectId/phases/preparer,OWNER_PRIMARY|CONTRACTOR,action,WRITE_DRAFT,P0,FR042|FR043|FR045
+SCR025,journal,Liste des journaux,/chantiers/:projectId/journaux,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR051|FR055|FR059
+SCR026,journal,Nouveau journal quotidien,/chantiers/:projectId/journaux/nouveau,CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR052|FR053|FR054|FR056|FR057
+SCR027,journal,Détail et versions du journal,/chantiers/:projectId/journaux/:journalId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR055|FR058|FR059
+SCR028,phase,Valider une phase,/chantiers/:projectId/phases/:phaseId/decision,OWNER_PRIMARY|OWNER_CO,action,NO,P0,FR048|FR049|FR050
+SCR029,phase,Détail d'une phase,/chantiers/:projectId/phases/:phaseId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR044|FR046|FR047|FR048
+SCR030,media,Ajouter des photos,/chantiers/:projectId/photos/ajouter,CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR060|FR061|FR062|FR063|FR064|FR065
+SCR031,media,Galerie du chantier,/chantiers/:projectId/photos,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR066|FR067|FR068
+SCR032,finance,Synthèse financière,/chantiers/:projectId/finances,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR069|FR081|FR082|FR083
+SCR033,finance,Budget et versions,/chantiers/:projectId/finances/budget,OWNER|CONTRACTOR,finance_menu,READ_CACHE,P0,FR069|FR070
+SCR034,finance,Nouvelle dépense,/chantiers/:projectId/depenses/nouvelle,OWNER_PRIMARY|CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR071|FR072|FR073|FR074
+SCR035,finance,Liste des dépenses,/chantiers/:projectId/depenses,OWNER|CONTRACTOR|SITE_MANAGER,finance_menu,READ_CACHE,P0,FR075|FR080|FR081
+SCR036,finance,Détail et versions d'une dépense,/chantiers/:projectId/depenses/:expenseId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR075|FR076|FR078|FR079
+SCR037,finance,Décider sur une dépense,/chantiers/:projectId/depenses/:expenseId/decision,OWNER_PRIMARY|OWNER_CO,action,NO,P0,FR076|FR077
+SCR038,approval,Demandes de décision,/decisions,OWNER|CONTRACTOR|SITE_MANAGER,primary_or_more,READ_CACHE,P0,FR092|FR093|FR099|FR100
+SCR039,approval,Prendre une décision,/decisions/:approvalId,OWNER_PRIMARY|OWNER_CO,notification_link,NO,P0,FR094|FR095|FR096
+SCR040,advance,Acomptes déclarés,/chantiers/:projectId/acomptes,OWNER|CONTRACTOR,finance_menu,READ_CACHE,P0,FR084|FR089|FR090|FR091
+SCR041,incident,Nouvel incident,/chantiers/:projectId/incidents/nouveau,OWNER|CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR101|FR102|FR103
+SCR042,incident,Incidents,/chantiers/:projectId/incidents,OWNER|CONTRACTOR|SITE_MANAGER,project_menu,READ_CACHE,P0,FR104|FR105|FR106
+SCR043,document,Ajouter un document,/chantiers/:projectId/documents/ajouter,OWNER|CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR107|FR108|FR109
+SCR044,document,Documents,/chantiers/:projectId/documents,OWNER|CONTRACTOR|SITE_MANAGER,project_menu,READ_CACHE,P0,FR110|FR111|FR112
+SCR045,membership,Inviter un participant,/chantiers/:projectId/participants/inviter,OWNER_PRIMARY|CONTRACTOR,action,NO,P0,FR029|FR030|FR031
+SCR046,report,Rapports,/chantiers/:projectId/rapports,OWNER|CONTRACTOR|SITE_MANAGER,more_menu,READ_CACHE,P0,FR135|FR136|FR137
+SCR047,report,Aperçu et partage du rapport,/chantiers/:projectId/rapports/:reportId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR138|FR139|FR140
+SCR048,audit,Historique du chantier,/chantiers/:projectId/historique,OWNER_PRIMARY|OWNER_CO|CONTRACTOR,more_menu,READ_CACHE,P0,FR149|FR150|FR151|FR152
+SCR049,audit,Détail d'un événement,/chantiers/:projectId/historique/:eventId,OWNER_PRIMARY|OWNER_CO|CONTRACTOR,list_item,READ_CACHE,P0,FR150|FR151
+SCR050,media,Détail et origine d'une photo,/chantiers/:projectId/photos/:mediaId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR063|FR064|FR065|FR067
+SCR051,license,Licence du chantier,/chantiers/:projectId/licence,OWNER|CONTRACTOR|SITE_MANAGER,more_menu,READ_CACHE,P0,FR141|FR144|FR145|FR146
+SCR052,license,Déclarer un paiement de licence,/chantiers/:projectId/licence/paiement,OWNER|CONTRACTOR,action,NO,P0,FR141|FR142
+SCR053,project,Paramètres du chantier,/chantiers/:projectId/parametres,OWNER_PRIMARY|CONTRACTOR,more_menu,READ_CACHE,P0,FR026|FR147|FR148
+SCR054,membership,Transférer un rôle principal,/chantiers/:projectId/transfert,OWNER_PRIMARY|CONTRACTOR,project_settings,NO,P0,FR038|FR039
+SCR055,support,Aide et demande de support,/aide,OWNER|CONTRACTOR|SITE_MANAGER,more_menu,READ_CACHE,P0,FR153|FR154
+SCR056,organization,Espace professionnel,/organisation,CONTRACTOR,more_menu,READ_CACHE,P0,FR014|FR016|FR114
+SCR057,sync,File de synchronisation,/synchronisation,OWNER|CONTRACTOR|SITE_MANAGER,global_badge,READ_CACHE,P0,FR125|FR126|FR127|FR128
+SCR058,sync,Résoudre un conflit,/synchronisation/:operationId,OWNER|CONTRACTOR|SITE_MANAGER,sync_item,READ_CACHE,P0,FR128|FR129
+SCR059,account,Confirmation d'action sensible,/confirmation-securisee,OWNER_PRIMARY|OWNER_CO|CONTRACTOR,redirect,NO,P0,FR010|FR011
+SCR060,admin,Tableau de bord plateforme,/admin,PLATFORM_ADMIN,home,NO,P0,FR155|FR156
+SCR061,admin,Comptes et organisations,/admin/comptes,PLATFORM_ADMIN,admin_nav,NO,P0,FR155|FR158
+SCR062,admin,Licences à vérifier,/admin/licences,PLATFORM_ADMIN,admin_nav,NO,P0,FR143|FR156
+SCR063,admin,Tickets de support,/admin/support,PLATFORM_ADMIN,admin_nav,NO,P0,FR153|FR154
+SCR064,admin,Accès exceptionnel,/admin/support/:ticketId/acces,PLATFORM_ADMIN,admin_action,NO,P0,FR157|FR159|FR160

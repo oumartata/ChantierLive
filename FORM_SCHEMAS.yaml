@@ -1,0 +1,146 @@
+version: "3C.1"
+defaults:
+  autosave: "draft_forms_only"
+  validation_timing: "on_blur_then_on_submit"
+  required_marker: "text_plus_symbol"
+  preserve_on_error: true
+
+forms:
+  project_create:
+    screen: SCR015
+    fields:
+      - {id: creator_role, type: choice, required: true, values: [OWNER, CONTRACTOR]}
+      - {id: project_name, type: text, required: true, min: 3, max: 80}
+      - {id: locality, type: text, required: true, max: 100}
+      - {id: address_details, type: textarea, required: false, max: 300}
+      - {id: description, type: textarea, required: false, max: 500}
+    submit: SAVE_DRAFT
+  invitation_create:
+    screen: SCR017
+    fields:
+      - {id: invited_role, type: locked_role, required: true}
+      - {id: channel, type: choice, required: true, values: [WHATSAPP_LINK, PHONE, EMAIL]}
+      - {id: target_identifier, type: phone_or_email, required_if: "channel!=WHATSAPP_LINK"}
+      - {id: expiry_days, type: choice, required: true, values: [2, 7, 14], default: 7}
+    submit: CREATE_ONLINE
+  phase_plan:
+    screen: SCR024
+    fields:
+      - {id: template, type: choice, required: true}
+      - {id: phases, type: ordered_collection, required: true, min_items: 1}
+      - {id: phase_name, type: text, required: true, max: 80}
+      - {id: planned_start, type: date, required: false}
+      - {id: planned_end, type: date, required: false, rule: ">=planned_start"}
+    submit: SAVE_DRAFT_OR_PUBLISH_ONLINE
+  daily_journal:
+    screen: SCR026
+    fields:
+      - {id: work_date, type: date, required: true, future_allowed: false}
+      - {id: phase_id, type: relation, required: true}
+      - {id: work_done, type: textarea, required: true, min: 5, max: 2000}
+      - {id: workforce_count, type: integer, required: false, min: 0, max: 999}
+      - {id: observations, type: textarea, required: false, max: 1500}
+      - {id: media_ids, type: attachments, required: false, max_items: 20}
+    submit: SAVE_LOCAL_OR_PUBLISH
+  media_add:
+    screen: SCR030
+    fields:
+      - {id: source, type: choice, required: true, values: [CAPTURE, IMPORT]}
+      - {id: files, type: image_collection, required: true, max_items: 20}
+      - {id: phase_id, type: relation, required: false}
+      - {id: caption, type: text, required: false, max: 200}
+      - {id: geolocation_consent, type: consent, required_if: "source=CAPTURE_and_location_requested"}
+    submit: COMPRESS_AND_QUEUE
+  initial_budget:
+    screen: SCR033
+    fields:
+      - {id: amount_fcfa, type: money, required: true, min: 1}
+      - {id: effective_date, type: date, required: true}
+      - {id: note, type: textarea, required: false, max: 500}
+    submit: SAVE_VERSION
+  expense:
+    screen: SCR034
+    fields:
+      - {id: amount_fcfa, type: money, required: true, min: 1}
+      - {id: expense_date, type: date, required: true, future_allowed: false}
+      - {id: category, type: choice, required: true}
+      - {id: supplier, type: text, required: false, max: 120}
+      - {id: phase_id, type: relation, required: false}
+      - {id: description, type: textarea, required: true, min: 3, max: 1000}
+      - {id: receipt, type: attachment, required: false, absence_reason_if_missing: true}
+    submit: SAVE_LOCAL_DRAFT_OR_PUBLISH_ONLINE
+  decision:
+    screens: [SCR028, SCR037, SCR039]
+    fields:
+      - {id: object_version, type: hidden_revision, required: true}
+      - {id: decision, type: choice, required: true, values: [APPROVE, REJECT, REQUEST_INFO]}
+      - {id: reason, type: textarea, required_if: "decision!=APPROVE", min: 3, max: 1000}
+      - {id: confirmation, type: explicit_checkbox, required: true}
+    submit: ONLINE_IMMUTABLE_DECISION
+  advance_declaration:
+    screen: SCR040
+    fields:
+      - {id: amount_fcfa, type: money, required: true, min: 1}
+      - {id: external_payment_date, type: date, required: true, future_allowed: false}
+      - {id: mode, type: choice, required: true, values: [ORANGE_MONEY, MOOV_MONEY, CASH, BANK, OTHER]}
+      - {id: declarant, type: current_user, required: true}
+      - {id: receiver, type: active_principal_party, required: true}
+      - {id: external_reference, type: text, required: false, max: 120}
+      - {id: receipt, type: attachment, required: false}
+      - {id: disclaimer_ack, type: checkbox, required: true}
+    submit: DECLARE_ONLY
+  incident:
+    screen: SCR041
+    fields:
+      - {id: incident_type, type: choice, required: true}
+      - {id: severity, type: choice, required: true, values: [LOW, MEDIUM, HIGH]}
+      - {id: occurred_at, type: datetime, required: true, future_allowed: false}
+      - {id: description, type: textarea, required: true, min: 5, max: 2000}
+      - {id: media_ids, type: attachments, required: false, max_items: 10}
+      - {id: assigned_to, type: active_member, required: false}
+    submit: SAVE_LOCAL_OR_PUBLISH
+  document:
+    screen: SCR043
+    fields:
+      - {id: file, type: attachment, required: true, max_items: 1}
+      - {id: document_type, type: choice, required: true}
+      - {id: title, type: text, required: true, min: 3, max: 120}
+      - {id: visibility, type: choice, required: true, values: [ALL_PROJECT, PRINCIPALS_ONLY]}
+      - {id: description, type: textarea, required: false, max: 500}
+    submit: SAVE_DRAFT_THEN_UPLOAD
+  license_payment:
+    screen: SCR052
+    fields:
+      - {id: formula, type: locked_choice, required: true}
+      - {id: payer_name, type: text, required: true, max: 120}
+      - {id: operator, type: choice, required: true, values: [ORANGE_MONEY, MOOV_MONEY, OTHER]}
+      - {id: payment_reference, type: text, required: true, min: 4, max: 120}
+      - {id: payment_date, type: date, required: true, future_allowed: false}
+      - {id: receipt, type: attachment, required: true, max_items: 1}
+    submit: SUBMIT_FOR_MANUAL_REVIEW
+  role_transfer:
+    screen: SCR054
+    fields:
+      - {id: role, type: locked_role, required: true}
+      - {id: recipient, type: verified_active_member, required: true}
+      - {id: consequence_ack, type: explicit_checkbox, required: true}
+      - {id: reverification, type: sensitive_auth, required: true}
+      - {id: final_confirmation, type: typed_or_second_step, required: true}
+    submit: ONLINE_ATOMIC_TRANSFER
+  conflict_resolution:
+    screen: SCR058
+    fields:
+      - {id: operation_id, type: hidden_uuid, required: true}
+      - {id: resolution, type: choice, required: true, values: [CREATE_NEW_VERSION, DISCARD_LOCAL]}
+      - {id: reason, type: textarea, required_if: "financial_or_published", min: 3, max: 500}
+      - {id: confirmation, type: explicit_checkbox, required: true}
+    submit: RESOLVE_WITH_AUDIT
+  break_glass:
+    screen: SCR064
+    fields:
+      - {id: ticket_id, type: relation, required: true}
+      - {id: scope, type: multi_choice, required: true, min_items: 1}
+      - {id: reason, type: textarea, required: true, min: 10, max: 1000}
+      - {id: duration_minutes, type: choice, required: true, values: [15, 30, 60]}
+      - {id: strong_auth, type: sensitive_auth, required: true}
+    submit: START_TIME_LIMITED_ACCESS

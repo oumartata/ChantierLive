@@ -1,0 +1,80 @@
+machines:
+  invitation:
+    initial: PENDING
+    terminal: [ACCEPTED, REFUSED, REVOKED, EXPIRED]
+    transitions:
+      - {from: PENDING, to: ACCEPTED, guard: "token_valid_and_target_allowed"}
+      - {from: PENDING, to: REFUSED, guard: "invitee_action"}
+      - {from: PENDING, to: REVOKED, guard: "authorized_sender"}
+      - {from: PENDING, to: EXPIRED, guard: "server_time_after_expiry"}
+  project:
+    initial: DRAFT
+    states: [DRAFT, ACTIVE, SUSPENDED, COMPLETED, ARCHIVED, READ_ONLY]
+    transitions:
+      - {from: DRAFT, to: ACTIVE, guard: "minimum_data_and_license_or_pilot"}
+      - {from: ACTIVE, to: SUSPENDED, guard: "authorized_reason"}
+      - {from: SUSPENDED, to: ACTIVE, guard: "suspension_resolved"}
+      - {from: ACTIVE, to: COMPLETED, guard: "authorized_confirmation"}
+      - {from: COMPLETED, to: ARCHIVED, guard: "authorized_confirmation"}
+      - {from: ACTIVE, to: READ_ONLY, guard: "license_grace_ended"}
+      - {from: READ_ONLY, to: ACTIVE, guard: "license_renewed"}
+  record:
+    applies_to: [journal, media, document]
+    initial: DRAFT
+    states: [DRAFT, PUBLISHED, SUPERSEDED, ARCHIVED]
+    transitions:
+      - {from: DRAFT, to: PUBLISHED, guard: "authorized_and_valid"}
+      - {from: PUBLISHED, to: SUPERSEDED, guard: "replacement_with_reason"}
+      - {from: PUBLISHED, to: ARCHIVED, guard: "authorized_archive"}
+  financial_record:
+    applies_to: [expense, budget_version]
+    initial: DRAFT
+    states: [DRAFT, PUBLISHED, APPROVED, REJECTED, DISPUTED, SUPERSEDED, CANCELLED]
+    rule: "APPROVED/REJECTED/DISPUTED are never edited in place"
+    transitions:
+      - {from: DRAFT, to: PUBLISHED, guard: "authorized_and_valid"}
+      - {from: PUBLISHED, to: APPROVED, guard: "authorized_owner_online_verified"}
+      - {from: PUBLISHED, to: REJECTED, guard: "authorized_owner_with_reason"}
+      - {from: [PUBLISHED, APPROVED], to: DISPUTED, guard: "authorized_party_with_reason"}
+      - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: SUPERSEDED, guard: "linked_replacement_created"}
+      - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: CANCELLED, guard: "linked_counter_entry_created"}
+  advance:
+    initial: DRAFT
+    states: [DRAFT, DECLARED, RECEIVED, DISPUTED, CANCELLED]
+    transitions:
+      - {from: DRAFT, to: DECLARED, guard: "authorized_declarant"}
+      - {from: DECLARED, to: RECEIVED, guard: "expected_recipient"}
+      - {from: DECLARED, to: DISPUTED, guard: "authorized_party_with_reason"}
+      - {from: RECEIVED, to: DISPUTED, guard: "authorized_party_with_reason"}
+      - {from: [DECLARED, RECEIVED, DISPUTED], to: CANCELLED, guard: "counter_entry_with_reason"}
+  approval:
+    initial: PENDING
+    terminal: [APPROVED, REJECTED, INFO_REQUESTED, CORRECTION_REQUESTED, CANCELLED]
+    rule: "reopen creates a new linked approval"
+  incident:
+    initial: OPEN
+    states: [OPEN, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED]
+    transitions:
+      - {from: OPEN, to: ASSIGNED, guard: "responsible_selected"}
+      - {from: [OPEN, ASSIGNED], to: IN_PROGRESS, guard: "authorized_update"}
+      - {from: IN_PROGRESS, to: RESOLVED, guard: "resolution_entered"}
+      - {from: RESOLVED, to: CLOSED, guard: "authorized_close"}
+  sync_item:
+    initial: QUEUED
+    states: [QUEUED, UPLOADING, SYNCED, FAILED, CONFLICT, CANCELLED]
+    transitions:
+      - {from: QUEUED, to: UPLOADING, guard: "network_and_retry_policy"}
+      - {from: UPLOADING, to: SYNCED, guard: "server_ack_same_uuid"}
+      - {from: UPLOADING, to: FAILED, guard: "retryable_or_permanent_error"}
+      - {from: UPLOADING, to: CONFLICT, guard: "stale_server_revision"}
+      - {from: FAILED, to: QUEUED, guard: "user_or_automatic_retry"}
+      - {from: CONFLICT, to: QUEUED, guard: "user_resolved_new_revision"}
+  license:
+    initial: PENDING
+    states: [PENDING, ACTIVE, EXPIRING, GRACE, READ_ONLY, CANCELLED]
+    transitions:
+      - {from: PENDING, to: ACTIVE, guard: "manual_payment_verified_or_pilot"}
+      - {from: ACTIVE, to: EXPIRING, guard: "reminder_window"}
+      - {from: [ACTIVE, EXPIRING], to: GRACE, guard: "expiry_reached"}
+      - {from: GRACE, to: READ_ONLY, guard: "30_days_elapsed"}
+      - {from: [EXPIRING, GRACE, READ_ONLY], to: ACTIVE, guard: "renewal_verified"}

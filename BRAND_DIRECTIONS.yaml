@@ -1,0 +1,51 @@
+version: "4A.1"
+status: "working_identity_pending_founder_validation_and_legal_checks"
+brand:
+  name: "ChantierLive"
+  descriptor: "Suivi de chantier à distance"
+  promise: "Votre chantier, visible et suivi où que vous soyez."
+  personality: [fiable, claire, accessible, professionnelle, rassurante]
+  prohibited_claims: ["preuve incontestable", "photo vérifiée", "zéro fraude", "meilleur entrepreneur absolu"]
+
+concept:
+  name: "Confiance visible"
+  idea: "Un cadre de bâtiment ouvert associé à un point d'activité; voir, suivre et décider sans promettre une preuve absolue."
+  mark_rules:
+    - "symbole simple utilisable à 24 px"
+    - "aucun détail architectural fin"
+    - "pas de carte d'Afrique ni de cliché culturel"
+    - "version monochrome obligatoire"
+
+palette:
+  primary: {name: "Vert chantier", hex: "#126B54", use: "marque, navigation, actions principales"}
+  primary_dark: {name: "Vert nuit", hex: "#0A4637", use: "texte accentué, états pressés"}
+  action: {name: "Orange action", hex: "#BF570F", use: "actions secondaires, attention non critique"}
+  sand: {name: "Sable clair", hex: "#F3EEE4", use: "fonds chauds et cartes"}
+  ink: {name: "Encre", hex: "#17211D", use: "texte principal"}
+  muted: {name: "Gris chantier", hex: "#65716B", use: "texte secondaire"}
+  surface: {name: "Blanc", hex: "#FFFFFF", use: "surfaces"}
+  danger: {name: "Rouge incident", hex: "#B42318", use: "refus, erreur, incident critique"}
+  success: {name: "Vert succès", hex: "#16794F", use: "validation et synchronisation réussie"}
+
+typography:
+  ui: "Inter, system-ui, sans-serif"
+  fallback_mobile: "Roboto, Arial, sans-serif"
+  weights: {regular: 400, medium: 500, semibold: 600, bold: 700}
+  minimum_body_px: 16
+  principles: ["phrases courtes", "chiffres financiers tabulaires", "actions de cinq mots maximum"]
+
+shape_and_iconography:
+  radius: {small: 8, medium: 12, large: 18}
+  icon_style: "contour simple 2 px, toujours accompagné d'un libellé"
+  photo_style: "chantiers réels, lumière naturelle, personnes africaines sans mise en scène trompeuse"
+
+accessibility:
+  - "contraste WCAG AA pour texte normal"
+  - "couleur jamais utilisée seule pour transmettre un statut"
+  - "zone tactile minimale 44 x 44 px"
+  - "état réseau et synchronisation toujours textuels"
+
+next_after_validation:
+  - "Phase 4B: composants haute fidélité"
+  - "Phase 4C: 12 écrans prioritaires mobile et desktop"
+  - "Phase 4D: prototype cliquable et test de compréhension"

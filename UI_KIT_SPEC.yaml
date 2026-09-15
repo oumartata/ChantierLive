@@ -1,0 +1,65 @@
+version: "4B.1"
+status: "pending_founder_validation"
+brand: "ChantierLive"
+targets: [mobile_360, tablet_768, desktop_1280]
+
+foundations:
+  grid: {base_px: 4, page_mobile: 16, page_tablet: 24, page_desktop: 32, content_max: 1200}
+  typography:
+    display: {size: 32, weight: 700}
+    h1: {size: 26, weight: 700}
+    h2: {size: 22, weight: 600}
+    h3: {size: 18, weight: 600}
+    body: {size: 16, weight: 400}
+    label: {size: 14, weight: 600}
+    caption: {size: 13, weight: 400}
+  elevation: {card: "0 1px 3px rgba(23,33,29,.10)", modal: "0 16px 40px rgba(23,33,29,.18)"}
+  motion: {micro_ms: 160, panel_ms: 220, reduced_motion: true}
+
+components:
+  button:
+    height: {regular: 48, compact: 40}
+    variants: [primary, secondary, ghost, danger]
+    states: [default, pressed, focused, disabled, loading]
+    rule: "une seule action primary dominante par vue"
+  text_field:
+    minimum_height: 48
+    states: [empty, filled, focused, error, disabled]
+    rules: ["libellé toujours visible", "erreur sous le champ", "taille texte 16 px"]
+  card:
+    variants: [project, metric, activity, decision, finance, media]
+    padding: {mobile: 16, desktop: 20}
+    radius: 12
+  status_chip:
+    variants: [neutral, info, attention, success, danger]
+    rule: "icône ou mot obligatoire; couleur seule interdite"
+  alert_banner:
+    variants: [information, warning, error, offline]
+    structure: [icon, title, explanation, optional_action]
+  navigation:
+    mobile: "barre basse, cinq destinations maximum"
+    desktop: "barre latérale 240 px, repliable à 72 px"
+    active_state: "fond vert pâle + libellé semibold"
+  connectivity:
+    variants: [online, unstable, offline]
+    always_visible: true
+  synchronization:
+    variants: [synced, pending, syncing, failed, conflict]
+    always_textual: true
+  money:
+    alignment: "droite avec chiffres tabulaires"
+    format: "1 250 000 F CFA"
+    confirmation_before_publish: true
+  evidence:
+    labels: ["Capturée dans l'application", "Photo importée"]
+    upload_states: [local, queued, sending, sent, failed]
+  modal:
+    mobile: "panneau depuis le bas"
+    desktop: "dialogue centré, largeur 520 px maximum"
+
+quality_gates:
+  - "WCAG AA pour tout texte essentiel"
+  - "touch target 44 x 44 px minimum"
+  - "aucune action sensible sans conséquence expliquée"
+  - "aucun brouillon perdu lors d'une erreur réseau"
+  - "tous les composants utilisables au clavier sur ordinateur"

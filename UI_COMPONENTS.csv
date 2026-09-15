@@ -1,0 +1,37 @@
+id,component,purpose,variants,used_by
+C001,AppShell,"Cadre responsive authentifié","owner|contractor|manager|admin",T03|T04|T05|T17
+C002,TopBar,"Contexte global et compte","mobile|desktop",T03|T04|T05|T06|T07|T08|T10|T11|T12|T13|T14|T15|T16
+C003,BottomNav,"Cinq destinations mobiles maximum","owner|contractor|manager",T03|T04|T05
+C004,SideNav,"Navigation bureau","business|admin",T03|T04|T05|T17
+C005,ProjectSwitcher,"Changer de chantier sans fuite de contexte","single|multiple",T03|T04|T05
+C006,ConnectivityBadge,"Afficher en ligne ou hors ligne","online|offline|unstable",T03|T04|T05|T08|T15
+C007,SyncBadge,"Nombre et état des opérations locales","idle|pending|failed|conflict",T03|T04|T05|T08|T15
+C008,StatusChip,"État textuel d'un objet","neutral|attention|success|blocked",T02|T06|T07|T10|T12|T14|T15|T17
+C009,PrimaryAction,"Action dominante de l'écran","button|floating_mobile",T01|T02|T03|T04|T05|T08|T09|T11|T13|T14
+C010,ContextHeader,"Titre et contexte chantier","compact|with_back",T06|T07|T08|T09|T10|T11|T12|T13|T14|T15|T16
+C011,ProjectCard,"Résumé d'un chantier","normal|alert|read_only",T04|T06
+C012,MetricCard,"Valeur métier avec libellé","progress|money|count",T03|T04|T10|T17
+C013,AlertBanner,"Message nécessitant attention","info|warning|error",T02|T03|T04|T05|T09|T14|T15
+C014,ActivityItem,"Événement récent attribué","journal|expense|decision|incident",T03|T04|T07
+C015,FilterBar,"Filtres simples et repliables","chips|sheet_mobile",T06|T10|T11|T17
+C016,EmptyState,"Expliquer l'absence et l'action suivante","first_use|filtered|permission",T06|T10|T11|T12|T13|T15
+C017,FormSection,"Regrouper les champs liés","default|collapsible",T08|T09|T14|T16|T18
+C018,MoneyField,"Saisie FCFA sécurisée","amount|budget",T08|T10|T14
+C019,AttachmentPicker,"Ajouter photo reçu ou document","camera|gallery|file",T08|T11
+C020,MediaTile,"Preuve avec origine et envoi","captured|imported|queued|failed",T07|T11
+C021,AutosaveIndicator,"État du brouillon","saved|saving|local|error",T08
+C022,VersionTimeline,"Historique append-only","compact|expanded",T07|T09
+C023,DecisionPanel,"Approuver refuser ou demander information","phase|expense|generic",T09
+C024,ReasonField,"Motif obligatoire contextualisé","correction|refusal|cancellation|support",T09|T18
+C025,ConfirmDialog,"Récapitulatif avant action sensible","standard|double_confirmation",T09|T14|T18
+C026,ProgressSteps,"Étapes de phase ou processus","horizontal|vertical",T02|T07|T14
+C027,ParticipantRow,"Identité rôle et accès","active|pending|removed",T12
+C028,ShareSheet,"Partager lien ou rapport","whatsapp|system|download",T02|T13
+C029,QueueItem,"Opération locale et état","pending|syncing|failed|conflict",T15
+C030,ConflictCompare,"Comparer local et serveur","journal|expense|incident",T15
+C031,PermissionGate,"Masquer action et expliquer restriction","role|verification|license|online",ALL
+C032,Toast,"Confirmation brève non critique","success|info|error",ALL
+C033,Skeleton,"Chargement sans déplacement majeur","list|card|detail",T03|T04|T05|T06|T07|T10
+C034,SupportAccessTimer,"Temps restant de l'accès exceptionnel","active|expired",T18
+C035,AuditStamp,"Auteur date origine et version","compact|full",T07|T09|T18
+C036,OfflineNotice,"Capacités disponibles hors ligne","read_only|draft_allowed|online_required",T05|T08|T09|T15

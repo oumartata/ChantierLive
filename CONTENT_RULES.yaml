@@ -1,0 +1,54 @@
+version: "3C.1"
+language: "fr-FR-simple"
+reading_target: "phrases_courtes_vocabulaire_courant"
+
+rules:
+  labels:
+    max_words: 5
+    pattern: "verb_for_actions_noun_for_sections"
+    icon_without_label: false
+  errors:
+    structure: [problem, preserved_data_if_relevant, next_action]
+    blame_user: false
+    expose_technical_code: false
+  confirmations:
+    structure: [action, consequence, permanence, confirm_or_cancel]
+    generic_yes_no_for_sensitive_action: false
+  dates:
+    display: "DD/MM/YYYY"
+    include_time_for_audit: true
+    timezone_visible_in_exports: true
+  money:
+    currency: "FCFA"
+    decimals_default: 0
+    grouping: "spaces"
+    example: "1 250 000 F CFA"
+  connectivity:
+    always_distinguish: [saved_on_device, queued, synchronized, failed, conflict]
+  evidence:
+    allowed: ["Capturée dans l'application", "Photo importée"]
+    forbidden: ["Photo vérifiée", "Preuve authentique", "Preuve incontestable"]
+  finance:
+    required_disclaimers: [MONEY_NOT_HELD, DECLARATIVE_ADVANCE]
+    forbidden: ["argent sécurisé par l'application", "paiement garanti", "fonds protégés"]
+  reports:
+    required_disclaimer: REPORT_TRACE_NOT_CERTIFICATION
+  accessibility:
+    color_only_status: false
+    placeholder_as_only_label: false
+    error_linked_to_field: true
+
+glossary_preferences:
+  use:
+    - {instead_of: "soumettre une opération", preferred: "envoyer"}
+    - {instead_of: "artefact", preferred: "document ou photo"}
+    - {instead_of: "réconciliation", preferred: "rapprochement"}
+    - {instead_of: "immutable", preferred: "non modifiable sans historique"}
+    - {instead_of: "conflit de version", preferred: "deux versions existent"}
+  retain_with_explanation: [brouillon, synchronisation, licence, acompte]
+
+review_before_beta:
+  - "test_comprehension_with_3_site_managers"
+  - "test_comprehension_with_2_remote_owners"
+  - "legal_review_of_disclaimers"
+  - "replace_working_product_name"

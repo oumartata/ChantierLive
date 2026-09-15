@@ -1,0 +1,103 @@
+project:
+  working_name: "ChantierLive"
+  previous_name: "BatiSuivi Africa"
+  name_status: "retenu_par_le_fondateur_sous_reserve_de_verification"
+  mission: "Rendre l'avancement, les dépenses, les preuves et les décisions d'un chantier consultables et traçables à distance."
+  initial_market: ["Bamako", "Kati", "diaspora_malienne"]
+  expansion: "Afrique francophone"
+  platform: "Une seule PWA responsive, affichages mobile et ordinateur, français simple, Android modeste, faible connexion"
+
+principles:
+  - "L'application ne détient ni ne transfère l'argent de construction."
+  - "Elle ne garantit jamais l'authenticité absolue d'une preuve."
+  - "Toute correction importante reste visible, datée et attribuée."
+  - "Les droits proviennent du rôle, jamais du paiement."
+  - "WhatsApp sert aux invitations et partages, pas de messagerie générale au MVP."
+  - "Aucun écrasement silencieux lors d'une synchronisation."
+
+roles:
+  technical: [OWNER, CONTRACTOR, SITE_MANAGER, PLATFORM_ADMIN]
+  owner_profiles: [PRIMARY, CO_OWNER]
+  deferred: [ARCHITECT_CONTROLLER, WORKER, OBSERVER]
+
+release_scope:
+  mvp:
+    - accounts_and_provisional_verification
+    - bidirectional_invitations
+    - projects_and_simple_phase_templates
+    - daily_journal_and_compressed_photos
+    - initial_budget_expenses_receipts
+    - declared_advances
+    - simple_approvals_and_incidents
+    - essential_documents_and_simple_pdf
+    - dashboards_audit_notifications
+    - offline_queue_and_conflict_detection
+    - manual_mobile_money_activation
+  v1:
+    - videos
+    - architect_controller
+    - advanced_push
+    - custom_phase_templates
+    - simple_material_tracking
+    - organization_subaccounts
+    - automated_mobile_money
+    - advanced_reports_and_visual_comparison
+    - magic_links
+    - light_plan_library_with_2d_and_fixed_3d_views
+    - public_contractor_profiles_and_project_galleries
+  v2:
+    - voice_messages
+    - advanced_inventory
+    - weighted_progress
+    - marketplace
+    - partner_api
+    - bambara_and_english
+    - native_android_if_needed
+    - interactive_3d_plan_viewer
+    - verified_client_reviews_and_transparent_recommendations
+  excluded:
+    - construction_money_custody
+    - escrow
+    - payment_institution_services
+    - absolute_evidence_authenticity
+    - technical_conformity_certification
+    - general_chat_replacing_whatsapp
+
+license:
+  unit: "chantier"
+  duration_months: 12
+  payer: "proprietaire_ou_entrepreneur"
+  same_price_local_and_diaspora: true
+  accounting_entries_unlimited: true
+  expiry:
+    grace_days: 30
+    after_grace: "lecture_seule_et_export"
+    silent_deletion: false
+
+pilot:
+  alpha_projects: "3-5"
+  beta_projects: "10-15"
+  start_condition: "apres FuturePro et ArchivaPro"
+
+auth:
+  local_primary: "telephone_plus_mot_de_passe"
+  diaspora_alternative: "email_plus_mot_de_passe"
+  phone_verified_only_by_provider_otp: true
+  invitation_code_is_identity_verification: false
+  unverified_status: "provisional"
+  sensitive_actions_require_verified_identity: true
+
+progress:
+  completed_phases: ["Phase 0", "Phase 1 v2.1"]
+  completed_lots: ["Phase 2A", "Phase 2B", "Phase 2C", "Phase 3A", "Phase 3B", "Phase 3C", "Phase 4A", "Phase 4B", "Phase 4C", "Phase 4D", "Phase 5A", "Phase 5B", "Phase 5C", "Phase 6A", "Phase 6B"]
+  current_phase: "Dossier préparatoire terminé - développement différé"
+  completed_tasks: 174
+  remaining_tasks_estimate: 0
+  global_percent: 100
+  progress_scope: "dossier de conception et préparation"
+  software_development_percent: 0
+  project_status: "IN_PROGRESS"
+  current_lot: "L00/B001"
+  awaiting_validation: []
+  next_action: "poursuivre uniquement L00/B001; ne pas démarrer un autre lot sans nouvelle instruction du fondateur"
+  updated_at: "2026-09-15"

@@ -1,0 +1,11 @@
+flowchart TD
+  A["Saisie terrain"] --> B["UUID local"]
+  B --> C["File visible"]
+  C --> D{"Réseau disponible"}
+  D -->|Non| C
+  D -->|Oui| E["Comparer révision serveur"]
+  E -->|Valide| F["Envoi idempotent"]
+  E -->|Obsolète| G["Conflit visible"]
+  F --> H["Accusé serveur"]
+  G --> I["Choix utilisateur"]
+  I --> C

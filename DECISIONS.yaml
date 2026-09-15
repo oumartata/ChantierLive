@@ -1,0 +1,85 @@
+decisions:
+  - {id: D001, status: VALIDATED, value: "PWA responsive en premier"}
+  - {id: D002, status: VALIDATED, value: "Invitation bidirectionnelle propriétaire-entrepreneur"}
+  - {id: D003, status: VALIDATED, value: "Une licence chantier peut être payée par l'une des deux parties"}
+  - {id: D004, status: VALIDATED, value: "Le paiement ne confère aucun droit supplémentaire"}
+  - {id: D005, status: VALIDATED, value: "Quatre rôles techniques au MVP"}
+  - {id: D006, status: VALIDATED, value: "Copropriétaire = profil OWNER non principal, pas nouveau rôle technique"}
+  - {id: D007, status: VALIDATED, value: "Brouillon modifiable; publié versionné; validé corrigé par contre-écriture"}
+  - {id: D008, status: VALIDATED, value: "Écritures hors ligne avec UUID et révision serveur; pas de last-write-wins financier"}
+  - {id: D009, status: VALIDATED, value: "Géolocalisation facultative avec consentement"}
+  - {id: D010, status: VALIDATED, value: "Photo marquée Capturée dans l'application ou Importée, jamais Vérifiée"}
+  - {id: D011, status: VALIDATED, value: "Acomptes déclaratifs uniquement, sans détention de fonds"}
+  - {id: D012, status: VALIDATED, value: "Licence 12 mois; grâce 30 jours; lecture seule ensuite"}
+  - {id: D013, status: VALIDATED, value: "Aucun quota sur dépenses, acomptes ou écritures financières"}
+  - {id: D014, status: VALIDATED, value: "Entité organisation présente dès le MVP avec interface minimale"}
+  - {id: D015, status: VALIDATED, value: "Pilote français simple; architecture traduisible"}
+  - {id: D016, status: VALIDATED, value: "Activation Mobile Money manuelle au pilote"}
+  - {id: D017, status: VALIDATED, value: "Nom BatiSuivi abandonné; nouveau nom avant design haute fidélité"}
+  - {id: D018, status: VALIDATED, value: "Code d'invitation ≠ OTP; compte non vérifié reste provisional"}
+  - {id: D019, status: VALIDATED, value: "Administrateur plateforme sans accès ordinaire aux contenus privés"}
+  - {id: D020, status: VALIDATED, value: "Accès support exceptionnel, temporaire, motivé et audité"}
+  - {id: D021, status: VALIDATED, value: "Phase 2A: objectifs, glossaire, rôles et permissions"}
+  - {id: D022, status: VALIDATED, value: "Phase 2B: FR, BR, NFR et critères d'acceptation"}
+  - {id: D023, status: VALIDATED, value: "Phase 2C: cas d'utilisation, parcours, états et cas limites"}
+  - {id: D024, status: PROPOSED, value: "Navigation mobile limitée à cinq entrées principales par rôle"}
+  - {id: D025, status: PROPOSED, value: "Trois accueils métier distincts: propriétaire, entrepreneur et chef de chantier"}
+  - {id: D026, status: PROPOSED, value: "Administration plateforme dans une interface séparée"}
+  - {id: D027, status: VALIDATED, value: "Phase 3A: arborescence, routes et navigation UX"}
+  - {id: D028, status: PROPOSED, value: "Dix-huit gabarits couvrent les 64 écrans du MVP"}
+  - {id: D029, status: PROPOSED, value: "Wireframes sans marque ni couleurs définitives avant dénomination"}
+  - {id: D030, status: PROPOSED, value: "Statuts réseau et synchronisation visibles dans toute interface authentifiée"}
+  - {id: D031, status: VALIDATED, value: "Phase 3B: wireframes, composants et états UX"}
+  - {id: D032, status: PROPOSED, value: "Vingt-cinq écrans critiques spécifiés en détail; les autres héritent des gabarits"}
+  - {id: D033, status: PROPOSED, value: "Français simple avec libellés d'action de cinq mots maximum"}
+  - {id: D034, status: PROPOSED, value: "Avertissements obligatoires pour preuves, acomptes, rapports et paiement de licence"}
+  - {id: D035, status: VALIDATED, value: "Phase 3C: écrans critiques, formulaires et contenus UX"}
+  - {id: D036, status: PROPOSED, value: "Liste finale de noms: ChantierVue, BatiRelais ou ChantierLien"}
+  - {id: D037, status: PROPOSED, value: "Recommandation actuelle: ChantierVue, sous réserve des vérifications officielles"}
+  - {id: D038, status: VALIDATED, value: "Nom de travail retenu par le fondateur: ChantierLive, sous réserve des vérifications officielles"}
+  - {id: D039, status: VALIDATED, value: "Planothèque légère en V1: plans 2D, PDF et vues 3D fixes; visualisation 3D interactive en V2"}
+  - {id: D040, status: VALIDATED, value: "Vitrine publique des entrepreneurs en V1; avis confirmés et recommandations transparentes en V2"}
+  - {id: D041, status: VALIDATED, value: "Direction visuelle ChantierLive: Confiance visible, palette vert profond, sable et orange action"}
+  - {id: D042, status: VALIDATED, value: "UI kit 4B: composants accessibles, une action dominante, statuts toujours textuels"}
+  - {id: D043, status: VALIDATED, value: "Responsive: navigation basse mobile, latérale ordinateur, contenu central limité à 1200 px"}
+  - {id: D044, status: VALIDATED, value: "Phase 4C: douze maquettes haute fidélité couvrent les parcours MVP prioritaires sur mobile et ordinateur"}
+  - {id: D045, status: VALIDATED, value: "Phase 4D: prototype cliquable couvrant les parcours propriétaire, entrepreneur, terrain, finance et synchronisation"}
+  - {id: D046, status: VALIDATED, value: "Tests humains différés au recrutement de 3 chefs de chantier et 2 propriétaires à distance; aucun résultat simulé"}
+  - {id: D047, status: VALIDATED, value: "Une seule PWA et une seule base de code; mobile et ordinateur désignent uniquement deux affichages responsive"}
+  - {id: D048, status: VALIDATED, value: "Architecture 5A: Next.js et TypeScript pour une PWA responsive unique"}
+  - {id: D049, status: VALIDATED, value: "Supabase PostgreSQL, Auth et Storage avec RLS obligatoire et refus par défaut"}
+  - {id: D050, status: VALIDATED, value: "IndexedDB et file d'opérations UUID avec révision serveur pour le hors-ligne"}
+  - {id: D051, status: VALIDATED, value: "Région Supabase Paris ou Francfort à décider après tests et examen juridique APDP"}
+  - {id: D052, status: VALIDATED, value: "Fournisseurs externes accessibles par adaptateurs interchangeables"}
+  - {id: D053, status: VALIDATED, value: "Modèle 5B: 43 tables regroupées en identité, chantier, preuves, finance, workflow, service et intégrité"}
+  - {id: D054, status: VALIDATED, value: "Toute donnée privée de chantier porte project_id et applique une politique RLS de refus par défaut"}
+  - {id: D055, status: VALIDATED, value: "Objets publiés versionnés; décisions, événements financiers et audit append-only"}
+  - {id: D056, status: VALIDATED, value: "Fichiers dans trois buckets privés avec chemin contenant project_id et contrôle RLS"}
+  - {id: D057, status: VALIDATED, value: "PLATFORM_ADMIN ne contourne jamais automatiquement les données privées des chantiers"}
+  - {id: D058, status: VALIDATED, value: "Contrats 5C: lectures RLS, commandes SQL transactionnelles et fonctions serveur externes séparées"}
+  - {id: D059, status: VALIDATED, value: "Toute commande rejouable utilise operation_uuid; acteur, rôle et permissions proviennent du serveur"}
+  - {id: D060, status: VALIDATED, value: "Synchronisation par lots de 25 opérations, ordre par entité et dépendances explicites"}
+  - {id: D061, status: VALIDATED, value: "Le pull utilise un curseur serveur monotone par chantier et non l'heure du téléphone"}
+  - {id: D062, status: VALIDATED, value: "Les médias sont transférés séparément et deviennent visibles après finalisation contrôlée"}
+  - {id: D063, status: VALIDATED, value: "Plan 6A: 11 lots de développement séquentiels avec portes de validation bloquantes"}
+  - {id: D064, status: VALIDATED, value: "Estimation MVP: 105 jours effectifs économique ou 163 jours prudent"}
+  - {id: D065, status: VALIDATED, value: "Estimation jusqu'au candidat commercial: 140 jours économique ou 223 jours prudent"}
+  - {id: D066, status: VALIDATED, value: "Hypothèse initiale de 10 à 14 semaines remplacée par l'estimation détaillée"}
+  - {id: D067, status: VALIDATED, value: "Aucun développement ChantierLive avant FuturePro et ArchivaPro; dépôt séparé ensuite"}
+  - {id: D068, status: VALIDATED, value: "Phase 6B: 72 tests catalogués restent NOT_RUN jusqu'à exécution réelle"}
+  - {id: D069, status: VALIDATED, value: "Aucune Alpha si RLS croisée, intégrité financière ou restauration échoue"}
+  - {id: D070, status: VALIDATED, value: "Objectif pilote RPO 24 h et RTO 8 h ouvrées, sans engagement SLA"}
+  - {id: D071, status: VALIDATED, value: "Alpha 3 à 5 chantiers; Bêta 10 à 15; résultats observés et non extrapolés"}
+  - {id: D072, status: VALIDATED, value: "Commercialisation bloquée sans APDP, CGU, confidentialité, nom et restauration validés"}
+  - {id: D073, status: VALIDATED, value: "Après validation 6B, dossier préparation complet et développement maintenu à 0 % jusqu'aux prérequis"}
+  - {id: D074, status: VALIDATED, value: "Dossier préparatoire ChantierLive clôturé à 100 % le 15 septembre 2026; reprise par L00/B001 après FuturePro et ArchivaPro"}
+  - {id: D075, status: VALIDATED, value: "Le 15/09/2026, le fondateur autorise le démarrage progressif de ChantierLive pendant la pause de FuturePro, malgré l'ancienne condition D067."}
+open:
+  - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
+  - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}
+  - {id: O003, due: "avant bêta", topic: "éligibilité PayDunya et documents"}
+  - {id: O004, due: "avant bêta", topic: "formalités APDP et transferts internationaux"}
+  - {id: O005, due: "pendant pilote", topic: "prix final et volonté de payer"}
+  - {id: O006, due: "avant commercialisation", topic: "durée de conservation des médias après expiration"}
+  - {id: O007, due: "avant V1", topic: "processus de validation technique et droits d'utilisation des plans publiés"}
+  - {id: O008, due: "avant V2", topic: "formule et gouvernance du classement des entrepreneurs"}

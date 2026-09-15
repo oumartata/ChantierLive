@@ -1,0 +1,8 @@
+flowchart TD
+  PWA["PWA responsive ChantierLive"] --> LOCAL["Service worker et IndexedDB"]
+  PWA --> APP["API et synchronisation"]
+  LOCAL --> APP
+  APP --> AUTH["Authentification"]
+  APP --> DATA["PostgreSQL et Storage privés"]
+  APP --> PRIV["Fonctions serveur sensibles"]
+  PRIV --> EXT["SMS, e-mail et paiement"]

@@ -1,0 +1,5 @@
+role,scope,purpose,default_profile,notes
+OWNER,project,"Consulter le chantier et prendre les décisions du commanditaire.",PRIMARY,"CO_OWNER utilise le même rôle avec capacités sensibles réduites."
+CONTRACTOR,organization_project,"Administrer l'exécution, les phases, rapports, dépenses et équipe.",PRIMARY,"Un seul entrepreneur principal au MVP."
+SITE_MANAGER,project,"Saisir les activités, médias, dépenses en brouillon et incidents.",STANDARD,"Aucun transfert de rôle, paiement ou décision finale."
+PLATFORM_ADMIN,platform,"Administrer comptes, licences, support et sécurité.",STANDARD,"Pas d'accès ordinaire au contenu privé; procédure exceptionnelle obligatoire."

@@ -1,0 +1,79 @@
+journeys:
+  - id: J01
+    name: "Propriétaire diaspora initie le suivi"
+    actor: OWNER_PRIMARY
+    steps:
+      - {n: 1, action: "créer compte", state: "verified_or_provisional"}
+      - {n: 2, action: "créer chantier", state: "project_draft"}
+      - {n: 3, action: "inviter entrepreneur", state: "invitation_pending"}
+      - {n: 4, action: "attendre acceptation", state: "contractor_active"}
+      - {n: 5, action: "consulter premier journal", state: "project_active"}
+      - {n: 6, action: "statuer sur demandes", state: "decision_recorded"}
+    success: "première information utile consultée sans assistance"
+    refs: [UC001, UC003, UC023]
+  - id: J02
+    name: "Entrepreneur transforme un client en utilisateur"
+    actor: CONTRACTOR
+    steps:
+      - {n: 1, action: "ouvrir espace professionnel", state: "organization_active"}
+      - {n: 2, action: "créer chantier", state: "project_draft"}
+      - {n: 3, action: "inviter propriétaire", state: "invitation_pending"}
+      - {n: 4, action: "publier phases", state: "schedule_published"}
+      - {n: 5, action: "inviter chef", state: "manager_active"}
+      - {n: 6, action: "suivre rapports", state: "project_active"}
+    success: "propriétaire et chef actifs sur le même chantier"
+    refs: [UC002, UC004, UC005, UC007, UC024]
+  - id: J03
+    name: "Chef de chantier sans réseau"
+    actor: SITE_MANAGER
+    steps:
+      - {n: 1, action: "ouvrir depuis cache", state: "offline"}
+      - {n: 2, action: "saisir journal", state: "local_draft"}
+      - {n: 3, action: "capturer photos", state: "queued_media"}
+      - {n: 4, action: "retrouver réseau", state: "syncing"}
+      - {n: 5, action: "traiter échec/conflit", state: "synced_or_conflict"}
+      - {n: 6, action: "publier", state: "published"}
+    success: "aucune saisie perdue ou dupliquée"
+    refs: [UC011, UC025]
+  - id: J04
+    name: "Dépense et décision"
+    actor: CONTRACTOR
+    steps:
+      - {n: 1, action: "préparer dépense", state: "draft"}
+      - {n: 2, action: "joindre reçu ou justification", state: "complete"}
+      - {n: 3, action: "publier/demander approbation", state: "pending_decision"}
+      - {n: 4, action: "propriétaire décide", state: "approved_rejected_or_info"}
+      - {n: 5, action: "corriger par nouvelle version si requis", state: "superseded"}
+    success: "décision associée à la bonne version financière"
+    refs: [UC015, UC016, UC017, UC020]
+  - id: J05
+    name: "Acompte déclaré"
+    actor: OWNER_PRIMARY
+    steps:
+      - {n: 1, action: "effectuer paiement hors application", state: "external_payment"}
+      - {n: 2, action: "déclarer acompte", state: "declared"}
+      - {n: 3, action: "entrepreneur reconnaît ou conteste", state: "received_or_disputed"}
+      - {n: 4, action: "consulter historique", state: "traceable"}
+    success: "aucune confusion avec un service de paiement"
+    refs: [UC018, UC019]
+  - id: J06
+    name: "Fin de licence"
+    actor: OWNER_PRIMARY
+    steps:
+      - {n: 1, action: "recevoir rappels", state: "expiring"}
+      - {n: 2, action: "utiliser grâce", state: "grace"}
+      - {n: 3, action: "consulter après grâce", state: "read_only"}
+      - {n: 4, action: "exporter ou renouveler", state: "exported_or_active"}
+    success: "aucune donnée supprimée; statut compris"
+    refs: [UC028]
+  - id: J07
+    name: "Support sans surveillance permanente"
+    actor: PLATFORM_ADMIN
+    steps:
+      - {n: 1, action: "recevoir ticket", state: "support_open"}
+      - {n: 2, action: "consulter métadonnées", state: "metadata_only"}
+      - {n: 3, action: "demander accès exceptionnel si nécessaire", state: "approved_break_glass"}
+      - {n: 4, action: "intervenir dans périmètre", state: "audited_access"}
+      - {n: 5, action: "expiration automatique", state: "access_closed"}
+    success: "contenu privé inaccessible hors procédure"
+    refs: [UC030]

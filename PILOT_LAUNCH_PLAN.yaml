@@ -1,0 +1,64 @@
+phase: "6B"
+status: "PLAN_NOT_EXECUTED"
+
+alpha:
+  projects: "3 à 5"
+  recruitment: "utilisateurs connus et joignables"
+  minimum_profiles: "3 chefs de chantier et 2 propriétaires à distance"
+  pricing: "gratuit ou fortement réduit contre retours détaillés"
+  support: "accompagnement direct du fondateur"
+  effective_days_estimate: {economic: 12, prudent: 20}
+  exit_gate:
+    - "zéro exposition entre chantiers"
+    - "zéro doublon ou écrasement financier"
+    - "restauration démontrée"
+    - "tous les parcours critiques exécutés sur Android réel"
+    - "aucune anomalie critique ouverte"
+
+beta:
+  projects: "10 à 15"
+  recruitment: "inclut utilisateurs ne connaissant pas le fondateur"
+  pricing_tests_fcfa: [10000, 15000, 20000]
+  payment: "Orange Money ou Moov Money avec activation manuelle"
+  legal_gate: "APDP, transferts, CGU et confidentialité examinés"
+  exit_gate:
+    - "incidents support traitables par une seule personne"
+    - "synchronisation fiable sur réseau réel"
+    - "prix accepté par des utilisateurs non proches"
+    - "coûts réels SMS stockage e-mail et support mesurés"
+
+measures:
+  activation:
+    - invitation_opened
+    - invitation_accepted
+    - account_verified
+    - first_project_viewed
+  usage:
+    - first_journal_published
+    - photo_upload_completed
+    - expense_published
+    - approval_decided
+    - report_generated
+  reliability:
+    - sync_success_rate_after_reconnect
+    - median_sync_delay
+    - conflict_count_and_resolution
+    - duplicate_financial_count
+    - crash_or_blocking_error_count
+  comprehension:
+    - task_completion_without_blocking_help
+    - time_per_critical_task
+    - misunderstanding_of_photo_labels
+    - misunderstanding_of_declared_advance
+  business:
+    - price_offer_shown
+    - stated_purchase_intent
+    - actual_payment_or_refusal_reason
+    - support_time_per_project
+
+excluded_metrics:
+  - "renouvellement annuel avant douze mois"
+  - "résultat inventé ou extrapolé depuis moins de trois projets"
+  - "promesse de réduction de fraude sans mesure indépendante"
+
+evidence: "chaque observation porte date, chantier pseudonymisé, rôle, version et source"

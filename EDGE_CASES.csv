@@ -1,0 +1,66 @@
+id,module,case,expected_behavior,severity,refs
+EC001,auth,Téléphone déjà vérifié par autre compte,"Refuser sans révéler l'identité; proposer récupération.",HIGH,FR004|BR003
+EC002,auth,E-mail et téléphone appartiennent à deux comptes,"Bloquer fusion automatique; procédure support renforcée.",HIGH,FR003|FR004
+EC003,auth,Compte provisional tente approbation,"Refuser côté serveur et demander vérification.",HIGH,FR008|BR006
+EC004,auth,OTP arrive après expiration,"Refuser; permettre nouveau code avec limitation.",MEDIUM,FR009|BR007
+EC005,auth,Utilisateur perd téléphone et e-mail,"Procédure support documentée; aucune récupération par simple connaissance du chantier.",HIGH,FR006|BR004
+EC006,session,Appareil perdu reste connecté,"Permettre révocation distante; invalider dans le délai cible.",HIGH,FR010|FR158
+EC007,invitation,Lien transféré à une autre personne,"Exiger contact ciblé vérifié ou conserver accès provisional limité.",HIGH,FR036|BR027
+EC008,invitation,Deux appareils acceptent simultanément,"Une seule adhésion atomique; second résultat déjà utilisé.",HIGH,FR032|BR025
+EC009,invitation,Invitation révoquée pendant inscription,"Refuser à la reprise et expliquer qu'elle n'est plus valide.",MEDIUM,FR033|FR035
+EC010,invitation,Invitation expire selon heure appareil fausse,"Décider uniquement avec heure serveur.",HIGH,FR035|BR022
+EC011,invitation,Limite participants atteinte avec invitation en attente,"Compter actifs et invitations pertinentes; expliquer limite.",MEDIUM,FR029|FR030|BR023
+EC012,invitation,Utilisateur déjà membre reçoit autre rôle,"Ne pas écraser le rôle; proposer changement contrôlé.",HIGH,FR032|FR041
+EC013,membership,Propriétaire principal tente de se retirer,"Bloquer tant qu'un transfert sécurisé n'est pas terminé.",HIGH,FR037|FR038
+EC014,membership,Entrepreneur principal est suspendu,"Préserver chantier; permettre procédure de remplacement autorisée.",HIGH,FR039|FR156
+EC015,membership,Participant retiré possède brouillons locaux,"Bloquer synchronisation non autorisée; conserver local/export selon politique.",HIGH,FR037|FR040|FR131
+EC016,project,Deux créateurs créent le même chantier hors ligne,"Créer séparément; avertir après synchronisation; aucune fusion automatique.",MEDIUM,FR023|FR024
+EC017,project,Projet archivé reçoit écriture en file,"Refuser au serveur; marquer échec permanent avec option d'export du brouillon.",HIGH,FR021|FR128
+EC018,project,Projet suspendu pour sécurité,"Bloquer écritures métier; autoriser support/consultation selon motif.",HIGH,FR156|BR090
+EC019,project,Dates fin antérieures au début,"Refuser publication; autoriser correction du brouillon.",LOW,FR018
+EC020,phase,Toutes phases marquées non applicables,"Afficher progression non calculable; ne pas afficher 100%.",MEDIUM,FR050|BR034
+EC021,phase,Phase validée doit être corrigée,"Créer demande/nouvelle version; conserver validation antérieure.",HIGH,FR046|FR047
+EC022,phase,Suppression d'une phase liée à des données,"Interdire suppression physique; archiver ou rendre non applicable avec impact visible.",HIGH,FR043|BR030
+EC023,journal,Deux journaux même date,"Autoriser auteurs distincts; signaler doublon probable.",LOW,FR051|BR035
+EC024,journal,Chef publie après retrait d'accès,"Refuser au serveur même si brouillon local ancien.",HIGH,FR056|EC015
+EC025,journal,Correction sans motif après publication,"Refuser et conserver la version actuelle.",MEDIUM,FR058|BR038
+EC026,media,Photo très volumineuse ou format inconnu,"Refuser ou convertir de façon sûre; expliquer sans bloquer le reste.",MEDIUM,FR064|FR108
+EC027,media,Permission GPS refusée,"Continuer sans coordonnées; marquer seulement l'origine de capture.",LOW,FR063|BR042
+EC028,media,Coordonnées hors zone du chantier,"Afficher écart comme information; ne pas déclarer fraude automatiquement.",MEDIUM,FR063|BR041
+EC029,media,Upload interrompu à 90%,"Reprendre si supporté ou recommencer même UUID; aucun doublon final.",MEDIUM,FR126|FR128|BR075
+EC030,media,Quota atteint pendant un journal,"Sauvegarder texte; mettre média en échec quota; proposer gestion/extension.",MEDIUM,FR083|BR054
+EC031,finance,Montant nul ou négatif,"Refuser comme dépense ordinaire; utiliser contre-écriture pour correction.",HIGH,FR072|BR047
+EC032,finance,Même reçu joint à deux dépenses,"Avertir du doublon potentiel; ne pas fusionner automatiquement.",MEDIUM,FR073
+EC033,finance,Dépense publiée deux fois après retry,"Reconnaître UUID existant et retourner le même résultat.",HIGH,FR075|FR129
+EC034,finance,Budget modifié pendant création hors ligne,"Détecter révision; conserver dépense; recalculer dépassement au serveur.",HIGH,FR074|FR080
+EC035,finance,Approbation vise ancienne version de dépense,"Refuser ou marquer obsolète; demander décision sur version courante.",HIGH,FR076|BR058
+EC036,finance,Contre-écriture supérieure au montant initial,"Refuser si elle rend le résultat incohérent ou exiger opération explicitement distincte.",HIGH,FR078|BR051
+EC037,finance,Reçu absent pour achat informel,"Accepter dépense avec justification textuelle selon règle.",LOW,FR073|BR048
+EC038,advance,Déclarant se marque lui-même récepteur,"Refuser sauf configuration où deux rôles appartiennent légitimement au même compte; auditer.",HIGH,FR084|BR056
+EC039,advance,Récepteur reconnaît deux fois,"Deuxième action idempotente; aucun nouvel événement financier.",HIGH,FR086
+EC040,advance,Paiement opérateur finalement annulé,"Créer contestation/annulation déclarative; ne pas réécrire la réception.",HIGH,FR087|FR088
+EC041,approval,Deux copropriétaires décident simultanément,"Appliquer politique d'autorité; première décision finale rend l'autre obsolète sauf règle multi-approbation future.",HIGH,FR099|BR060
+EC042,approval,Demande supprimée avec objet source,"Interdire suppression; conserver lien et marquer objet archivé/superseded.",HIGH,FR092|FR097
+EC043,approval,Utilisateur décide hors connexion,"Bloquer; conserver éventuellement un brouillon de commentaire non décisionnel.",HIGH,FR093|FR132
+EC044,incident,Incident urgent hors ligne,"Conserver local; afficher que l'alerte n'est pas envoyée avant synchronisation.",HIGH,FR102|FR106
+EC045,incident,Incident clôturé puis problème revient,"Créer nouvel incident lié ou rouvrir par transition auditée selon règle finale.",MEDIUM,FR105|BR063
+EC046,document,Fichier exécutable renommé PDF,"Détecter type réel et refuser.",HIGH,FR108|BR065
+EC047,document,Lien temporaire partagé expire,"Refuser accès; permettre nouveau partage par membre autorisé.",MEDIUM,FR110|BR072
+EC048,document,Visibilité réduite après téléchargement,"Appliquer aux futurs accès; audit; impossible de rappeler une copie déjà téléchargée.",MEDIUM,FR109|FR110
+EC049,dashboard,Données cache anciennes,"Afficher fraîcheur et état hors ligne; ne pas présenter comme temps réel.",MEDIUM,FR117|BR069
+EC050,notification,Utilisateur n'a ni e-mail vérifié ni push,"Conserver notification interne; ne pas envoyer à un canal non vérifié.",MEDIUM,FR119|FR122
+EC051,notification,Lien de notification pointe vers objet non autorisé,"Refuser détail et revenir vers écran sûr sans fuite.",HIGH,FR120|BR016
+EC052,offline,Stockage local du navigateur est plein,"Refuser nouvelle pièce jointe; préserver file existante; proposer synchroniser/libérer.",HIGH,FR126|FR133
+EC053,offline,Navigateur efface le stockage local,"Au prochain démarrage signaler limitation; ne jamais prétendre que les brouillons locaux sont sauvegardés serveur.",HIGH,FR134|BR078
+EC054,offline,Horloge téléphone incorrecte,"Conserver heure locale déclarative mais ordonner décisions par heure serveur.",MEDIUM,FR129|NFR022
+EC055,offline,Deux appareils modifient le même brouillon,"Révision serveur détecte conflit; choix explicite requis.",HIGH,FR130|FR131
+EC056,report,Données changent pendant génération PDF,"Utiliser instantané cohérent; inscrire date/identifiant de génération.",MEDIUM,FR135|BR079
+EC057,report,Utilisateur perd droit avant fin génération,"Revérifier autorisation avant remise du fichier.",HIGH,FR139|BR016
+EC058,license,Paiement déclaré mais introuvable,"Laisser en attente; ne pas activer; fournir canal support.",HIGH,FR141|FR143
+EC059,license,Licence expire avec uploads en cours,"Finaliser ceux acceptés avant l'échéance selon heure serveur ou les marquer clairement refusés; aucune perte silencieuse.",HIGH,FR144|FR145
+EC060,license,Deux parties paient la même licence,"Ne pas doubler durée automatiquement; signaler au support et tracer remboursement/avoir hors application.",HIGH,FR142|FR143
+EC061,audit,Admin tente accès privé sans ticket,"Refuser; journaliser la tentative.",CRITICAL,FR154|BR089
+EC062,audit,Accès exceptionnel arrive à expiration pendant session,"Révoquer immédiatement le périmètre privé; conserver session plateforme limitée.",CRITICAL,FR159|FR160
+EC063,privacy,Personne visible sur photo demande retrait,"Appliquer procédure juridique: restriction; suppression ou anonymisation sans falsifier l'audit.",HIGH,FR013|NFR021
+EC064,privacy,Export contient données d'autres participants,"Limiter aux droits et obligations; masquer données non nécessaires.",HIGH,FR012|BR016
+EC065,admin,Compte suspendu conteste,"Conserver motif et canal de recours; aucune suppression de preuves.",MEDIUM,FR156|BR090

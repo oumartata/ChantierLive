@@ -1,0 +1,22 @@
+token,type,value,usage
+color.primary,color,#126B54,Marque et action principale
+color.primary_dark,color,#0A4637,Action pressée et texte accentué
+color.action,color,#BF570F,Action secondaire et attention
+color.sand,color,#F3EEE4,Fond chaud
+color.ink,color,#17211D,Texte principal
+color.muted,color,#65716B,Texte secondaire
+color.surface,color,#FFFFFF,Carte et surface
+color.danger,color,#B42318,Erreur refus incident
+color.success,color,#16794F,Validation synchronisation réussie
+font.ui,font,"Inter, system-ui, sans-serif",Interface
+font.mobile_fallback,font,"Roboto, Arial, sans-serif",Android modeste
+font.body_size,size,16px,Texte courant minimum
+radius.small,radius,8px,Champs et badges
+radius.medium,radius,12px,Cartes
+radius.large,radius,18px,Modales et panneaux
+space.1,spacing,4px,Micro espace
+space.2,spacing,8px,Petit espace
+space.3,spacing,12px,Espace interne
+space.4,spacing,16px,Espace courant
+space.6,spacing,24px,Section
+touch.minimum,size,44px,Zone tactile minimale

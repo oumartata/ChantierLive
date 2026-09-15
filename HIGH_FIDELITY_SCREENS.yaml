@@ -1,0 +1,27 @@
+version: "4C.1"
+status: "pending_founder_validation"
+product: "single_responsive_pwa"
+formats: [mobile_view_360, desktop_view_1280]
+screens:
+  - {id: HF01, name: "Connexion", role: PUBLIC, goal: "accéder avec téléphone ou e-mail"}
+  - {id: HF02, name: "Invitation", role: PUBLIC, goal: "comprendre puis accepter un rôle"}
+  - {id: HF03, name: "Accueil propriétaire", role: OWNER, goal: "voir progrès, argent et décisions"}
+  - {id: HF04, name: "Accueil entrepreneur", role: CONTRACTOR, goal: "piloter plusieurs chantiers"}
+  - {id: HF05, name: "Accueil terrain", role: SITE_MANAGER, goal: "publier le journal en moins de trois minutes"}
+  - {id: HF06, name: "Journal quotidien", role: SITE_MANAGER, goal: "saisir hors ligne et publier"}
+  - {id: HF07, name: "Nouvelle dépense", role: CONTRACTOR_SITE_MANAGER, goal: "déclarer montant et reçu sans ambiguïté"}
+  - {id: HF08, name: "Galerie photos", role: PROJECT_MEMBER, goal: "distinguer capture, import et état d'envoi"}
+  - {id: HF09, name: "Décision", role: OWNER, goal: "approuver, refuser ou demander une correction"}
+  - {id: HF10, name: "Synchronisation", role: PROJECT_MEMBER, goal: "voir la file et résoudre deux versions"}
+  - {id: HF11, name: "Finances", role: OWNER_CONTRACTOR, goal: "lire budget, dépenses et acomptes déclarés"}
+  - {id: HF12, name: "Participants", role: OWNER_CONTRACTOR, goal: "inviter, révoquer ou retirer un accès"}
+coverage:
+  roles: [PUBLIC, OWNER, CONTRACTOR, SITE_MANAGER]
+  risks: [identity, permissions, finance, evidence, offline, audit]
+  deferred_not_shown: [interactive_3d, marketplace, videos, advanced_materials]
+quality_gates:
+  - "ordre des informations identique mobile et ordinateur"
+  - "une action principale dominante"
+  - "connexion et synchronisation visibles"
+  - "montants en F CFA sans décimales"
+  - "aucune promesse de preuve absolue"

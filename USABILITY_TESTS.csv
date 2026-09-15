@@ -1,0 +1,11 @@
+id,participant_profile,device,network,start_screen,task,success_condition,target,status,notes
+UT01,Propriétaire à distance,ordinateur,stable,Connexion,Se connecter et trouver les décisions,Décision ouverte sans aide,120 secondes,NOT_RUN,
+UT02,Propriétaire à distance,mobile,stable,Invitation,Comprendre et accepter l'invitation,Rôle et chantier identifiés avant acceptation,90 secondes,NOT_RUN,
+UT03,Propriétaire à distance,mobile,stable,Décision,Examiner puis approuver une dépense,Montant et conséquence compris,120 secondes,NOT_RUN,
+UT04,Chef de chantier,mobile,faible,Accueil terrain,Créer le journal quotidien,Brouillon enregistré localement,180 secondes,NOT_RUN,
+UT05,Chef de chantier,mobile,hors_ligne,Journal quotidien,Comprendre ce qui sera synchronisé,État local correctement expliqué,90 secondes,NOT_RUN,
+UT06,Chef de chantier,mobile,instable,Synchronisation,Résoudre deux versions,Aucun écrasement supposé,180 secondes,NOT_RUN,
+UT07,Entrepreneur,ordinateur,stable,Accueil entrepreneur,Déclarer une dépense,Reçu et avertissement financier vus,180 secondes,NOT_RUN,
+UT08,Entrepreneur,mobile,stable,Participants,Inviter un chef de chantier,Rôle et expiration compris,120 secondes,NOT_RUN,
+UT09,Tous,mobile,stable,Galerie photos,Distinguer capture et import,Origine correctement expliquée,60 secondes,NOT_RUN,
+UT10,Tous,ordinateur,stable,Finances,Expliquer le rôle de ChantierLive,Absence de détention d'argent comprise,90 secondes,NOT_RUN,

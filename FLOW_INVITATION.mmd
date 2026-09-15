@@ -1,0 +1,13 @@
+flowchart TD
+  A["Créer le chantier"] --> B{"Créateur"}
+  B -->|Propriétaire| C["Inviter entrepreneur"]
+  B -->|Entrepreneur| D["Inviter propriétaire"]
+  C --> E["Lien sécurisé"]
+  D --> E
+  E --> F{"Compte existant"}
+  F -->|Non| G["Inscription puis reprise"]
+  F -->|Oui| H["Vérifier cible et jeton"]
+  G --> H
+  H --> I{"Décision"}
+  I -->|Accepter| J["Adhésion au chantier"]
+  I -->|Refuser| K["Invitation terminée"]

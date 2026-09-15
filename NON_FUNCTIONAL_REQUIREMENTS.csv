@@ -1,0 +1,41 @@
+id,category,requirement,metric,priority
+NFR001,performance,"Afficher l'écran principal depuis un cache valide rapidement sur téléphone modeste.","p75 <= 3 s après premier chargement",MUST
+NFR002,performance,"Répondre aux lectures serveur ordinaires avec une latence acceptable.","p95 API <= 2 s hors upload et génération PDF",MUST
+NFR003,performance,"Compresser les photos avant transfert.","cible configurable <= 1.5 Mo/photo sauf exception",MUST
+NFR004,data,"Limiter les données initiales téléchargées.","pagination et miniature; aucune galerie complète au démarrage",MUST
+NFR005,offline,"Préserver la file locale après fermeture normale.","100% des cas supportés par le navigateur testé",MUST
+NFR006,offline,"Rendre chaque reprise idempotente.","0 doublon serveur sur répétition du même UUID",MUST
+NFR007,reliability,"Ne perdre silencieusement aucune opération reconnue localement.","0 perte silencieuse dans tests de coupure",MUST
+NFR008,reliability,"Afficher tout échec de synchronisation.","100% des échecs durables visibles et relançables",MUST
+NFR009,availability,"Définir une cible de disponibilité après le pilote.",">= 99.5% mensuel hors maintenance planifiée",SHOULD
+NFR010,security,"Chiffrer les communications.","TLS moderne obligatoire; HTTP refusé en production",MUST
+NFR011,security,"Protéger les mots de passe via le fournisseur d'authentification.","aucun mot de passe en clair ni journal",MUST
+NFR012,security,"Appliquer le refus par défaut côté serveur.","100% tables privées couvertes par contrôle/RLS testé",MUST
+NFR013,security,"Séparer les locataires.","0 lecture inter-organisation dans tests automatisés",MUST
+NFR014,security,"Limiter authentification; OTP; invitations et uploads.","seuils configurables et journalisés",MUST
+NFR015,security,"Révoquer rapidement une session compromise.","prise d'effet <= 5 min",MUST
+NFR016,security,"Analyser et valider les fichiers déposés.","type réel; taille; extension; statut d'analyse contrôlés",MUST
+NFR017,security,"Masquer secrets et données sensibles des journaux.","0 secret; mot de passe; jeton ou code complet dans logs",MUST
+NFR018,privacy,"Collecter uniquement les données nécessaires.","chaque champ personnel relié à une finalité documentée",MUST
+NFR019,privacy,"Obtenir un consentement explicite pour la localisation.","preuve de consentement versionnée; retrait possible",MUST
+NFR020,privacy,"Documenter les transferts internationaux et sous-traitants.","registre à jour avant bêta ouverte",MUST
+NFR021,privacy,"Supporter accès; rectification; export et fermeture.","workflow tracé; délai légal configuré",MUST
+NFR022,audit,"Utiliser l'heure serveur pour les actions sensibles.","100% événements sensibles horodatés serveur",MUST
+NFR023,audit,"Empêcher les rôles métier de modifier l'audit.","0 permission d'update/delete accordée",MUST
+NFR024,accessibility,"Assurer lisibilité mobile.","taille texte et contraste conformes WCAG 2.1 AA sur écrans clés",SHOULD
+NFR025,accessibility,"Permettre navigation clavier sur ordinateur.","100% actions principales accessibles au clavier",SHOULD
+NFR026,usability,"Permettre un journal quotidien rapide.","médiane pilote <= 3 min hors upload réseau",MUST
+NFR027,usability,"Employer un français simple.","revue utilisateur; phrases courtes; jargon expliqué",MUST
+NFR028,responsive,"Supporter mobile puis ordinateur.","360 px à 1440 px sans perte d'action essentielle",MUST
+NFR029,compatibility,"Définir les navigateurs du pilote.","Chrome Android récent + Edge/Chrome desktop récents",MUST
+NFR030,maintainability,"Séparer domaine; données; synchronisation et interface.","architecture documentée; dépendances orientées",SHOULD
+NFR031,maintainability,"Versionner les contrats de données et migrations.","migration reproductible et testée avant production",MUST
+NFR032,testability,"Automatiser les permissions critiques.","tests positifs et négatifs pour chaque rôle/module",MUST
+NFR033,testability,"Automatiser les conflits hors ligne critiques.","scénarios coupure; reprise; doublon; révision obsolète",MUST
+NFR034,backup,"Sauvegarder les données serveur.","politique RPO/RTO définie avant bêta",MUST
+NFR035,recovery,"Tester la restauration.","exercice documenté avant bêta puis périodique",MUST
+NFR036,observability,"Surveiller erreurs; latence; uploads et synchronisation.","alertes sans contenu privé sensible",MUST
+NFR037,scalability,"Paginer toutes les collections potentiellement longues.","aucune requête non bornée sur journaux; médias; dépenses; audit",MUST
+NFR038,localization,"Externaliser les textes d'interface.","0 texte métier principal codé en dur",SHOULD
+NFR039,legal,"Afficher avertissements de non-garantie aux endroits pertinents.","photos; acomptes et PDF couverts",MUST
+NFR040,cost,"Mesurer stockage; transfert média; SMS et génération PDF.","tableau mensuel par chantier sans exposer les contenus",SHOULD

@@ -1,0 +1,41 @@
+id,domain,control,evidence,status
+SEC001,identity,"mots de passe gérés par Auth uniquement","configuration exportée",NOT_RUN
+SEC002,identity,"OTP et jetons jamais stockés en clair","revue schéma et logs",NOT_RUN
+SEC003,identity,"actions sensibles exigent identité vérifiée","tests TST005 et TST049",NOT_RUN
+SEC004,identity,"sessions révocables et expirantes","test TST007",NOT_RUN
+SEC005,identity,"limitation tentatives auth et invitation","test charge contrôlé",NOT_RUN
+SEC006,identity,"aucune énumération de comptes","tests réponses auth",NOT_RUN
+SEC007,RLS,"RLS activée sur toute table exposée","requête catalogue système",NOT_RUN
+SEC008,RLS,"refus par défaut sans politique explicite","tests anonymes",NOT_RUN
+SEC009,RLS,"accès croisé chantier A vers B refusé","TST010 à TST012",NOT_RUN
+SEC010,RLS,"project_id recoupé avec objet parent","tests payload falsifié",NOT_RUN
+SEC011,RLS,"délégation expirée refusée","tests horloge serveur",NOT_RUN
+SEC012,RLS,"rôle principal protégé","TST025 et TST026",NOT_RUN
+SEC013,RLS,"admin sans accès privé automatique","TST016 et TST060",NOT_RUN
+SEC014,RLS,"support limité par dossier périmètre et durée","TST017 et TST018",NOT_RUN
+SEC015,storage,"tous les buckets privés","configuration Storage",NOT_RUN
+SEC016,storage,"chemin contrôlé par project_id","test chemin falsifié",NOT_RUN
+SEC017,storage,"type taille et empreinte contrôlés","TST052 et TST053",NOT_RUN
+SEC018,storage,"liens temporaires courts et révocables","TST056 et TST067",NOT_RUN
+SEC019,storage,"fichiers suspects mis en quarantaine","test fichier de contrôle sûr",NOT_RUN
+SEC020,application,"service_role absent du client et dépôt","scan secrets",NOT_RUN
+SEC021,application,"en-têtes HTTPS et sécurité navigateur","analyse staging",NOT_RUN
+SEC022,application,"validation serveur de chaque entrée","tests contrats invalides",NOT_RUN
+SEC023,application,"erreurs sans données techniques sensibles","revue API_ERRORS",NOT_RUN
+SEC024,application,"dépendances sans vulnérabilité critique connue","rapport dépendances",NOT_RUN
+SEC025,application,"CSP compatible PWA et fournisseurs retenus","analyse en-têtes",NOT_RUN
+SEC026,integrity,"versions et audit refusent UPDATE DELETE","TST030 TST033 TST068",NOT_RUN
+SEC027,integrity,"idempotence opération_uuid","TST044",NOT_RUN
+SEC028,integrity,"heure et révision produites par serveur","TST050",NOT_RUN
+SEC029,integrity,"finance sans last-write-wins","TST040 et TST048",NOT_RUN
+SEC030,privacy,"logs sans photo montant adresse ou jeton","échantillon logs",NOT_RUN
+SEC031,privacy,"géolocalisation avec consentement explicite","TST055",NOT_RUN
+SEC032,privacy,"exports filtrés selon droits actuels","TST066",NOT_RUN
+SEC033,operations,"sauvegarde automatique observée","journal sauvegardes",NOT_RUN
+SEC034,operations,"restauration staging réussie","TST069",NOT_RUN
+SEC035,operations,"alertes erreurs auth sync storage actives","test alertes",NOT_RUN
+SEC036,operations,"séparation dev staging production","revue configuration",NOT_RUN
+SEC037,operations,"rotation et révocation des secrets documentées","preuve exercice",NOT_RUN
+SEC038,legal,"registre traitement et base juridique examinés","validation juriste local",NOT_RUN
+SEC039,legal,"transfert international et région validés","avis APDP/juriste",NOT_RUN
+SEC040,release,"zéro vulnérabilité critique ou haute non acceptée","rapport final signé",NOT_RUN

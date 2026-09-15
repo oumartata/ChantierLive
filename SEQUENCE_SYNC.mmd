@@ -1,0 +1,16 @@
+sequenceDiagram
+  participant U as Utilisateur
+  participant P as PWA
+  participant Q as File IndexedDB
+  participant S as Serveur
+  U->>P: Enregistre un brouillon
+  P->>Q: Ajoute UUID et révision
+  Q->>S: Envoie le lot autorisé
+  S->>S: RLS, verrou, révision, transaction
+  alt Opération applicable
+    S-->>Q: APPLIED et curseur
+    Q-->>P: Synchronisé
+  else Révision différente
+    S-->>Q: CONFLICT et version serveur
+    Q-->>P: Choix utilisateur requis
+  end

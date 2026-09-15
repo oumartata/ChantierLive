@@ -1,0 +1,60 @@
+phase: "6A"
+status: "VALIDATED"
+updated_at: "2026-09-15"
+
+start_conditions:
+  mandatory:
+    - "FuturePro terminé ou stabilisé selon décision du fondateur"
+    - "ArchivaPro terminé ou stabilisé selon décision du fondateur"
+    - "disponibilité hebdomadaire du fondateur connue"
+    - "dépôt ChantierLive séparé créé"
+  before_beta:
+    - "fournisseur OTP et coût Mali confirmés"
+    - "formalités APDP et transfert de données examinés avec juriste local"
+    - "politique de confidentialité et CGU adaptées"
+  before_commercialization:
+    - "nom ChantierLive vérifié officiellement"
+    - "prix testé auprès des pilotes"
+
+estimation_rules:
+  unit: "jour de travail effectif de développement"
+  excludes: ["attente administrative", "fin de FuturePro", "fin d'ArchivaPro", "jours sans travail ChantierLive"]
+  economic: "périmètre stable, outils IA disponibles, peu de reprises, disponibilité régulière"
+  prudent: "temps partiel, reprises UX, problèmes réseau/appareils, renforcement sécurité"
+  previous_10_14_weeks: "remplacée par l'estimation détaillée ci-dessous"
+
+implementation_lots:
+  - {id: L00, name: "Dépôt, environnements et socle PWA", depends_on: [], economic_days: 5, prudent_days: 8}
+  - {id: L01, name: "Migrations, identité, organisations et RLS fondamental", depends_on: [L00], economic_days: 10, prudent_days: 16}
+  - {id: L02, name: "Authentification, chantiers, invitations et membres", depends_on: [L01], economic_days: 11, prudent_days: 16}
+  - {id: L03, name: "Phases, journal, commentaires et incidents", depends_on: [L02], economic_days: 10, prudent_days: 15}
+  - {id: L04, name: "Photos, documents et stockage privé", depends_on: [L01, L03], economic_days: 8, prudent_days: 13}
+  - {id: L05, name: "Budget, dépenses, reçus, acomptes et approbations", depends_on: [L02], economic_days: 12, prudent_days: 18}
+  - {id: L06, name: "IndexedDB, file hors ligne, synchronisation et conflits", depends_on: [L03, L04, L05], economic_days: 14, prudent_days: 22}
+  - {id: L07, name: "Tableaux de bord, alertes, PDF et partage", depends_on: [L03, L05], economic_days: 10, prudent_days: 15}
+  - {id: L08, name: "Licence manuelle, administration et accès support", depends_on: [L02, L07], economic_days: 5, prudent_days: 8}
+  - {id: L09, name: "Sécurité, accessibilité, performance et tests de bout en bout", depends_on: [L06, L07, L08], economic_days: 14, prudent_days: 22}
+  - {id: L10, name: "Stabilisation et préparation Alpha", depends_on: [L09], economic_days: 6, prudent_days: 10}
+
+estimates:
+  mvp_build: {economic_days: 105, prudent_days: 163}
+  alpha_execution: {economic_days: 12, prudent_days: 20}
+  alpha_corrections: {economic_days: 8, prudent_days: 15}
+  beta_and_commercial_readiness: {economic_days: 15, prudent_days: 25}
+  total_to_commercial_candidate: {economic_days: 140, prudent_days: 223}
+  calendar_rule: "durée calendrier = jours effectifs / disponibilité réelle; aucune date ferme avant mesure de cette disponibilité"
+
+release_strategy:
+  alpha: "3 à 5 chantiers connus; observation assistée; gratuit ou très réduit"
+  beta: "10 à 15 chantiers dont utilisateurs inconnus; prix 10k/15k/20k à tester"
+  commercial_candidate: "uniquement après seuils sécurité, sauvegarde, support, légal et paiement atteints"
+
+non_negotiable_gates:
+  - "aucune politique RLS critique sans test d'accès croisé"
+  - "aucune donnée financière validée modifiable en place"
+  - "aucune action sensible hors connexion"
+  - "aucun secret ou service_role dans la PWA"
+  - "aucune mise en production sans sauvegarde restaurée en test"
+  - "aucun résultat de test humain inventé"
+
+next_phase: "6B - stratégie de tests, exploitation, sécurité et lancement"

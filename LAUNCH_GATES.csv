@@ -1,0 +1,26 @@
+id,stage,requirement,owner,status
+LG001,BEFORE_CODE,"FuturePro et ArchivaPro terminés ou stabilisés",FOUNDER,OPEN
+LG002,BEFORE_CODE,"disponibilité effective du fondateur mesurée",FOUNDER,OPEN
+LG003,BEFORE_CODE,"dépôt ChantierLive séparé et secrets exclus",FOUNDER,OPEN
+LG004,BEFORE_ALPHA,"migrations rejouées sur base vide",TECH,OPEN
+LG005,BEFORE_ALPHA,"matrice RLS complète réussie",TECH,OPEN
+LG006,BEFORE_ALPHA,"restauration base et médias démontrée",TECH,OPEN
+LG007,BEFORE_ALPHA,"parcours E2E prioritaires réussis",TECH,OPEN
+LG008,BEFORE_ALPHA,"Android modeste et réseau intermittent testés",TECH,OPEN
+LG009,BEFORE_ALPHA,"monitoring et références d'erreur actifs",TECH,OPEN
+LG010,BEFORE_ALPHA,"3 à 5 chantiers et participants recrutés",FOUNDER,OPEN
+LG011,BEFORE_ALPHA,"consentement et protocole de test prêts",FOUNDER,OPEN
+LG012,BEFORE_ALPHA,"zéro anomalie critique ou haute non acceptée",FOUNDER,OPEN
+LG013,BEFORE_BETA,"résultats Alpha documentés sans simulation",FOUNDER,OPEN
+LG014,BEFORE_BETA,"fournisseur OTP et coût réels confirmés",FOUNDER,OPEN
+LG015,BEFORE_BETA,"région hébergement et transfert international examinés",LEGAL,OPEN
+LG016,BEFORE_BETA,"CGU et politique de confidentialité adaptées",LEGAL,OPEN
+LG017,BEFORE_BETA,"activation Mobile Money manuelle contrôlée",FOUNDER,OPEN
+LG018,BEFORE_BETA,"10 à 15 chantiers incluant inconnus recrutés",FOUNDER,OPEN
+LG019,BEFORE_BETA,"procédure support et incident testée",FOUNDER,OPEN
+LG020,BEFORE_COMMERCIAL,"nom ChantierLive vérifié OAPI et domaine",LEGAL,OPEN
+LG021,BEFORE_COMMERCIAL,"tarif choisi à partir de paiements ou refus réels",FOUNDER,OPEN
+LG022,BEFORE_COMMERCIAL,"coûts techniques et support mesurés",FOUNDER,OPEN
+LG023,BEFORE_COMMERCIAL,"formalités APDP nécessaires réalisées",LEGAL,OPEN
+LG024,BEFORE_COMMERCIAL,"sauvegardes et restauration périodiques opérationnelles",TECH,OPEN
+LG025,BEFORE_COMMERCIAL,"décision GO signée avec risques résiduels",FOUNDER,OPEN

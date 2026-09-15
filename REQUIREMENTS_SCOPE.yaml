@@ -1,0 +1,61 @@
+phase: "2A"
+status: "DRAFT_FOR_VALIDATION"
+
+functional_objectives:
+  - id: OBJ01
+    goal: "Créer un chantier et relier propriétaire et entrepreneur par invitation sécurisée dans les deux sens."
+    success: "L'invité rejoint le bon chantier avec le rôle prévu sans voir de données avant acceptation."
+  - id: OBJ02
+    goal: "Publier un journal de chantier simple en moins de trois minutes."
+    success: "Texte, phase et photos peuvent être préparés hors ligne puis synchronisés visiblement."
+  - id: OBJ03
+    goal: "Donner au propriétaire une vue compréhensible de l'avancement."
+    success: "Le tableau de bord montre phase, dernière activité, alertes et éléments à approuver."
+  - id: OBJ04
+    goal: "Tracer budget, dépenses, reçus et acomptes déclarés sans détenir de fonds."
+    success: "Chaque opération conserve auteur, date, statut et historique de correction."
+  - id: OBJ05
+    goal: "Permettre des décisions simples et traçables."
+    success: "Approbation, refus ou demande d'information sont horodatés et attribués."
+  - id: OBJ06
+    goal: "Fonctionner sur téléphones modestes et connexion instable."
+    success: "La file affiche attente, envoi, succès, échec et conflit sans perte silencieuse."
+  - id: OBJ07
+    goal: "Séparer strictement les entreprises et chantiers."
+    success: "Un utilisateur ne lit ou modifie que les données autorisées par son adhésion et son rôle."
+  - id: OBJ08
+    goal: "Produire un historique et un rapport partageable."
+    success: "Les événements majeurs sont auditables et un PDF simple peut être exporté."
+  - id: OBJ09
+    goal: "Gérer une licence sans bloquer la consultation des données acquises."
+    success: "Après grâce, le chantier passe en lecture seule et reste exportable."
+  - id: OBJ10
+    goal: "Limiter les promesses trompeuses de preuve et d'expertise."
+    success: "L'interface distingue capture/import et n'affirme ni authenticité absolue ni conformité technique."
+
+actors:
+  - {id: ACT01, role: OWNER, profile: PRIMARY, project_scope: true}
+  - {id: ACT02, role: OWNER, profile: CO_OWNER, project_scope: true}
+  - {id: ACT03, role: CONTRACTOR, profile: PRIMARY, organization_scope: true}
+  - {id: ACT04, role: SITE_MANAGER, profile: STANDARD, project_scope: true}
+  - {id: ACT05, role: PLATFORM_ADMIN, profile: STANDARD, platform_scope: true}
+
+capacity_defaults:
+  primary_owners_per_project: 1
+  co_owners_per_project: 2
+  primary_contractors_per_project: 1
+  site_managers_per_project: 2
+
+authorization_model:
+  basis: "membership + role + project/organization scope + record state + verification state"
+  default: DENY
+  admin_private_content: "BREAK_GLASS_ONLY"
+  sensitive_actions_online_only: true
+  sensitive_actions_verified_identity_only: true
+
+out_of_scope_2a:
+  - detailed_FR_BR_NFR
+  - database_schema
+  - RLS_SQL
+  - screen_wireframes
+  - production_code

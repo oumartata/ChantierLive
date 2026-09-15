@@ -1,0 +1,8 @@
+id,topic,official_source,url,supported_claim,checked_at
+S-A01,PWA,"Next.js documentation","https://nextjs.org/docs/app/guides/progressive-web-apps","Next.js documente manifest, service worker, installation et PWA avec une base de code web",2026-09-14
+S-A02,RLS,"Supabase documentation","https://supabase.com/docs/guides/database/postgres/row-level-security","RLS permet de contrôler l'accès aux lignes des tables exposées",2026-09-14
+S-A03,Storage,"Supabase documentation","https://supabase.com/docs/guides/storage/security/access-control","Storage s'appuie sur des politiques RLS; les uploads nécessitent des politiques appropriées",2026-09-14
+S-A04,Auth,"Supabase documentation","https://supabase.com/docs/guides/auth/passwords","Un mot de passe peut être associé à un e-mail ou un téléphone; les numéros recyclés créent un risque",2026-09-14
+S-A05,Regions,"Supabase documentation","https://supabase.com/docs/guides/platform/regions","Paris eu-west-3 et Francfort eu-central-1 figurent parmi les régions spécifiques disponibles",2026-09-14
+S-A06,IndexedDB,"MDN Web Docs","https://developer.mozilla.org/en-US/docs/Web/API/IndexedDB_API","IndexedDB stocke des données structurées importantes et des fichiers/blobs de manière transactionnelle",2026-09-14
+S-A07,ServiceWorker,"MDN Web Docs","https://developer.mozilla.org/en-US/docs/Web/API/Service_Worker_API","Un service worker intercepte les requêtes et permet cache et expériences hors ligne sous HTTPS",2026-09-14

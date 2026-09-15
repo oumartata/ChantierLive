@@ -1,0 +1,161 @@
+id,module,actor,requirement,priority,br_refs,ac_ref
+FR001,auth,Visitor,"Créer un compte avec téléphone et mot de passe.",MUST,BR001|BR002,AC001
+FR002,auth,Visitor,"Créer un compte avec e-mail et mot de passe.",MUST,BR001|BR002,AC002
+FR003,auth,User,"Associer téléphone et e-mail vérifiés au même compte.",MUST,BR003,AC003
+FR004,auth,System,"Détecter et bloquer la création probable d'un compte en doublon.",MUST,BR003,AC004
+FR005,auth,User,"Se connecter et se déconnecter sur mobile ou ordinateur.",MUST,BR001,AC005
+FR006,auth,User,"Réinitialiser le mot de passe par un canal vérifié.",MUST,BR004,AC006
+FR007,auth,System,"Marquer provisional tout compte dont le contact requis n'est pas vérifié.",MUST,BR005,AC007
+FR008,auth,System,"Interdire les actions sensibles aux comptes provisional.",MUST,BR005|BR006,AC008
+FR009,auth,System,"Limiter les tentatives de connexion et de vérification.",MUST,BR007,AC009
+FR010,auth,User,"Consulter et fermer les sessions actives de ses appareils.",SHOULD,BR008,AC010
+FR011,profile,User,"Consulter et modifier son nom; photo; langue et préférences non sensibles.",MUST,BR009,AC011
+FR012,profile,User,"Demander l'export de ses données personnelles.",MUST,BR010,AC012
+FR013,profile,User,"Demander la fermeture de son compte.",MUST,BR010|BR011,AC013
+FR014,organization,Contractor,"Disposer automatiquement d'un espace professionnel personnel.",MUST,BR012,AC014
+FR015,organization,Contractor,"Consulter la liste de ses chantiers dans son espace professionnel.",MUST,BR012,AC015
+FR016,organization,System,"Séparer strictement les données de chaque organisation.",MUST,BR013,AC016
+FR017,project,Owner|Contractor,"Créer un chantier en choisissant son rôle initial.",MUST,BR014,AC017
+FR018,project,Owner|Contractor,"Enregistrer nom; description; adresse; localisation facultative; dates et budget indicatif.",MUST,BR015,AC018
+FR019,project,AuthorizedMember,"Consulter les informations générales du chantier.",MUST,BR013|BR016,AC019
+FR020,project,OwnerPrimary|Contractor,"Modifier les informations autorisées d'un chantier actif.",MUST,BR017,AC020
+FR021,project,OwnerPrimary|Contractor,"Archiver un chantier avec confirmation.",MUST,BR018,AC021
+FR022,project,AuthorizedMember,"Consulter un chantier archivé selon ses droits.",MUST,BR018,AC022
+FR023,project,System,"Avertir d'un probable doublon sans bloquer la création.",SHOULD,BR019,AC023
+FR024,project,OwnerPrimary|Contractor,"Rattacher manuellement un doublon au support sans fusion automatique.",SHOULD,BR019,AC024
+FR025,project,System,"Afficher le statut du chantier: brouillon; actif; suspendu; terminé; archivé; lecture seule.",MUST,BR020,AC025
+FR026,project,OwnerPrimary|Contractor,"Déclarer le chantier terminé sans supprimer ses données.",MUST,BR020,AC026
+FR027,invitation,Contractor,"Inviter un propriétaire par téléphone; e-mail ou lien partagé.",MUST,BR021|BR022,AC027
+FR028,invitation,OwnerPrimary,"Inviter un entrepreneur par téléphone; e-mail ou lien partagé.",MUST,BR021|BR022,AC028
+FR029,invitation,OwnerPrimary,"Inviter jusqu'à deux copropriétaires.",MUST,BR023,AC029
+FR030,invitation,Contractor,"Inviter jusqu'à deux chefs de chantier.",MUST,BR023,AC030
+FR031,invitation,Invitee,"Voir l'invitant; le chantier; le rôle; l'expiration avant acceptation.",MUST,BR024,AC031
+FR032,invitation,Invitee,"Accepter ou refuser une invitation.",MUST,BR024|BR025,AC032
+FR033,invitation,System,"Reprendre l'invitation après inscription ou connexion.",MUST,BR025,AC033
+FR034,invitation,Sender,"Révoquer une invitation en attente.",MUST,BR026,AC034
+FR035,invitation,System,"Invalider une invitation expirée; refusée; révoquée ou déjà utilisée.",MUST,BR022|BR026,AC035
+FR036,invitation,System,"Lier l'acceptation à l'identifiant ciblé lorsqu'il a été spécifié.",MUST,BR027,AC036
+FR037,membership,OwnerPrimary|Contractor,"Retirer un participant non principal avec confirmation et motif.",MUST,BR028,AC037
+FR038,membership,OwnerPrimary,"Transférer le rôle de propriétaire principal par double confirmation.",MUST,BR006|BR029,AC038
+FR039,membership,OwnerPrimary|Contractor,"Transférer le rôle d'entrepreneur principal selon les autorisations.",MUST,BR006|BR029,AC039
+FR040,membership,System,"Conserver les contributions après retrait d'un participant.",MUST,BR028,AC040
+FR041,membership,AuthorizedMember,"Consulter les participants et leur rôle.",MUST,BR016,AC041
+FR042,phase,Contractor,"Créer les phases depuis un modèle simple.",MUST,BR030,AC042
+FR043,phase,Contractor,"Ajouter; renommer; réordonner ou retirer une phase en brouillon.",MUST,BR030,AC043
+FR044,phase,AuthorizedMember,"Consulter phases; statuts; dates et progression.",MUST,BR016|BR031,AC044
+FR045,phase,Contractor,"Publier le planning initial des phases.",MUST,BR031,AC045
+FR046,phase,Contractor,"Demander une modification d'une phase publiée.",MUST,BR032,AC046
+FR047,phase,OwnerPrimary,"Approuver; refuser ou demander une correction de phase.",MUST,BR032,AC047
+FR048,phase,Contractor,"Déclarer une phase prête pour validation.",MUST,BR033,AC048
+FR049,phase,OwnerPrimary,"Valider ou refuser la fin d'une phase.",MUST,BR033,AC049
+FR050,phase,System,"Calculer la progression simple à partir des phases terminées.",MUST,BR034,AC050
+FR051,journal,Contractor|SiteManager,"Créer un journal quotidien en brouillon.",MUST,BR035,AC051
+FR052,journal,Contractor|SiteManager,"Rattacher le journal à une date et à une phase.",MUST,BR035,AC052
+FR053,journal,Contractor|SiteManager,"Saisir travaux; difficultés; équipe et prochaines actions.",MUST,BR035,AC053
+FR054,journal,Contractor|SiteManager,"Enregistrer un journal hors connexion.",MUST,BR036,AC054
+FR055,journal,Contractor|SiteManager,"Modifier ou supprimer son brouillon non publié.",MUST,BR037,AC055
+FR056,journal,Contractor|SiteManager,"Publier un journal attribué et horodaté.",MUST,BR037,AC056
+FR057,journal,AuthorizedMember,"Consulter les journaux publiés dans l'ordre chronologique.",MUST,BR016,AC057
+FR058,journal,AuthorizedAuthor,"Corriger un journal publié par nouvelle version motivée.",MUST,BR038,AC058
+FR059,journal,Owner|Contractor,"Commenter un journal publié.",SHOULD,BR039,AC059
+FR060,media,Contractor|SiteManager,"Capturer une photo depuis l'application.",MUST,BR040,AC060
+FR061,media,Contractor|SiteManager,"Importer une photo depuis la galerie.",MUST,BR040,AC061
+FR062,media,System,"Marquer distinctement photo capturée et photo importée.",MUST,BR041,AC062
+FR063,media,Uploader,"Choisir si la localisation est jointe après consentement explicite.",MUST,BR042,AC063
+FR064,media,System,"Compresser une photo avant envoi selon une qualité minimale définie.",MUST,BR043,AC064
+FR065,media,Uploader,"Rattacher une photo à un chantier; une phase et une légende.",MUST,BR040,AC065
+FR066,media,AuthorizedMember,"Consulter les photos en chronologie et par phase.",MUST,BR016,AC066
+FR067,media,Uploader,"Supprimer une photo seulement tant qu'elle reste en brouillon.",MUST,BR044,AC067
+FR068,media,AuthorizedAuthor,"Annuler ou remplacer une photo publiée sans effacer l'original.",MUST,BR044,AC068
+FR069,finance,OwnerPrimary|Contractor,"Déclarer le budget initial du chantier.",MUST,BR045,AC069
+FR070,finance,Owner|Contractor,"Consulter budget; dépenses; acomptes et reste calculé.",MUST,BR016|BR046,AC070
+FR071,finance,Contractor|SiteManager,"Créer une dépense en brouillon.",MUST,BR047,AC071
+FR072,finance,Contractor|SiteManager,"Saisir montant; date; catégorie; fournisseur; note et phase.",MUST,BR047,AC072
+FR073,finance,Contractor|SiteManager,"Joindre un reçu facultatif à une dépense.",MUST,BR048,AC073
+FR074,finance,Contractor|SiteManager,"Créer une dépense en brouillon hors connexion.",MUST,BR036|BR047,AC074
+FR075,finance,Contractor,"Publier une dépense.",MUST,BR049,AC075
+FR076,finance,OwnerPrimary,"Approuver; refuser ou contester une dépense selon les règles du chantier.",MUST,BR050,AC076
+FR077,finance,AuthorizedMember,"Consulter l'historique d'une dépense et de ses décisions.",MUST,BR038,AC077
+FR078,finance,OwnerPrimary|Contractor,"Corriger une dépense validée par contre-écriture motivée.",MUST,BR051,AC078
+FR079,finance,System,"Calculer les totaux sans modifier les écritures sources.",MUST,BR046,AC079
+FR080,finance,System,"Alerter lorsqu'une dépense entraîne un dépassement du budget déclaré.",MUST,BR052,AC080
+FR081,finance,AuthorizedMember,"Filtrer les dépenses par date; phase; catégorie et statut.",SHOULD,BR016,AC081
+FR082,finance,AuthorizedMember,"Exporter les dépenses autorisées.",SHOULD,BR053,AC082
+FR083,finance,System,"Autoriser les écritures textuelles même si le quota média est atteint.",MUST,BR054,AC083
+FR084,advance,OwnerPrimary|Contractor,"Déclarer un acompte envoyé ou reçu sans exécuter le paiement.",MUST,BR055,AC084
+FR085,advance,Declarant,"Saisir montant; date; mode; référence facultative et justificatif.",MUST,BR055,AC085
+FR086,advance,ExpectedRecipient,"Reconnaître la réception d'un acompte déclaré.",MUST,BR056,AC086
+FR087,advance,Owner|Contractor,"Contester un acompte avec motif.",MUST,BR056,AC087
+FR088,advance,AuthorizedParty,"Annuler un acompte validé par contre-écriture.",MUST,BR051|BR056,AC088
+FR089,advance,System,"Afficher le statut déclaré; reçu; contesté ou annulé.",MUST,BR056,AC089
+FR090,advance,System,"Afficher que l'enregistrement ne remplace pas la preuve de l'opérateur.",MUST,BR057,AC090
+FR091,advance,System,"Exclure tout bouton ou flux laissant croire que l'application détient les fonds.",MUST,BR057,AC091
+FR092,approval,Contractor|SiteManager,"Créer une demande d'approbation liée à un objet autorisé.",MUST,BR058,AC092
+FR093,approval,OwnerPrimary,"Approuver une demande en ligne.",MUST,BR006|BR058,AC093
+FR094,approval,OwnerPrimary,"Refuser une demande avec motif.",MUST,BR058,AC094
+FR095,approval,OwnerPrimary,"Demander des informations ou une correction.",MUST,BR058,AC095
+FR096,approval,System,"Horodater et attribuer chaque décision.",MUST,BR059,AC096
+FR097,approval,System,"Empêcher la modification silencieuse d'une décision.",MUST,BR059,AC097
+FR098,approval,AuthorizedParty,"Créer une nouvelle demande liée pour rouvrir un sujet décidé.",SHOULD,BR059,AC098
+FR099,approval,OwnerCo,"Décider uniquement si le propriétaire principal lui accorde cette permission.",SHOULD,BR060,AC099
+FR100,approval,System,"Notifier les parties concernées d'une nouvelle demande ou décision.",MUST,BR061,AC100
+FR101,incident,AuthorizedMember,"Déclarer un incident avec type; gravité; description; date et phase.",MUST,BR062,AC101
+FR102,incident,AuthorizedMember,"Déclarer un incident hors connexion.",MUST,BR036|BR062,AC102
+FR103,incident,AuthorizedMember,"Ajouter photos et commentaires à un incident.",MUST,BR040|BR062,AC103
+FR104,incident,Contractor|OwnerPrimary,"Affecter un responsable et une échéance.",SHOULD,BR062,AC104
+FR105,incident,AuthorizedResponsible,"Mettre à jour puis clôturer un incident avec historique.",MUST,BR063,AC105
+FR106,incident,System,"Alerter les rôles concernés pour un incident urgent.",MUST,BR061|BR062,AC106
+FR107,document,Owner|Contractor,"Déposer un document autorisé avec titre; type et chantier.",MUST,BR064,AC107
+FR108,document,System,"Contrôler extension; type; taille et résultat d'analyse du fichier.",MUST,BR065,AC108
+FR109,document,Uploader,"Définir la visibilité du document parmi les rôles autorisés.",SHOULD,BR066,AC109
+FR110,document,AuthorizedMember,"Consulter ou télécharger un document selon ses droits.",MUST,BR016|BR066,AC110
+FR111,document,AuthorizedUploader,"Archiver un document sans suppression silencieuse.",MUST,BR067,AC111
+FR112,document,System,"Conserver versions et auteur des documents remplacés.",MUST,BR067,AC112
+FR113,dashboard,Owner,"Voir progression; dernière activité; budget; alertes et approbations.",MUST,BR068,AC113
+FR114,dashboard,Contractor,"Voir ses chantiers; activités; retards; incidents et demandes.",MUST,BR068,AC114
+FR115,dashboard,SiteManager,"Voir tâches de saisie; incidents et éléments non synchronisés.",MUST,BR068,AC115
+FR116,dashboard,AuthorizedMember,"Ouvrir le détail depuis chaque indicateur du tableau de bord.",SHOULD,BR068,AC116
+FR117,dashboard,System,"Afficher la date de dernière synchronisation des données visibles.",MUST,BR069,AC117
+FR118,dashboard,System,"Afficher un état vide compréhensible lorsqu'aucune donnée n'existe.",MUST,BR070,AC118
+FR119,notification,System,"Créer une notification interne pour les événements configurés.",MUST,BR061,AC119
+FR120,notification,User,"Marquer une notification comme lue et ouvrir son objet.",MUST,BR061,AC120
+FR121,notification,User,"Configurer les notifications non critiques.",SHOULD,BR071,AC121
+FR122,notification,System,"Envoyer un e-mail seulement aux comptes ayant un e-mail vérifié.",MUST,BR071,AC122
+FR123,notification,User,"Partager manuellement une invitation ou un rapport vers WhatsApp.",MUST,BR072,AC123
+FR124,notification,System,"Ne jamais inclure de données sensibles inutiles dans une notification.",MUST,BR073,AC124
+FR125,offline,User,"Voir en permanence l'état en ligne ou hors connexion.",MUST,BR074,AC125
+FR126,offline,User,"Voir une file des brouillons et médias en attente.",MUST,BR074,AC126
+FR127,offline,User,"Voir les états attente; envoi; succès; échec et conflit.",MUST,BR074,AC127
+FR128,offline,User,"Relancer manuellement un envoi échoué.",MUST,BR075,AC128
+FR129,offline,System,"Attribuer un UUID stable à chaque opération locale.",MUST,BR076,AC129
+FR130,offline,System,"Comparer la révision serveur avant mise à jour d'un brouillon existant.",MUST,BR077,AC130
+FR131,offline,System,"Bloquer et présenter un choix lors d'un conflit sans écrasement automatique.",MUST,BR077,AC131
+FR132,offline,System,"Exiger une connexion pour toute action sensible.",MUST,BR006,AC132
+FR133,offline,System,"Avertir avant déconnexion si des données locales risquent d'être perdues.",MUST,BR078,AC133
+FR134,offline,System,"Conserver la file après fermeture normale de la PWA selon les capacités du navigateur.",MUST,BR078,AC134
+FR135,report,Owner|Contractor,"Générer un rapport PDF simple d'un chantier et d'une période.",MUST,BR079,AC135
+FR136,report,System,"Inclure résumé; phases; journaux; dépenses autorisées; incidents et décisions.",MUST,BR079,AC136
+FR137,report,System,"Identifier la date de génération et la période couverte.",MUST,BR079,AC137
+FR138,report,User,"Télécharger ou partager manuellement le rapport.",MUST,BR072|BR079,AC138
+FR139,report,System,"Respecter les permissions du générateur dans le contenu exporté.",MUST,BR016|BR079,AC139
+FR140,report,System,"Afficher un avertissement indiquant que le rapport n'est pas une expertise technique.",MUST,BR080,AC140
+FR141,license,Owner|Contractor,"Consulter les formules et payer une licence chantier par le moyen proposé.",MUST,BR081,AC141
+FR142,license,System,"Permettre qu'une seule partie paie sans modifier ses permissions.",MUST,BR082,AC142
+FR143,license,PlatformAdmin,"Activer manuellement une licence après vérification du paiement.",MUST,BR083,AC143
+FR144,license,System,"Notifier avant expiration puis appliquer trente jours de grâce.",MUST,BR084,AC144
+FR145,license,System,"Passer le chantier en lecture seule après la grâce.",MUST,BR084,AC145
+FR146,license,AuthorizedMember,"Continuer à consulter et exporter en lecture seule.",MUST,BR084,AC146
+FR147,license,Owner|Contractor,"Renouveler la licence pour réactiver les écritures.",MUST,BR084,AC147
+FR148,license,System,"Ne jamais supprimer automatiquement des données à l'expiration.",MUST,BR085,AC148
+FR149,audit,System,"Journaliser les créations; publications; corrections; décisions; retraits et transferts.",MUST,BR086,AC149
+FR150,audit,System,"Conserver acteur; heure serveur; objet; action et motif lorsque requis.",MUST,BR086,AC150
+FR151,audit,OwnerPrimary|Contractor,"Consulter les événements autorisés de son chantier.",MUST,BR016|BR087,AC151
+FR152,audit,System,"Interdire la modification du journal d'audit par les rôles métier.",MUST,BR087,AC152
+FR153,audit,PlatformAdmin,"Consulter les événements techniques de plateforme sans ouvrir les contenus privés.",MUST,BR088,AC153
+FR154,audit,PlatformAdmin,"Utiliser un accès exceptionnel temporaire et motivé pour le support privé.",MUST,BR089,AC154
+FR155,admin,PlatformAdmin,"Gérer statuts de comptes; licences et paramètres globaux autorisés.",MUST,BR088,AC155
+FR156,admin,PlatformAdmin,"Suspendre un compte ou chantier avec motif et notification.",MUST,BR090,AC156
+FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support.",MUST,BR088,AC157
+FR158,admin,PlatformAdmin,"Révoquer une session compromise.",MUST,BR008|BR088,AC158
+FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel.",MUST,BR089,AC159
+FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable.",MUST,BR089,AC160

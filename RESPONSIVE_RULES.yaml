@@ -1,0 +1,39 @@
+version: "4B.1"
+breakpoints:
+  mobile: {min: 320, max: 599}
+  tablet: {min: 600, max: 1023}
+  desktop: {min: 1024, max: null}
+
+mobile:
+  navigation: bottom_5_max
+  page_columns: 1
+  forms: one_column
+  tables: card_rows_or_horizontal_scroll_if_financial
+  dialogs: bottom_sheet
+  primary_action: sticky_bottom_when_long_form
+  media_grid_columns: 2
+  finance_summary_columns: 1
+
+tablet:
+  navigation: compact_side_or_bottom_by_orientation
+  page_columns: 2_when_useful
+  forms: one_or_two_columns
+  dialogs: centered
+  media_grid_columns: 3
+  finance_summary_columns: 2
+
+desktop:
+  navigation: side_240_collapsible_72
+  page_columns: 2_or_3
+  forms: two_columns_max
+  dialogs: centered_520_max
+  media_grid_columns: 4
+  finance_summary_columns: 3
+  content_max_px: 1200
+
+shared:
+  - "état connexion et synchronisation visible"
+  - "action principale dans la première zone visible"
+  - "ordre du contenu identique entre formats"
+  - "aucune information uniquement au survol"
+  - "images chargées en aperçu compressé"

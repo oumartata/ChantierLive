@@ -1,0 +1,10 @@
+stateDiagram-v2
+  [*] --> Pending
+  Pending --> Active: paiement vérifié ou pilote
+  Active --> Expiring: fenêtre de rappel
+  Active --> Grace: échéance
+  Expiring --> Grace: échéance
+  Grace --> ReadOnly: 30 jours
+  Expiring --> Active: renouvellement
+  Grace --> Active: renouvellement
+  ReadOnly --> Active: renouvellement

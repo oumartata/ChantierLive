@@ -1,0 +1,58 @@
+phase: "6B"
+status: "VALIDATED"
+updated_at: "2026-09-15"
+
+principles:
+  - "aucun résultat simulé; NOT_RUN jusqu'à exécution et preuve"
+  - "un test de permission doit vérifier au moins un accès autorisé et deux refusés"
+  - "les tests financiers contrôlent données finales et historique, pas seulement l'écran"
+  - "les migrations sont testées sur base vide puis sur copie anonymisée"
+  - "les parcours hors ligne sont testés sur téléphone Android réel"
+
+levels:
+  static:
+    when: "chaque modification"
+    checks: [formatage, lint, TypeScript, dépendances, secrets]
+  unit:
+    when: "chaque modification métier"
+    targets: [calculs, validations, machines_etats, transformation_payload]
+  database:
+    when: "chaque migration ou fonction SQL"
+    targets: [contraintes, transactions, idempotence, RLS, append_only]
+  integration:
+    when: "chaque contrat API"
+    targets: [Auth, Storage, RPC, fonctions_serveur, e_mail]
+  e2e:
+    when: "chaque candidat Alpha/Bêta"
+    targets: [invitation, journal, finance, synchronisation, licence]
+  human:
+    when: "Alpha puis Bêta"
+    participants_alpha: "3 chefs de chantier + 2 propriétaires à distance"
+    evidence: [observation, temps, aide_demandee, erreur, commentaire_verbatim_court]
+
+environments:
+  development: "données factices; aucune donnée réelle"
+  test: "base recréable; comptes représentant chaque rôle et deux chantiers isolés"
+  staging: "configuration proche production; données anonymisées uniquement"
+  production: "tests non destructifs et comptes pilote contrôlés"
+
+mandatory_devices:
+  - "Android entrée ou milieu de gamme, Chrome PWA"
+  - "Android avec stockage presque plein"
+  - "ordinateur Chrome ou Edge"
+  - "réseau stable, lent, intermittent et mode avion"
+
+release_blockers:
+  - "exposition entre chantiers"
+  - "doublon ou écrasement financier"
+  - "perte silencieuse d'une opération hors ligne"
+  - "accès administrateur privé sans autorisation"
+  - "restauration de sauvegarde non démontrée"
+  - "action sensible possible avec identité non vérifiée ou hors ligne"
+  - "anomalie critique ou haute sans mesure compensatoire approuvée"
+
+evidence_format:
+  required: [test_id, build_id, environment, device, executed_at, executor, result, evidence_link, defect_id_optional]
+  results: [NOT_RUN, PASS, FAIL, BLOCKED]
+
+next_state_after_validation: "dossier de préparation terminé; développement différé"

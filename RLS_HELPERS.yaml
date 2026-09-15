@@ -1,0 +1,49 @@
+phase: "5B"
+status: "DESIGN_NOT_DEPLOYED"
+
+server_helpers:
+  - name: is_active_project_member
+    args: [project_uuid]
+    returns: boolean
+    rule: "auth.uid possède une adhésion active non expirée"
+  - name: has_project_role
+    args: [project_uuid, allowed_roles]
+    returns: boolean
+    rule: "adhésion active avec rôle inclus"
+  - name: is_primary_owner
+    args: [project_uuid]
+    returns: boolean
+    rule: "OWNER avec profil PRIMARY"
+  - name: has_project_permission
+    args: [project_uuid, permission_code]
+    returns: boolean
+    rule: "rôle natif ou délégation active non expirée"
+  - name: can_access_private_object
+    args: [project_uuid, visibility]
+    returns: boolean
+    rule: "adhésion, rôle et visibilité compatibles"
+  - name: has_support_scope
+    args: [project_uuid, scope_code]
+    returns: boolean
+    rule: "autorisation support active, non expirée et périmètre exact"
+
+rules:
+  - "fonctions SECURITY DEFINER avec search_path figé et privilèges minimaux"
+  - "service_role absent du navigateur"
+  - "PLATFORM_ADMIN ne contourne pas automatiquement les politiques chantier"
+  - "toute opération sensible passe par une fonction transactionnelle"
+  - "les décisions et versions append-only refusent UPDATE et DELETE"
+  - "project_id du payload est recoupé avec l'objet parent côté serveur"
+
+required_test_identities:
+  - owner_primary_project_a
+  - owner_co_without_delegation_project_a
+  - contractor_project_a
+  - site_manager_project_a
+  - member_project_b
+  - provisional_unverified_user
+  - platform_admin_without_support_grant
+  - platform_admin_with_expired_grant
+  - platform_admin_with_valid_scoped_grant
+
+test_rule: "chaque politique possède au moins un test autorisé et deux tests refusés, dont un accès croisé entre chantiers"

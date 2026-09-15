@@ -1,0 +1,11 @@
+flowchart TD
+  A["Dépense brouillon"] --> B["Publication"]
+  B --> C{"Approbation requise"}
+  C -->|Non| D["Visible non approuvée"]
+  C -->|Oui| E["Demande versionnée"]
+  E --> F{"Décision propriétaire"}
+  F -->|Approuver| G["Approuvée"]
+  F -->|Refuser| H["Refusée avec motif"]
+  F -->|Information| I["Complément demandé"]
+  G --> J{"Correction ultérieure"}
+  J -->|Oui| K["Contre-écriture liée"]

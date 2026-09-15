@@ -1,0 +1,31 @@
+id,name,primary_actor,preconditions,main_flow,outcome,fr_refs
+UC001,Créer un chantier comme propriétaire,Owner,"Compte autorisé","Choisir OWNER; saisir minimum; enregistrer","Chantier brouillon et adhésion OWNER principal",FR017|FR018
+UC002,Créer un chantier comme entrepreneur,Contractor,"Compte autorisé; organisation disponible","Choisir CONTRACTOR; saisir minimum; enregistrer","Chantier brouillon rattaché à l'organisation",FR014|FR017|FR018
+UC003,Inviter l'entrepreneur,OwnerPrimary,"Chantier créé; contact ou partage disponible","Créer invitation; partager; attendre décision","CONTRACTOR rejoint ou invitation finit sans accès",FR028|FR031|FR032|FR033|FR035|FR036
+UC004,Inviter le propriétaire,Contractor,"Chantier créé; contact ou partage disponible","Créer invitation; partager; attendre décision","OWNER principal rejoint ou invitation finit sans accès",FR027|FR031|FR032|FR033|FR035|FR036
+UC005,Gérer l'équipe,OwnerPrimary|Contractor,"Deux rôles principaux actifs","Inviter copropriétaire/chef; révoquer ou retirer","Équipe conforme aux limites; historique conservé",FR029|FR030|FR034|FR037|FR040|FR041
+UC006,Transférer un rôle principal,OwnerPrimary|Contractor,"Deux parties vérifiées; connexion active","Démarrer; vérifier; double confirmer","Un seul nouveau titulaire; audit complet",FR038|FR039
+UC007,Publier le planning initial,Contractor,"Chantier brouillon ou actif; phases préparées","Choisir modèle; adapter; publier","Planning versionné visible",FR042|FR043|FR045
+UC008,Modifier une phase publiée,Contractor|OwnerPrimary,"Phase publiée","Créer demande; décider","Nouvelle version appliquée ou proposition refusée",FR046|FR047
+UC009,Valider une phase terminée,Contractor|OwnerPrimary,"Phase en cours","Déclarer prête; propriétaire décide","Phase validée/refusée; progression recalculée",FR048|FR049|FR050
+UC010,Publier un journal en ligne,SiteManager|Contractor,"Adhésion active; chantier inscriptible","Saisir; joindre photos; publier","Journal horodaté visible",FR051|FR052|FR053|FR056|FR057
+UC011,Préparer un journal hors ligne,SiteManager|Contractor,"Appareil hors ligne","Saisir; capturer; enregistrer","Éléments en file puis synchronisés",FR054|FR060|FR125|FR126|FR128
+UC012,Corriger un journal publié,AuthorizedAuthor,"Journal publié","Créer correction; saisir motif; publier","Nouvelle version liée; original conservé",FR058
+UC013,Ajouter des photos,SiteManager|Contractor,"Journal/phase disponible","Capturer ou importer; consentir localisation; compresser","Média classé par origine et rattaché",FR060|FR061|FR062|FR063|FR064|FR065
+UC014,Déclarer le budget initial,OwnerPrimary|Contractor,"Chantier actif sans budget final","Saisir FCFA; confirmer","Budget versionné consultable",FR069|FR070
+UC015,Publier une dépense,SiteManager|Contractor,"Chantier inscriptible","Préparer; joindre reçu; synchroniser; publier","Dépense visible; alerte dépassement possible",FR071|FR072|FR073|FR074|FR075|FR080
+UC016,Statuer sur une dépense,OwnerPrimary,"Dépense publiée; compte vérifié en ligne","Approuver/refuser/contester","Décision figée et notifiée",FR076|FR077|FR100
+UC017,Corriger une dépense validée,OwnerPrimary|Contractor,"Dépense validée erronée","Créer contre-écriture motivée","Totaux recalculés; original visible",FR078|FR079
+UC018,Déclarer et reconnaître un acompte,OwnerPrimary|Contractor,"Deux parties actives","Déclarer; notifier récepteur; reconnaître/contester","Statut déclaratif traçable sans paiement",FR084|FR085|FR086|FR087|FR089|FR090|FR091
+UC019,Annuler un acompte,AuthorizedParty,"Acompte validé","Créer annulation motivée","Contre-écriture; statut annulé",FR088
+UC020,Traiter une approbation,Contractor|OwnerPrimary,"Objet versionné","Demander; décider; notifier","Décision attribuée; sujet rouvrable par nouvelle demande",FR092|FR093|FR094|FR095|FR096|FR097|FR098|FR100
+UC021,Gérer un incident,AuthorizedMember,"Chantier actif","Déclarer; joindre; affecter; mettre à jour; clôturer","Résolution et historique disponibles",FR101|FR102|FR103|FR104|FR105|FR106
+UC022,Gérer un document,Owner|Contractor,"Fichier disponible","Déposer; analyser; régler visibilité; publier/archiver","Document versionné accessible aux bons rôles",FR107|FR108|FR109|FR110|FR111|FR112
+UC023,Consulter le tableau propriétaire,Owner,"Adhésion active","Ouvrir; parcourir indicateurs","Vue autorisée et fraîcheur comprises",FR113|FR116|FR117|FR118
+UC024,Consulter le portefeuille entrepreneur,Contractor,"Organisation et chantiers autorisés","Ouvrir; filtrer; accéder au détail","Résumé multi-chantiers sans fuite",FR114|FR116|FR117
+UC025,Consulter la file terrain,SiteManager,"Adhésion active","Ouvrir accueil/file; relancer échecs","État de chaque saisie compris",FR115|FR125|FR126|FR127|FR128
+UC026,Générer un rapport simple,Owner|Contractor,"Données et droits disponibles","Choisir période; générer; télécharger/partager","PDF autorisé; daté; averti",FR135|FR136|FR137|FR138|FR139|FR140
+UC027,Activer une licence manuellement,Owner|Contractor|PlatformAdmin,"Formule choisie; paiement déclaré","Soumettre référence; admin vérifie","Licence active sans changement de rôle",FR141|FR142|FR143
+UC028,Gérer l'expiration,AuthorizedMember,"Licence proche/expirée","Notifier; grâce; lecture seule; renouveler","Données conservées; écriture réactivable",FR144|FR145|FR146|FR147|FR148
+UC029,Examiner l'audit chantier,OwnerPrimary|Contractor,"Adhésion et droit audit","Ouvrir; filtrer","Événements autorisés visibles et intacts",FR149|FR150|FR151|FR152
+UC030,Assister par accès exceptionnel,PlatformAdmin,"Ticket légitime; autorisation renforcée","Définir motif/périmètre/durée; intervenir; fermer","Accès expiré; actions auditées et notifiées",FR153|FR154|FR157|FR159|FR160

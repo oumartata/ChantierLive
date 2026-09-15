@@ -1,0 +1,87 @@
+phase: "5A"
+status: "VALIDATED"
+updated_at: "2026-09-14"
+
+product:
+  name: "ChantierLive"
+  delivery: "une_seule_PWA_responsive"
+  clients: [mobile_browser, desktop_browser, installed_PWA]
+  shared: [codebase, accounts, data, backend]
+  native_app_mvp: false
+
+stack:
+  frontend:
+    framework: "Next.js App Router"
+    language: "TypeScript"
+    rendering: "hybride selon écran; contenus privés non indexables"
+    pwa: [web_app_manifest, service_worker, HTTPS]
+    version_rule: "version stable figée au démarrage du développement"
+  local_data:
+    database: "IndexedDB"
+    contains: [drafts, outbox_operations, sync_metadata, temporary_media]
+    rule: "aucune donnée locale sensible conservée au-delà du besoin"
+  backend:
+    platform: "Supabase managé"
+    services: [PostgreSQL, Auth, Storage, server_functions]
+    region: "Paris ou Francfort à décider après tests et examen APDP"
+  external_adapters:
+    sms: "fournisseur à confirmer"
+    email: "fournisseur à confirmer avant bêta"
+    payment: "activation manuelle MVP; agrégateur interchangeable en V1"
+    monitoring: "outil à choisir avant pilote"
+
+security:
+  tenant_key: "project_id"
+  database_policy: "RLS obligatoire sur toute table exposée; refus par défaut"
+  storage_policy: "buckets privés + règles RLS liées au chantier"
+  privileged_logic: "fonctions serveur pour opérations sensibles et secrets"
+  admin_access: "aucun accès ordinaire; support temporaire, motivé et audité"
+  auth:
+    methods: [email_password, phone_password]
+    phone_status: "vérifié seulement après OTP fournisseur"
+    sensitive_actions: "connexion requise + identité vérifiée + nouvelle vérification selon risque"
+    recycled_phone_risk: "traité par association e-mail, vérification et journal d'audit"
+
+sync:
+  model: "local_first_limité"
+  offline_allowed: [journal_draft, photo_draft, expense_draft, receipt_draft, incident_draft]
+  online_required: [approve, reject, final_phase_validation, role_transfer, principal_role_removal, license_activation]
+  operation_fields: [operation_uuid, actor_id, project_id, entity_type, entity_id, base_revision, client_created_at, payload_hash]
+  server_rules:
+    - "operation_uuid unique pour garantir l'idempotence"
+    - "révision serveur comparée avant application"
+    - "conflit bloqué et présenté à l'utilisateur"
+    - "aucun last-write-wins pour les données financières"
+    - "aucune fusion ni suppression silencieuse"
+  visible_states: [hors_ligne, en_attente, envoi, synchronisé, conflit, erreur]
+
+data_integrity:
+  drafts: "modifiables"
+  published: "versionnés avec historique"
+  validated: "annulation ou nouvelle version liée; motif obligatoire"
+  audit: "append-only pour actions sensibles"
+  transactions: "écritures financières et permissions appliquées côté serveur"
+
+media:
+  capture: "compression côté client avant mise en attente"
+  storage: "bucket privé par règles, pas par confiance dans l'URL"
+  metadata: [author, project, phase, capture_mode, capture_time, optional_location]
+  access: "URL temporaire ou téléchargement autorisé après contrôle"
+  offline_rule: "quota local visible; reprise d'envoi; suppression locale après confirmation selon politique"
+
+operations:
+  environments: [development, staging, production]
+  migrations: "versionnées et rejouables"
+  backups: "base + stratégie médias; fréquence et rétention à fixer avant pilote"
+  observability: [errors, sync_failures, auth_events, privileged_actions]
+  secrets: "jamais dans le navigateur ni dans le dépôt"
+
+deferred:
+  - "hébergeur Next.js définitif"
+  - "région Supabase définitive et validation juridique APDP"
+  - "fournisseurs SMS, e-mail et monitoring"
+  - "automatisation Mobile Money"
+  - "vidéo, planothèque et profils publics entrepreneurs"
+  - "visualiseur 3D interactif"
+
+next_phase: "5B - modèle de données et politiques RLS"

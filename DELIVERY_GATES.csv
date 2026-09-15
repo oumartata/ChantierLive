@@ -1,0 +1,12 @@
+id,after_lot,gate,blocking_evidence
+G001,L00,"Qualité du socle","build lint types tests et installation PWA"
+G002,L01,"Isolation fondamentale","RLS croisée projets et organisations"
+G003,L02,"Confiance d'accès","invitation concurrente rôle principal et provisional"
+G004,L03,"Traçabilité chantier","versions phase journal et événements incident"
+G005,L04,"Confidentialité fichiers","buckets privés empreinte et accès croisé"
+G006,L05,"Intégrité financière","contre-écriture approbation ciblée et totaux"
+G007,L06,"Résilience hors ligne","reprise idempotence dépendances et conflits"
+G008,L07,"Lisibilité propriétaire","tableaux rapports notifications et fraîcheur"
+G009,L08,"Administration limitée","licence sans droits et support expirant"
+G010,L09,"Candidat Alpha","E2E sécurité accessibilité performance restauration"
+G011,L10,"Lancement Alpha","zéro critique comptes pilotes et protocole prêt"

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1040" viewBox="0 0 1400 1040" role="img" aria-labelledby="title desc">
+  <title id="title">UI kit haute fidélité ChantierLive</title>
+  <desc id="desc">Planche présentant boutons, champs, états, cartes, navigation et synchronisation.</desc>
+  <rect width="1400" height="1040" fill="#F3EEE4"/>
+  <rect x="48" y="40" width="1304" height="960" rx="28" fill="#FFFFFF"/>
+  <g font-family="Inter,Arial,sans-serif" fill="#17211D">
+    <g transform="translate(88 78)">
+      <path d="M52 2H16A14 14 0 0 0 2 16v38a14 14 0 0 0 14 14h36" fill="none" stroke="#126B54" stroke-width="8" stroke-linecap="round"/>
+      <path d="M20 43V28l16-12 16 12v15" fill="none" stroke="#126B54" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="62" cy="11" r="7" fill="#BF570F"/>
+      <text x="84" y="36" font-size="34" font-weight="700">Chantier<tspan fill="#126B54">Live</tspan></text>
+      <text x="84" y="61" font-size="15" fill="#65716B">Système d'interface · Phase 4B</text>
+    </g>
+    <line x1="88" y1="170" x2="1312" y2="170" stroke="#D8E2DE"/>
+    <g transform="translate(88 210)">
+      <text font-size="20" font-weight="700">Actions</text>
+      <rect y="30" width="190" height="50" rx="10" fill="#126B54"/><text x="34" y="62" fill="#FFFFFF" font-size="16" font-weight="600">Enregistrer</text>
+      <rect x="210" y="30" width="190" height="50" rx="10" fill="#FFFFFF" stroke="#126B54"/><text x="249" y="62" fill="#126B54" font-size="16" font-weight="600">Voir le détail</text>
+      <rect x="420" y="30" width="160" height="50" rx="10" fill="#F3EEE4"/><text x="463" y="62" font-size="16" font-weight="600">Annuler</text>
+      <rect x="600" y="30" width="190" height="50" rx="10" fill="#B42318"/><text x="637" y="62" fill="#FFFFFF" font-size="16" font-weight="600">Refuser</text>
+      <rect x="810" y="30" width="200" height="50" rx="10" fill="#D8E2DE"/><text x="850" y="62" fill="#65716B" font-size="16" font-weight="600">Chargement…</text>
+    </g>
+    <g transform="translate(88 335)">
+      <text font-size="20" font-weight="700">Champs et saisie financière</text>
+      <text y="45" font-size="14" font-weight="600">Nom du chantier</text>
+      <rect y="58" width="370" height="52" rx="10" fill="#FFFFFF" stroke="#8D9A94"/>
+      <text x="16" y="90" font-size="16" fill="#65716B">Ex. Villa familiale Kati</text>
+      <text x="400" y="45" font-size="14" font-weight="600">Montant</text>
+      <rect x="400" y="58" width="330" height="52" rx="10" fill="#FFFFFF" stroke="#126B54" stroke-width="2"/>
+      <text x="416" y="90" font-size="16">1 250 000</text><text x="652" y="90" font-size="14" fill="#65716B">F CFA</text>
+      <text x="760" y="45" font-size="14" font-weight="600">Motif obligatoire</text>
+      <rect x="760" y="58" width="400" height="52" rx="10" fill="#FFF7F6" stroke="#B42318"/>
+      <text x="776" y="90" font-size="16" fill="#65716B">Expliquez votre décision</text>
+      <text x="760" y="132" font-size="13" fill="#B42318">Le motif est obligatoire.</text>
+    </g>
+    <g transform="translate(88 510)">
+      <text font-size="20" font-weight="700">États lisibles</text>
+      <g transform="translate(0 28)"><rect width="132" height="34" rx="17" fill="#E7F4EF"/><circle cx="19" cy="17" r="6" fill="#16794F"/><text x="34" y="22" font-size="14" font-weight="600">Synchronisé</text></g>
+      <g transform="translate(148 28)"><rect width="145" height="34" rx="17" fill="#FFF3E8"/><circle cx="19" cy="17" r="6" fill="#BF570F"/><text x="34" y="22" font-size="14" font-weight="600">2 en attente</text></g>
+      <g transform="translate(309 28)"><rect width="128" height="34" rx="17" fill="#FFF0EE"/><text x="17" y="22" font-size="14" font-weight="600" fill="#B42318">Échec d'envoi</text></g>
+      <g transform="translate(453 28)"><rect width="148" height="34" rx="17" fill="#EDF1EF"/><text x="17" y="22" font-size="14" font-weight="600">Hors connexion</text></g>
+      <g transform="translate(0 82)">
+        <rect width="600" height="82" rx="12" fill="#FFF3E8"/>
+        <circle cx="34" cy="31" r="15" fill="#BF570F"/><text x="29" y="37" font-size="18" font-weight="700" fill="#FFFFFF">!</text>
+        <text x="62" y="29" font-size="16" font-weight="700">Brouillon enregistré sur ce téléphone</text>
+        <text x="62" y="54" font-size="14" fill="#65716B">Il sera envoyé automatiquement au retour du réseau.</text>
+      </g>
+    </g>
+    <g transform="translate(730 510)">
+      <text font-size="20" font-weight="700">Carte chantier</text>
+      <rect y="28" width="510" height="170" rx="14" fill="#FFFFFF" stroke="#D8E2DE"/>
+      <rect x="18" y="46" width="94" height="94" rx="10" fill="#E7F4EF"/>
+      <path d="M42 111V82l23-18 23 18v29" fill="none" stroke="#126B54" stroke-width="6" stroke-linejoin="round"/>
+      <text x="132" y="63" font-size="18" font-weight="700">Villa familiale Kati</text>
+      <text x="132" y="90" font-size="14" fill="#65716B">Élévation des murs · 64 %</text>
+      <rect x="132" y="107" width="330" height="10" rx="5" fill="#E6ECE9"/><rect x="132" y="107" width="211" height="10" rx="5" fill="#126B54"/>
+      <text x="132" y="145" font-size="14" fill="#65716B">Mis à jour aujourd'hui à 18:40</text>
+    </g>
+    <g transform="translate(88 735)">
+      <text font-size="20" font-weight="700">Navigation mobile</text>
+      <rect y="28" width="580" height="142" rx="18" fill="#FFFFFF" stroke="#D8E2DE"/>
+      <g transform="translate(26 53)" text-anchor="middle" font-size="13">
+        <g transform="translate(35)"><circle cy="18" r="18" fill="#E7F4EF"/><text y="55" fill="#126B54" font-weight="700">Accueil</text></g>
+        <g transform="translate(155)"><circle cy="18" r="18" fill="#EDF1EF"/><text y="55">Journal</text></g>
+        <g transform="translate(275)"><circle cy="18" r="18" fill="#EDF1EF"/><text y="55">Photos</text></g>
+        <g transform="translate(395)"><circle cy="18" r="18" fill="#EDF1EF"/><text y="55">Finances</text></g>
+        <g transform="translate(515)"><circle cy="18" r="18" fill="#EDF1EF"/><text y="55">Plus</text></g>
+      </g>
+    </g>
+    <g transform="translate(730 735)">
+      <text font-size="20" font-weight="700">Décision sensible</text>
+      <rect y="28" width="510" height="190" rx="14" fill="#FFFFFF" stroke="#D8E2DE"/>
+      <text x="22" y="62" font-size="17" font-weight="700">Approuver cette dépense ?</text>
+      <text x="22" y="90" font-size="14" fill="#65716B">Montant déclaré : 325 000 F CFA</text>
+      <text x="22" y="116" font-size="14" fill="#65716B">Votre décision sera datée et conservée.</text>
+      <rect x="22" y="138" width="205" height="46" rx="10" fill="#126B54"/><text x="65" y="167" font-size="15" font-weight="600" fill="#FFFFFF">Approuver</text>
+      <rect x="245" y="138" width="243" height="46" rx="10" fill="#FFFFFF" stroke="#B42318"/><text x="269" y="167" font-size="15" font-weight="600" fill="#B42318">Demander correction</text>
+    </g>
+    <text x="88" y="972" font-size="13" fill="#65716B">Corps ≥ 16 px · cible tactile ≥ 44 px · statuts textuels · une action principale par vue</text>
+  </g>
+</svg>

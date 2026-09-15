@@ -1,0 +1,17 @@
+erDiagram
+  PROFILES ||--o{ PROJECT_MEMBERSHIPS : participates
+  PROJECTS ||--o{ PROJECT_MEMBERSHIPS : grants
+  PROJECTS ||--o{ INVITATIONS : issues
+  PROJECTS ||--o{ PROJECT_PHASES : contains
+  PROJECT_PHASES ||--o{ PHASE_VERSIONS : versions
+  PROJECTS ||--o{ DAILY_LOGS : records
+  DAILY_LOGS ||--o{ DAILY_LOG_VERSIONS : versions
+  PROJECTS ||--o{ EXPENSES : tracks
+  EXPENSES ||--o{ EXPENSE_VERSIONS : versions
+  EXPENSE_VERSIONS ||--o{ RECEIPTS : supports
+  PROJECTS ||--o{ ADVANCES : declares
+  ADVANCES ||--o{ ADVANCE_EVENTS : evolves
+  PROJECTS ||--o{ APPROVAL_REQUESTS : requests
+  APPROVAL_REQUESTS ||--o{ APPROVAL_DECISIONS : decides
+  PROJECTS ||--o{ MEDIA_ASSETS : stores
+  PROJECTS ||--o{ AUDIT_EVENTS : audits

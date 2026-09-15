@@ -1,0 +1,29 @@
+id,state,when,message,action,component
+UX001,loading_initial,"premier chargement","Chargement en cours…",NONE,C033
+UX002,loading_more,"pagination","Chargement de la suite…",NONE,C033
+UX003,empty_first_use,"aucune donnée créée","Commencez par ajouter la première information.",PRIMARY_CONTEXT_ACTION,C016
+UX004,empty_filtered,"filtre sans résultat","Aucun résultat avec ces filtres.",CLEAR_FILTERS,C016
+UX005,offline_readable,"cache disponible","Vous êtes hors ligne. Les informations affichées peuvent être anciennes.",VIEW_SYNC,C036
+UX006,offline_draft_allowed,"écriture locale permise","Brouillon enregistré sur ce téléphone. Il sera envoyé au retour du réseau.",VIEW_QUEUE,C036
+UX007,online_required,"action sensible hors ligne","Connexion nécessaire pour terminer cette action.",RETRY_WHEN_ONLINE,C031
+UX008,sync_pending,"opération en attente","Envoi en attente.",VIEW_QUEUE,C007
+UX009,syncing,"envoi actif","Envoi en cours…",NONE,C029
+UX010,sync_failed,"échec temporaire","L'envoi a échoué. Votre brouillon est conservé.",RETRY,C029
+UX011,sync_conflict,"révisions différentes","Deux versions existent. Choisissez après comparaison.",RESOLVE,C030
+UX012,permission_denied,"rôle non autorisé","Votre rôle ne permet pas cette action.",BACK,C031
+UX013,verification_required,"identité provisoire","Vérifiez votre identifiant pour continuer.",VERIFY,C031
+UX014,license_expiring,"échéance proche","La licence arrive bientôt à expiration.",VIEW_LICENSE,C013
+UX015,license_grace,"période de grâce","Renouvelez pour éviter le passage en lecture seule.",RENEW,C014
+UX016,license_read_only,"grâce terminée","Le chantier est en lecture seule. Vos données restent accessibles.",RENEW_OR_EXPORT,C014
+UX017,invitation_expired,"date dépassée","Cette invitation a expiré.",REQUEST_NEW_INVITE,C008
+UX018,invitation_revoked,"révocation","Cette invitation a été annulée.",CONTACT_INVITER,C008
+UX019,object_superseded,"nouvelle version publiée","Une version plus récente existe.",VIEW_LATEST,C022
+UX020,decision_recorded,"décision confirmée","Décision enregistrée et horodatée.",VIEW_DETAIL,C032
+UX021,upload_too_large,"limite fichier","Ce fichier est trop volumineux.",COMPRESS_OR_REPLACE,C013
+UX022,unsupported_file,"type refusé","Ce format de fichier n'est pas accepté.",CHOOSE_OTHER,C013
+UX023,access_removed,"adhésion retirée","Vous n'avez plus accès à ce chantier.",GO_PROJECTS,C031
+UX024,session_expired,"jeton expiré","Votre session a expiré. Reconnectez-vous.",LOGIN,C013
+UX025,server_unavailable,"service indisponible","Service momentanément indisponible. Vos brouillons locaux sont conservés.",RETRY,C013
+UX026,destructive_confirm,"annulation ou retrait","Vérifiez les conséquences avant de confirmer.",CONFIRM_OR_CANCEL,C025
+UX027,success_saved,"enregistrement serveur","Enregistré.",NONE,C032
+UX028,success_local,"enregistrement appareil","Enregistré sur ce téléphone.",VIEW_QUEUE,C021

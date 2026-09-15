@@ -1,0 +1,9 @@
+candidate,meaning,clarity,distinctiveness,preliminary_web_check,domain_status,oapi_status,decision
+ChantierVue,"Voir clairement le chantier à distance",HIGH,HIGH,"Aucun résultat exact évident trouvé le 2026-09-10",NOT_VERIFIED,OFFICIAL_SEARCH_REQUIRED,FINALIST_1
+BatiRelais,"Créer un relais fiable entre terrain et propriétaire",HIGH,HIGH,"Aucun résultat exact évident trouvé le 2026-09-10",NOT_VERIFIED,OFFICIAL_SEARCH_REQUIRED,FINALIST_2
+ChantierLien,"Relier propriétaire entrepreneur et chef",HIGH,MEDIUM_HIGH,"Aucun résultat exact évident trouvé le 2026-09-10",NOT_VERIFIED,OFFICIAL_SEARCH_REQUIRED,FINALIST_3
+BatiPilot,"Piloter le chantier à distance",MEDIUM,HIGH,"Aucun résultat exact évident trouvé le 2026-09-10",NOT_VERIFIED,OFFICIAL_SEARCH_REQUIRED,RESERVE
+BatiScope,"Vue globale du chantier",HIGH,MEDIUM,"Nom utilisé par une société et un site de diagnostic immobilier",NOT_CHECKED,NOT_CHECKED,EXCLUDED
+BatiJournal,"Journal numérique du chantier",HIGH,LOW,"Nom proche d'un média BTP existant",NOT_CHECKED,NOT_CHECKED,EXCLUDED
+ChantierDirect,"Accès direct au chantier",HIGH,LOW,"Nom utilisé par une marketplace BTP",IN_USE,NOT_CHECKED,EXCLUDED
+BatiLien,"Lien entre les parties",HIGH,LOW,"Dénomination BATILIEN déjà utilisée par plusieurs sociétés",NOT_CHECKED,NOT_CHECKED,EXCLUDED

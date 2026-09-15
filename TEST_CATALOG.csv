@@ -1,0 +1,73 @@
+id,area,scenario,expected,level,release,status
+TST001,auth,"inscription e-mail valide","compte provisional ou vérifié selon flux",E2E,MVP,NOT_RUN
+TST002,auth,"inscription téléphone valide","compte créé sans doublon",E2E,MVP,NOT_RUN
+TST003,auth,"même téléphone normalisé deux fois","seconde création refusée",DB,MVP,NOT_RUN
+TST004,auth,"mot de passe incorrect répété","limitation appliquée sans révéler le compte",INTEGRATION,MVP,NOT_RUN
+TST005,auth,"action sensible compte provisional","action refusée avec message clair",E2E,MVP,NOT_RUN
+TST006,auth,"association e-mail à compte téléphone","identifiants reliés après vérification",INTEGRATION,MVP,NOT_RUN
+TST007,auth,"session révoquée","prochaine requête refusée",INTEGRATION,MVP,NOT_RUN
+TST008,auth,"numéro modifié","nouvelle vérification exigée",E2E,MVP,NOT_RUN
+TST009,tenancy,"OWNER chantier A lit chantier A","accès autorisé",RLS,MVP,NOT_RUN
+TST010,tenancy,"OWNER chantier A lit chantier B par UUID","zéro ligne retournée",RLS,MVP,NOT_RUN
+TST011,tenancy,"CONTRACTOR A lit dépenses B","zéro ligne retournée",RLS,MVP,NOT_RUN
+TST012,tenancy,"SITE_MANAGER A ouvre média B","accès refusé",STORAGE,MVP,NOT_RUN
+TST013,tenancy,"copropriétaire sans délégation approuve","refus",RLS,MVP,NOT_RUN
+TST014,tenancy,"copropriétaire délégué approuve version ciblée","autorisé",RLS,MVP,NOT_RUN
+TST015,tenancy,"membre retiré conserve session ouverte","accès privé immédiatement refusé",INTEGRATION,MVP,NOT_RUN
+TST016,tenancy,"PLATFORM_ADMIN sans grant ouvre journal","accès refusé",RLS,MVP,NOT_RUN
+TST017,tenancy,"support grant limité ouvre objet permis","accès autorisé et audité",RLS,MVP,NOT_RUN
+TST018,tenancy,"support grant expiré","accès refusé automatiquement",RLS,MVP,NOT_RUN
+TST019,invitation,"OWNER invite CONTRACTOR","invitation PENDING créée",E2E,MVP,NOT_RUN
+TST020,invitation,"CONTRACTOR invite OWNER","invitation PENDING créée",E2E,MVP,NOT_RUN
+TST021,invitation,"deux acceptations simultanées","une seule adhésion créée",DB,MVP,NOT_RUN
+TST022,invitation,"jeton déjà utilisé","nouvel accès refusé",INTEGRATION,MVP,NOT_RUN
+TST023,invitation,"jeton expiré","accès refusé sans données privées",E2E,MVP,NOT_RUN
+TST024,invitation,"identifiant cible différent","acceptation refusée",E2E,MVP,NOT_RUN
+TST025,membership,"retrait rôle principal sans transfert","refus",DB,MVP,NOT_RUN
+TST026,membership,"transfert principal vérifié","bascule atomique et audit",E2E,MVP,NOT_RUN
+TST027,versioning,"modifier brouillon avec bonne révision","révision serveur incrémentée",DB,MVP,NOT_RUN
+TST028,versioning,"modifier brouillon avec révision ancienne","conflit sans écrasement",DB,MVP,NOT_RUN
+TST029,versioning,"corriger journal publié","nouvelle version liée",E2E,MVP,NOT_RUN
+TST030,versioning,"mettre à jour ancienne version directement","UPDATE refusé",DB,MVP,NOT_RUN
+TST031,finance,"publier dépense positive FCFA","version financière créée",E2E,MVP,NOT_RUN
+TST032,finance,"dépense nulle ou négative","validation refusée",UNIT,MVP,NOT_RUN
+TST033,finance,"modifier montant approuvé en place","UPDATE refusé",DB,MVP,NOT_RUN
+TST034,finance,"corriger dépense approuvée","contre-écriture ou version liée",E2E,MVP,NOT_RUN
+TST035,finance,"annuler dépense","total recalculé et original visible",DB,MVP,NOT_RUN
+TST036,finance,"approbation vise ancienne version","décision refusée ou attachée uniquement à l'ancienne",DB,MVP,NOT_RUN
+TST037,advance,"déclarer acompte","aucun transfert d'argent déclenché",INTEGRATION,MVP,NOT_RUN
+TST038,advance,"tiers reconnaît réception","refus",RLS,MVP,NOT_RUN
+TST039,advance,"récepteur attendu reconnaît réception","événement append-only créé",E2E,MVP,NOT_RUN
+TST040,finance,"deux corrections simultanées","conflit explicite sans double effet",DB,MVP,NOT_RUN
+TST041,offline,"journal créé en mode avion","brouillon visible dans file",E2E,MVP,NOT_RUN
+TST042,offline,"fermer puis rouvrir PWA","file non synchronisée conservée",E2E,MVP,NOT_RUN
+TST043,offline,"réseau revient","opération envoyée et état visible",E2E,MVP,NOT_RUN
+TST044,offline,"même UUID renvoyé trois fois","un seul effet serveur",DB,MVP,NOT_RUN
+TST045,offline,"opération dépendante avant parent","BLOCKED_DEPENDENCY",INTEGRATION,MVP,NOT_RUN
+TST046,offline,"accès retiré avant synchronisation","opération rejetée et brouillon conservé localement",E2E,MVP,NOT_RUN
+TST047,offline,"révision serveur changée","écran de conflit affiché",E2E,MVP,NOT_RUN
+TST048,offline,"conflit financier","force overwrite absent",E2E,MVP,NOT_RUN
+TST049,offline,"mode avion puis approbation","action indisponible et non mise en file",E2E,MVP,NOT_RUN
+TST050,offline,"heure téléphone fausse","ordre serveur reste correct",INTEGRATION,MVP,NOT_RUN
+TST051,media,"photo compressée puis envoyée","fichier lisible et empreinte conforme",E2E,MVP,NOT_RUN
+TST052,media,"type de fichier interdit","upload refusé",INTEGRATION,MVP,NOT_RUN
+TST053,media,"empreinte différente","finalisation refusée",INTEGRATION,MVP,NOT_RUN
+TST054,media,"photo importée","mention Photo importée affichée",E2E,MVP,NOT_RUN
+TST055,media,"géolocalisation refusée","capture possible sans coordonnées",E2E,MVP,NOT_RUN
+TST056,media,"URL temporaire expirée","téléchargement refusé",STORAGE,MVP,NOT_RUN
+TST057,license,"OWNER déclare paiement","statut PENDING_REVIEW sans nouveau droit",E2E,MVP,NOT_RUN
+TST058,license,"admin active licence","période créée avec audit",E2E,MVP,NOT_RUN
+TST059,license,"fin grâce 30 jours","écriture refusée; lecture et export permis",E2E,MVP,NOT_RUN
+TST060,admin,"admin lit uniquement métadonnées","contenus privés absents",RLS,MVP,NOT_RUN
+TST061,pwa,"installation depuis Chrome Android","icône et lancement autonome fonctionnent",E2E,ALPHA,NOT_RUN
+TST062,pwa,"mise à jour service worker","cache obsolète remplacé sans perdre la file",E2E,ALPHA,NOT_RUN
+TST063,performance,"tableau sur réseau lent","indicateur chargement et fraîcheur visibles",E2E,ALPHA,NOT_RUN
+TST064,accessibility,"navigation clavier ordinateur","toutes actions critiques accessibles",E2E,ALPHA,NOT_RUN
+TST065,accessibility,"contraste et statuts","information non transmise par couleur seule",STATIC,ALPHA,NOT_RUN
+TST066,report,"générer PDF autorisé","instantané identifié sans données interdites",E2E,MVP,NOT_RUN
+TST067,sharing,"ouvrir lien expiré","rapport refusé",INTEGRATION,MVP,NOT_RUN
+TST068,audit,"acteur métier tente DELETE audit","refus",DB,MVP,NOT_RUN
+TST069,backup,"restaurer sauvegarde en staging","données, RLS et fichiers cohérents",OPERATIONS,ALPHA,NOT_RUN
+TST070,human,"chef publie journal avec photo","tâche accomplie et aide mesurée",USABILITY,ALPHA,NOT_RUN
+TST071,human,"propriétaire consulte puis demande correction","tâche accomplie et compréhension mesurée",USABILITY,ALPHA,NOT_RUN
+TST072,human,"utilisateur résout une opération en conflit","choix compris sans perte silencieuse",USABILITY,ALPHA,NOT_RUN

@@ -1,0 +1,12 @@
+flowchart TD
+  A["Lien, URL ou ouverture PWA"] --> B{"Session active ?"}
+  B -- Non --> C["Connexion ou inscription"]
+  B -- Oui --> D{"Rôle actif"}
+  C --> D
+  D -- Propriétaire --> E["Tableau propriétaire"]
+  D -- Entrepreneur --> F["Portefeuille chantiers"]
+  D -- Chef --> G["Aujourd'hui terrain"]
+  E --> H["Chantier sélectionné"]
+  F --> H
+  G --> H
+  H --> I["Progression • Finances • Documents • Plus"]

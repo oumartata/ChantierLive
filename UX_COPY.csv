@@ -1,0 +1,91 @@
+id,context,text,tone
+TXT001,app_generic_name,"Suivi de chantier",neutral
+TXT002,login_title,"Connectez-vous à votre espace",direct
+TXT003,login_identifier,"Téléphone ou adresse e-mail",neutral
+TXT004,login_error,"Connexion impossible. Vérifiez vos informations puis réessayez.",reassuring
+TXT005,signup_title,"Créer mon compte",direct
+TXT006,verification_title,"Vérifiez votre identifiant",direct
+TXT007,verification_provisional,"Votre compte reste provisoire tant que cet identifiant n'est pas vérifié.",warning
+TXT008,invitation_title,"Vous êtes invité sur un chantier",direct
+TXT009,invitation_role,"Rôle proposé : {role}",neutral
+TXT010,invitation_expiry,"Cette invitation expire le {date}.",neutral
+TXT011,invitation_accept,"Accepter et rejoindre",action
+TXT012,invitation_refuse,"Refuser l'invitation",action
+TXT013,invitation_identity_mismatch,"Connectez-vous avec l'identifiant auquel l'invitation a été envoyée.",warning
+TXT014,invitation_expired,"Cette invitation a expiré. Demandez un nouveau lien à l'expéditeur.",warning
+TXT015,invitation_revoked,"Cette invitation a été annulée par l'expéditeur.",warning
+TXT016,project_create_title,"Créer un chantier",direct
+TXT017,project_creator_role,"Quel est votre rôle sur ce chantier ?",question
+TXT018,project_duplicate_warning,"Un chantier similaire existe peut-être. Vérifiez avant de continuer.",warning
+TXT019,project_read_only,"Ce chantier est en lecture seule. Les données restent consultables et exportables.",warning
+TXT020,owner_home_title,"Vue d'ensemble",neutral
+TXT021,contractor_home_title,"Mes chantiers",neutral
+TXT022,manager_home_title,"Aujourd'hui",neutral
+TXT023,offline_badge,"Hors ligne",status
+TXT024,online_badge,"En ligne",status
+TXT025,network_unstable,"Réseau instable",status
+TXT026,sync_pending,"{count} élément(s) en attente d'envoi",status
+TXT027,sync_local_saved,"Enregistré sur ce téléphone.",reassuring
+TXT028,sync_server_saved,"Enregistré et synchronisé.",reassuring
+TXT029,sync_failed,"Échec de l'envoi. Votre brouillon est conservé.",reassuring
+TXT030,sync_conflict,"Une autre version existe. Comparez les deux avant de choisir.",warning
+TXT031,sync_no_silent_overwrite,"Aucune version ne sera remplacée automatiquement.",reassuring
+TXT032,journal_new,"Faire le journal du jour",action
+TXT033,journal_work_done,"Travaux réalisés",neutral
+TXT034,journal_publish,"Publier le journal",action
+TXT035,journal_published_notice,"Après publication, toute correction restera visible dans l'historique.",warning
+TXT036,photo_capture_label,"Capturée dans l'application",status
+TXT037,photo_import_label,"Photo importée",status
+TXT038,photo_not_verified,"Cette mention indique seulement l'origine d'ajout. Elle ne garantit pas l'authenticité de l'image.",legal
+TXT039,geolocation_consent,"Autoriser l'ajout du lieu à cette photo ?",question
+TXT040,geolocation_decline,"Continuer sans localisation",action
+TXT041,budget_title,"Budget du chantier",neutral
+TXT042,expense_new,"Ajouter une dépense",action
+TXT043,expense_receipt_missing,"Ajoutez un reçu ou indiquez pourquoi il manque.",warning
+TXT044,expense_publish_notice,"Vérifiez le montant : une dépense publiée ne se corrige pas silencieusement.",warning
+TXT045,expense_approve,"Approuver cette dépense",action
+TXT046,expense_reject,"Refuser cette dépense",action
+TXT047,expense_request_info,"Demander une information",action
+TXT048,decision_reason_required,"Indiquez la raison de votre décision.",warning
+TXT049,decision_confirm,"Je confirme avoir vérifié cette version.",confirmation
+TXT050,decision_saved,"Votre décision est enregistrée, datée et attribuée.",reassuring
+TXT051,advance_title,"Acomptes déclarés",neutral
+TXT052,advance_disclaimer,"L'application enregistre une déclaration. Elle ne reçoit, ne conserve et ne transfère aucun argent.",legal
+TXT053,advance_external_proof,"Le justificatif ajouté ne remplace pas la preuve fournie par l'opérateur de paiement.",legal
+TXT054,advance_declare,"Déclarer un acompte externe",action
+TXT055,advance_received,"Déclarer comme reçu",action
+TXT056,advance_contest,"Contester la déclaration",action
+TXT057,incident_new,"Signaler un incident",action
+TXT058,incident_high_notice,"Un incident marqué important sera signalé aux rôles principaux.",warning
+TXT059,document_visibility,"Qui peut voir ce document ?",question
+TXT060,report_generate,"Générer le rapport",action
+TXT061,report_freshness,"Rapport généré le {date} à partir des données synchronisées disponibles.",legal
+TXT062,report_disclaimer,"Ce rapport retrace les informations saisies. Il ne constitue pas une certification technique.",legal
+TXT063,report_share_whatsapp,"Partager via WhatsApp",action
+TXT064,license_active,"Licence active jusqu'au {date}",status
+TXT065,license_expiring,"La licence expire dans {days} jour(s).",warning
+TXT066,license_grace,"Période de grâce : {days} jour(s) restant(s).",warning
+TXT067,license_manual_notice,"L'activation sera effectuée après vérification manuelle du paiement déclaré.",legal
+TXT068,license_payment_not_rights,"Le paiement de la licence ne modifie aucun rôle ni droit d'accès.",legal
+TXT069,role_transfer_title,"Transférer le rôle principal",warning
+TXT070,role_transfer_consequence,"Après confirmation, le nouveau titulaire recevra les droits principaux et les vôtres seront adaptés.",warning
+TXT071,role_transfer_final,"Confirmer définitivement le transfert",action
+TXT072,access_denied,"Votre rôle ne permet pas cette action.",warning
+TXT073,identity_required,"Vérifiez votre identité pour continuer.",warning
+TXT074,online_required,"Reconnectez-vous pour terminer cette action sensible.",warning
+TXT075,unsaved_exit,"Des changements ne sont pas enregistrés. Voulez-vous vraiment quitter ?",question
+TXT076,correction_reason,"Expliquez pourquoi cette correction est nécessaire.",question
+TXT077,correction_history,"L'ancienne version restera consultable.",reassuring
+TXT078,remove_access_confirm,"Cette personne perdra l'accès au chantier. Son historique restera conservé.",warning
+TXT079,support_title,"Demander de l'aide",direct
+TXT080,support_private_access,"Un accès au contenu privé n'est possible qu'avec un motif, un périmètre et une durée limités.",legal
+TXT081,support_access_active,"Accès exceptionnel actif pendant encore {minutes} minute(s).",warning
+TXT082,support_access_expired,"L'accès exceptionnel est terminé.",status
+TXT083,generic_retry,"Réessayer",action
+TXT084,generic_cancel,"Annuler",action
+TXT085,generic_save_draft,"Enregistrer le brouillon",action
+TXT086,generic_publish,"Publier",action
+TXT087,generic_confirm,"Confirmer",action
+TXT088,generic_back,"Retour",action
+TXT089,generic_required,"Ce champ est obligatoire.",error
+TXT090,generic_invalid,"Vérifiez la valeur saisie.",error

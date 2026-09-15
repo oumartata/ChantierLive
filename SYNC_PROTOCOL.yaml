@@ -1,0 +1,78 @@
+phase: "5C"
+status: "VALIDATED"
+contract_version: "1"
+updated_at: "2026-09-15"
+
+scope:
+  offline_creatable: [journal_draft, expense_draft, media_draft, receipt_draft, incident_draft]
+  online_only: [publication, approval, rejection, phase_validation, role_transfer, principal_removal, license_activation, advance_acknowledgement]
+
+operation_envelope:
+  required: [contract_version, operation_uuid, device_id, project_id, entity_type, entity_id, action, base_revision, client_created_at, payload, payload_hash]
+  optional: [depends_on_operation_uuid, local_media_refs]
+  trusted_from_token: [actor_id, session_id]
+  ignored_from_payload: [actor_id, role, permissions]
+
+queue:
+  storage: "IndexedDB"
+  ordering: "FIFO par chantier et entité"
+  parallelism: "maximum 2 entités indépendantes; une seule opération active par entité"
+  batch_max_operations: 25
+  media_transfer: "séparé du JSON; reprise par fichier"
+  dependency_rule: "une opération dépendante attend le succès de son parent"
+  persistence: "état visible après fermeture et réouverture de la PWA"
+
+push_result_per_item:
+  statuses: [APPLIED, DUPLICATE, CONFLICT, REJECTED, RETRY_LATER, BLOCKED_DEPENDENCY]
+  fields: [operation_uuid, status, server_revision, event_cursor, canonical_entity, error_code, retry_after_seconds]
+  duplicate_rule: "retourner le résultat initial sans répéter l'effet"
+  partial_batch_rule: "chaque résultat est indépendant; les dépendances restent bloquées"
+
+server_application:
+  steps:
+    - "valider version du contrat et format"
+    - "identifier acteur depuis JWT"
+    - "vérifier adhésion, rôle, délégation et licence"
+    - "réserver operation_uuid unique"
+    - "verrouiller l'entité cible si nécessaire"
+    - "comparer base_revision à la révision serveur"
+    - "appliquer la transaction métier"
+    - "incrémenter la révision côté serveur"
+    - "écrire événement d'audit et curseur de changement"
+    - "mémoriser le résultat idempotent"
+  clock: "heure serveur autoritaire"
+  finance: "aucun last-write-wins, écrasement ou fusion automatique"
+
+pull:
+  cursor: "séquence serveur monotone par chantier; jamais heure du téléphone"
+  pagination: "limitée et répétée tant que has_more=true"
+  payload: "événements minimaux + entités autorisées par RLS"
+  deletion_representation: "tombstone ou statut; jamais disparition silencieuse"
+
+conflicts:
+  created_when: [stale_revision, incompatible_state, revoked_access, dependency_changed]
+  user_view: [local_value, server_value, changed_by, changed_at_server, consequence]
+  resolutions_draft: [KEEP_SERVER, CREATE_NEW_REVISION, DISCARD_LOCAL]
+  resolutions_finance: [KEEP_SERVER, CREATE_LINKED_CORRECTION, CANCEL_LOCAL]
+  forbidden: [FORCE_OVERWRITE_FINANCE, SILENT_MERGE, CLIENT_CLOCK_WINS]
+
+retry:
+  retryable: [NETWORK_ERROR, TIMEOUT, SERVER_BUSY, RATE_LIMITED]
+  permanent: [FORBIDDEN, INVALID_STATE, LICENSE_READ_ONLY, IDENTITY_NOT_VERIFIED]
+  backoff_seconds: [2, 5, 15, 30, 60]
+  jitter: true
+  after_limit: "état FAILED visible + action Réessayer"
+
+media:
+  stages: [LOCAL_PENDING, UPLOAD_AUTHORIZED, UPLOADING, UPLOADED, FINALIZED, FAILED]
+  checks: [mime_allowlist, maximum_size, sha256, project_path, uploader_permission]
+  finalization: "média visible seulement après contrôle serveur"
+
+integrity:
+  operation_uuid_uniqueness: "globale par acteur et opération"
+  revision_source: "serveur uniquement"
+  audit_source: "serveur uniquement"
+  local_loss_warning: true
+  service_worker_background_sync: "amélioration facultative; la file ne dépend pas de sa disponibilité"
+
+next_phase: "6A - plan d'implémentation, backlog et ordre des migrations"

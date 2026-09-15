@@ -1,0 +1,17 @@
+id,decision,status,rationale,main_risk,mitigation,phase
+A001,"Une seule PWA Next.js responsive",PROPOSED,"Un code pour téléphone, ordinateur et installation PWA","Confusion avec une application native","Employer partout les termes affichage mobile et affichage ordinateur",5A
+A002,"TypeScript pour le code applicatif",PROPOSED,"Réduit les erreurs de contrats et facilite la maintenance solo","Complexité initiale","Types partagés et règles strictes progressives",5A
+A003,"Manifest web et service worker",PROPOSED,"Installation et fonctionnement dégradé hors ligne","Cache obsolète","Versionner le cache et afficher la mise à jour disponible",5A
+A004,"IndexedDB pour brouillons et file hors ligne",PROPOSED,"Stocke données structurées et médias temporaires","Quota variable selon appareil","Quota visible, compression et nettoyage après synchronisation",5A
+A005,"Supabase PostgreSQL comme source centrale",PROPOSED,"Base relationnelle adaptée aux règles métier et transactions","Dépendance fournisseur","SQL portable, migrations versionnées et sauvegardes exportables",5A
+A006,"RLS sur toutes les tables exposées",PROPOSED,"Isolation multi-chantiers au niveau de la base","Politique incomplète","Refus par défaut et tests automatisés par rôle",5A
+A007,"Supabase Auth avec e-mail ou téléphone et mot de passe",PROPOSED,"Couvre usages diaspora et locaux","Numéros recyclés et OTP non confirmé","Identifiant vérifié pour actions sensibles et association e-mail",5A
+A008,"Stockage média privé contrôlé par RLS",PROPOSED,"Évite les médias publics par simple URL","Mauvaise politique d'objet","Chemin lié au chantier, URL temporaire et tests d'accès croisés",5A
+A009,"Fonctions serveur pour opérations privilégiées",PROPOSED,"Protège secrets et transactions sensibles","Logique dispersée","Limiter aux cas sensibles et documenter les contrats",5A
+A010,"Synchronisation par opération UUID idempotente",PROPOSED,"Évite les doublons lors des reprises réseau","Opération bloquée durablement","États visibles, nouvelle tentative contrôlée et diagnostic",5A
+A011,"Révision serveur et conflit explicite",PROPOSED,"Empêche les écrasements silencieux","Charge UX","Écran de comparaison simple; blocage financier obligatoire",5A
+A012,"Historique append-only pour données publiées sensibles",PROPOSED,"Préserve la traçabilité","Croissance des tables","Archivage logique et index adaptés",5A
+A013,"Paris ou Francfort à étudier pour Supabase",OPEN,"Les deux régions sont documentées mais la conformité ne se déduit pas de la région","Transfert international non conforme","Avis juridique APDP, DPA et registre des traitements",5A
+A014,"Hébergeur frontal non verrouillé",OPEN,"Évite une dépendance prématurée","Choix tardif","Comparer coût, région, logs, sauvegarde et déploiement avant MVP",5A
+A015,"SMS, e-mail, paiement et monitoring derrière des adaptateurs",PROPOSED,"Permet de remplacer un fournisseur indisponible au Mali","Sur-abstraction","Interfaces minimales basées sur les seuls besoins MVP",5A
+A016,"Activation Mobile Money manuelle au MVP",VALIDATED,"Réduit le risque d'intégration au lancement","Travail administratif","Journal d'activation, justificatif et double contrôle",5A

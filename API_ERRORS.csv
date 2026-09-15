@@ -1,0 +1,31 @@
+code,http_class,retryable,user_message,client_action
+AUTH_REQUIRED,401,no,"Reconnectez-vous.",SIGN_IN
+IDENTITY_NOT_VERIFIED,403,no,"Vérifiez votre numéro ou e-mail.",VERIFY_IDENTITY
+FORBIDDEN,403,no,"Vous n'avez pas l'autorisation.",GO_BACK
+MEMBERSHIP_INACTIVE,403,no,"Votre accès à ce chantier est retiré.",REFRESH_ACCESS
+SUPPORT_SCOPE_EXPIRED,403,no,"L'accès support a expiré.",CLOSE
+NOT_FOUND,404,no,"Élément introuvable ou inaccessible.",REFRESH
+INVALID_INPUT,422,no,"Certaines informations sont incorrectes.",SHOW_FIELDS
+INVALID_STATE,409,no,"Cette action n'est plus possible dans l'état actuel.",REFRESH
+STALE_REVISION,409,no,"Une autre modification existe.",OPEN_CONFLICT
+DUPLICATE_OPERATION,200,no,"Opération déjà enregistrée.",USE_SERVER_RESULT
+INVITATION_EXPIRED,410,no,"Cette invitation a expiré.",REQUEST_NEW_INVITE
+INVITATION_USED,409,no,"Cette invitation a déjà été utilisée.",OPEN_PROJECTS
+INVITATION_REVOKED,410,no,"Cette invitation a été annulée.",CONTACT_SENDER
+INVITATION_TARGET_MISMATCH,403,no,"Cette invitation vise un autre identifiant.",VERIFY_TARGET
+ROLE_QUOTA_REACHED,409,no,"Le nombre maximal de participants est atteint.",CONTACT_PRIMARY
+PRIMARY_ROLE_PROTECTED,409,no,"Transférez d'abord le rôle principal.",START_TRANSFER
+LICENSE_READ_ONLY,403,no,"Le chantier est en lecture seule.",OPEN_LICENSE
+PROJECT_SUSPENDED,403,no,"Ce chantier est suspendu.",CONTACT_SUPPORT
+FINANCE_IMMUTABLE,409,no,"Créez une correction liée.",START_CORRECTION
+APPROVAL_VERSION_CHANGED,409,no,"La version concernée a changé.",OPEN_CURRENT_VERSION
+DEPENDENCY_BLOCKED,409,no,"Une opération précédente doit être réglée.",OPEN_QUEUE
+MEDIA_TYPE_REJECTED,415,no,"Ce type de fichier n'est pas accepté.",CHOOSE_FILE
+MEDIA_TOO_LARGE,413,no,"Le fichier est trop volumineux.",COMPRESS_OR_REPLACE
+MEDIA_HASH_MISMATCH,422,no,"Le fichier reçu ne correspond pas.",RETRY_UPLOAD
+STORAGE_QUOTA_REACHED,507,no,"L'espace média disponible est atteint.",MANAGE_MEDIA
+RATE_LIMITED,429,yes,"Trop de tentatives. Réessayez plus tard.",WAIT
+NETWORK_ERROR,0,yes,"Connexion indisponible. L'action reste en attente.",KEEP_QUEUED
+TIMEOUT,504,yes,"Le serveur tarde à répondre.",RETRY
+SERVER_BUSY,503,yes,"Service temporairement indisponible.",RETRY
+UNKNOWN_ERROR,500,conditional,"Une erreur inattendue s'est produite.",CONTACT_SUPPORT_WITH_REFERENCE

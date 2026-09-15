@@ -1,0 +1,98 @@
+version: "3B.1"
+fidelity: "low"
+brand_dependency: false
+viewport_targets: ["mobile_360", "tablet_768", "desktop_1280"]
+rules:
+  - "wireframes_grayscale_until_final_name"
+  - "one_dominant_action_per_view"
+  - "status_and_next_action_above_the_fold"
+  - "offline_and_sync_status_persistent"
+  - "money_and_decisions_use_explicit_confirmation"
+  - "icons_always_paired_with_short_labels"
+
+templates:
+  - id: T01
+    name: "Authentification"
+    structure: [logo_placeholder, title, identifier_field, password_field, primary_action, secondary_link]
+    variants: [login, signup, recovery, verification]
+  - id: T02
+    name: "Invitation guidée"
+    structure: [inviter_identity, project_summary, invited_role, expiry, accept_or_refuse]
+    variants: [guest, authenticated, expired, revoked]
+  - id: T03
+    name: "Accueil propriétaire"
+    structure: [project_switcher, alerts, progress_card, finance_card, pending_decisions, recent_updates]
+    primary_action: "Voir les décisions"
+  - id: T04
+    name: "Accueil entrepreneur"
+    structure: [portfolio_summary, project_filters, project_cards, alerts, add_project]
+    primary_action: "Ajouter une information"
+  - id: T05
+    name: "Accueil terrain"
+    structure: [project_name, connectivity, today_status, quick_actions, pending_sync, recent_drafts]
+    primary_action: "Faire le journal du jour"
+  - id: T06
+    name: "Liste standard"
+    structure: [context_header, compact_filters, item_list, empty_state, optional_add]
+    variants: [projects, journals, expenses, incidents, documents, reports, notifications]
+  - id: T07
+    name: "Détail traçable"
+    structure: [object_header, status, key_facts, attachments, version_timeline, allowed_actions]
+    variants: [journal, phase, expense, photo, audit_event]
+  - id: T08
+    name: "Formulaire brouillon"
+    structure: [context_header, autosave_state, grouped_fields, attachments, save_draft, publish]
+    variants: [project, journal, expense, incident, document, phases]
+  - id: T09
+    name: "Décision sensible"
+    structure: [object_summary, current_version, impact_notice, decision_options, reason_field, confirmation]
+    variants: [phase, expense, approval, role_transfer]
+  - id: T10
+    name: "Tableau financier"
+    structure: [budget_summary, spent_and_remaining, warning, tabs, transaction_list]
+    variants: [finance_overview, budget, advances]
+  - id: T11
+    name: "Galerie preuves"
+    structure: [capture_or_import, phase_filter, media_grid, origin_labels, upload_state]
+    variants: [gallery, add_media]
+  - id: T12
+    name: "Participants et invitations"
+    structure: [role_principals, participant_list, pending_invites, invite_action, access_actions]
+    variants: [participants, invitations, invite]
+  - id: T13
+    name: "Rapport et partage"
+    structure: [period_and_sections, generate_action, preview, freshness_notice, download_or_share]
+    variants: [reports, report_preview]
+  - id: T14
+    name: "Licence"
+    structure: [license_status, expiry_timeline, rights_notice, payment_reference, renew_or_export]
+    variants: [active, expiring, grace, read_only, payment_submission]
+  - id: T15
+    name: "Synchronisation"
+    structure: [connectivity, queue_totals, operation_list, retry, conflict_resolution]
+    variants: [queue, conflict]
+  - id: T16
+    name: "Paramètres"
+    structure: [sections, current_values, guarded_actions, help_links]
+    variants: [profile, project_settings, organization]
+  - id: T17
+    name: "Administration plateforme"
+    structure: [admin_sidebar, operational_counts, work_queue, filters, audited_action]
+    variants: [dashboard, accounts, licenses, tickets]
+  - id: T18
+    name: "Accès support exceptionnel"
+    structure: [ticket_summary, metadata_only, scope, reason, duration, approval, active_timer, close]
+    variants: [request, active, expired]
+
+prototype_paths:
+  owner: [T01, T02, T03, T06, T07, T09]
+  contractor: [T01, T04, T06, T08, T10, T12]
+  site_manager: [T01, T05, T08, T11, T15]
+  platform_admin: [T17, T18]
+
+validation_checks:
+  - "all_64_screens_mapped"
+  - "all_primary_roles_have_home"
+  - "offline_states_present_on_write_templates"
+  - "sensitive_decisions_require_confirmation"
+  - "no_final_brand_assets_used"
