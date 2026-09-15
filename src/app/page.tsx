@@ -20,7 +20,7 @@ export default function Home() {
   const [fieldValue, setFieldValue] = useState("");
 
   return (
-    <main className="mx-auto flex w-full max-w-[1200px] flex-col gap-8 px-4 py-8 md:px-8">
+    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-8 px-4 py-8 md:px-8">
       <header className="flex flex-col gap-1">
         <p className="text-caption font-semibold text-muted">Socle technique</p>
         <h1 className="text-display font-bold text-ink">Composants d&apos;interface</h1>
@@ -169,6 +169,6 @@ export default function Home() {
           onCancel={() => setDoubleOpen(false)}
         />
       </section>
-    </main>
+    </div>
   );
 }

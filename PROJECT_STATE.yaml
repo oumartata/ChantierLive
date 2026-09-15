@@ -95,10 +95,14 @@ progress:
   remaining_tasks_estimate: 0
   global_percent: 100
   progress_scope: "dossier de conception et préparation"
-  software_development_percent: 0
+  software_development_percent: 7
   project_status: "IN_PROGRESS"
-  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)"]
-  current_lot: "L00/B003"
-  awaiting_validation: ["B003"]
-  next_action: "attendre validation du fondateur sur B003; ne pas démarrer B004 sans nouvelle instruction"
+  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)"]
+  current_lot: "L00/B005"
+  awaiting_validation: []
+  next_action: "B005 autorisée comme prochaine tâche; ne pas la démarrer sans nouvelle instruction explicite du fondateur"
+  tasks_validated: 4
+  tasks_total: 60
+  tasks_remaining: 56
+  lot_L00_progress: "4/5 (80%)"
   updated_at: "2026-09-15"
