@@ -2,11 +2,10 @@ project: "ChantierLive"
 prepared_at: "2026-09-15"
 preparation_status: "COMPLETE_AND_VALIDATED"
 software_status: "IN_PROGRESS"
-completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (environnements documentés, aucun secret versionné)"]
-current_lot: "L00/B002"
-lot_status: "B002 terminé"
-next_authorized_task: "B003 (autorisée, non démarrée)"
-pause_reason: "terminer FuturePro et ArchivaPro avant d'ouvrir un troisième chantier de développement (exception D075: démarrage progressif de L00/B001-B002 autorisé par le fondateur le 15/09/2026 pendant la pause)"
+completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)"]
+current_lot: "L00/B003"
+lot_status: "B003 en attente de validation du fondateur"
+pause_reason: "terminer FuturePro et ArchivaPro avant d'ouvrir un troisième chantier de développement (exception D075: démarrage progressif de L00/B001-B003 autorisé par le fondateur le 15/09/2026 pendant la pause)"
 
 validated_phases:
   - "Phase 0 - cadrage"
@@ -78,4 +77,4 @@ open_before_commercialization:
   - "prix final basé sur paiements et refus réels"
   - "sauvegarde et restauration réellement démontrées"
 
-next_authorized_action: "B002 terminé; B003 autorisée comme prochaine tâche mais ne pas la démarrer sans nouvelle instruction explicite du fondateur; FuturePro et ArchivaPro restent des projets séparés"
+next_authorized_action: "B003 réalisée, en attente de validation du fondateur; ne démarrer B004 qu'après nouvelle instruction explicite; FuturePro et ArchivaPro restent des projets séparés"

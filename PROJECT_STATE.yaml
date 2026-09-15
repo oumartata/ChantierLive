@@ -97,9 +97,8 @@ progress:
   progress_scope: "dossier de conception et préparation"
   software_development_percent: 0
   project_status: "IN_PROGRESS"
-  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (environnements documentés, aucun secret versionné)"]
-  current_lot: "L00/B002"
-  next_authorized_task: "B003"
-  awaiting_validation: []
-  next_action: "B003 autorisée mais non démarrée; attendre nouvelle instruction explicite du fondateur"
+  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)"]
+  current_lot: "L00/B003"
+  awaiting_validation: ["B003"]
+  next_action: "attendre validation du fondateur sur B003; ne pas démarrer B004 sans nouvelle instruction"
   updated_at: "2026-09-15"

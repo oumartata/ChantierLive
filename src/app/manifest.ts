@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Socle technique installable (PWA)",
     start_url: "/",
     display: "standalone",
-    background_color: "#ffffff",
-    theme_color: "#ffffff",
+    background_color: "#f3eee4",
+    theme_color: "#126b54",
     icons: [
       {
         src: "/icon.svg",

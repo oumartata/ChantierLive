@@ -1,26 +1,58 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * Thème centralisé ChantierLive — source unique de vérité pour les tokens
+ * visuels. Toute valeur ici doit rester alignée avec DESIGN_TOKENS.csv,
+ * BRAND_DIRECTIONS.yaml et UI_KIT_SPEC.yaml. Aucun composant ne doit
+ * utiliser une couleur, un radius ou une taille de texte en dehors de ceux
+ * définis ci-dessous.
+ */
+@theme {
+  /* Couleurs — DESIGN_TOKENS.csv (color.*) */
+  --color-primary: #126b54;
+  --color-primary-dark: #0a4637;
+  --color-action: #bf570f;
+  --color-sand: #f3eee4;
+  --color-ink: #17211d;
+  --color-muted: #65716b;
+  --color-surface: #ffffff;
+  --color-danger: #b42318;
+  --color-success: #16794f;
+
+  /* Typographie — DESIGN_TOKENS.csv (font.*) + UI_KIT_SPEC.yaml (foundations.typography) */
+  --font-ui: var(--font-inter), "Inter", system-ui, sans-serif;
+  --font-mobile-fallback: "Roboto", Arial, sans-serif;
+  --text-display: 32px;
+  --text-h1: 26px;
+  --text-h2: 22px;
+  --text-h3: 18px;
+  --text-body: 16px;
+  --text-label: 14px;
+  --text-caption: 13px;
+
+  /* Rayons — DESIGN_TOKENS.csv (radius.*) */
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 18px;
+
+  /* Ombres — UI_KIT_SPEC.yaml (foundations.elevation) */
+  --shadow-card: 0 1px 3px rgba(23, 33, 29, 0.1);
+  --shadow-modal: 0 16px 40px rgba(23, 33, 29, 0.18);
+
+  /* Taille tactile minimale — DESIGN_TOKENS.csv (touch.minimum) */
+  --spacing-touch: 44px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/*
+ * Espacements : l'échelle par défaut de Tailwind (unité = 4px) correspond
+ * déjà à DESIGN_TOKENS.csv (space.1=4px, space.2=8px, space.3=12px,
+ * space.4=16px, space.6=24px) — utiliser directement p-1..p-6, gap-1..gap-6,
+ * etc. Aucun token d'espacement supplémentaire n'est nécessaire.
+ */
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-sand);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
 }
