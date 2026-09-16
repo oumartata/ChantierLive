@@ -95,16 +95,16 @@ progress:
   remaining_tasks_estimate: 0
   global_percent: 100
   progress_scope: "dossier de conception et préparation"
-  software_development_percent: 10
+  software_development_percent: 12
   project_status: "IN_PROGRESS"
-  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)", "B006 (M001 extensions/enums/fonctions communes — terminée et validée par le fondateur; application, double rollback DEV ONLY et réapplication locale tous réussis; permissions EXECUTE retirées à anon/authenticated/service_role; pgcrypto préexistante préservée; approval_status reste une question ouverte)"]
-  current_lot: "L01/B007"
-  lot_status: "B006/M001 terminée et validée ; B007 devient la prochaine tâche autorisée, non démarrée"
+  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)", "B006 (M001 extensions/enums/fonctions communes — terminée et validée par le fondateur; application, double rollback DEV ONLY et réapplication locale tous réussis; permissions EXECUTE retirées à anon/authenticated/service_role; pgcrypto préexistante préservée; approval_status reste une question ouverte)", "B007 (M002 profiles/profile_identifiers — terminée et validée par le fondateur; tests locaux réussis: migration/rollback/réapplication, FK RESTRICT (delete auth.users et delete profiles avec identifiant enfant), contraintes de forme canonique e-mail/téléphone, unicité BR002 partielle (vérifié+non archivé), triggers updated_at_server (profiles et profile_identifiers, valeur client remplacée par l'heure serveur), permissions anon/authenticated absentes, RLS activée sans policy vérifiée via rôle temporaire non privilégié sans BYPASSRLS; activation de compte, mécanisme de vérification et suppression/anonymisation restent différés)"]
+  current_lot: "L01/B008"
+  lot_status: "B007/M002 terminée et validée ; B008 devient la prochaine tâche autorisée, non démarrée"
   awaiting_validation: []
-  next_action: "B007 autorisée comme prochaine tâche ; ne pas la démarrer sans nouvelle instruction explicite du fondateur"
-  open_questions: ["approval_status : forme non confirmée (STATE_MACHINES.yaml incomplet pour 'approval'), à résoudre explicitement avant toute migration qui en dépend (M015)"]
-  tasks_validated: 6
+  next_action: "B008 autorisée comme prochaine tâche ; ne pas la démarrer sans nouvelle instruction explicite du fondateur"
+  open_questions: ["approval_status : forme non confirmée (STATE_MACHINES.yaml incomplet pour 'approval'), à résoudre explicitement avant toute migration qui en dépend (M015)", "conditions d'activation du compte (sortie de l'état provisional) : non spécifiées, aucun statut de compte créé en M002 ; à trancher avant toute fonctionnalité qui en dépend", "mécanisme fiable de vérification d'un identifiant (profile_identifiers.verified_at_server) : non spécifié, aucune écriture automatique en M002 ; à trancher avant toute fonctionnalité qui en dépend", "processus de suppression/anonymisation de compte : non conçu ; profiles/profile_identifiers utilisent ON DELETE RESTRICT vers auth.users (M002), qui bloque toute suppression tant que ce processus n'existe pas"]
+  tasks_validated: 7
   tasks_total: 60
-  tasks_remaining: 54
+  tasks_remaining: 53
   lot_L00_progress: "5/5 (100%) — terminé"
   updated_at: "2026-09-16"
