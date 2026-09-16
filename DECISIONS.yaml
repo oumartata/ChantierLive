@@ -74,6 +74,12 @@ decisions:
   - {id: D073, status: VALIDATED, value: "Après validation 6B, dossier préparation complet et développement maintenu à 0 % jusqu'aux prérequis"}
   - {id: D074, status: VALIDATED, value: "Dossier préparatoire ChantierLive clôturé à 100 % le 15 septembre 2026; reprise par L00/B001 après FuturePro et ArchivaPro"}
   - {id: D075, status: VALIDATED, value: "Le 15/09/2026, le fondateur autorise le démarrage progressif de ChantierLive pendant la pause de FuturePro, malgré l'ancienne condition D067."}
+  - {id: D076, status: VALIDATED, value: "B008/M003 : une organisation possède un propriétaire principal (organizations.owner_profile_id). Le transfert de propriété n'est ni implémenté ni décidé dans M003."}
+  - {id: D077, status: VALIDATED, value: "B008/M003 : aucune limite du nombre d'organisations par profil (owner_profile_id n'est pas unique sur organizations)."}
+  - {id: D078, status: VALIDATED, value: "B008/M003 : organization_memberships ne porte aucune colonne role ; l'adhésion est binaire (active tant que revoked_at est NULL)."}
+  - {id: D079, status: VALIDATED, value: "B008/M003 : création automatique d'organisation (BR012/FR014) et permissions des collaborateurs différées à un lot ultérieur ; M003 ne crée ni trigger ni fonction de provisioning, ni policy de chantier."}
+  - {id: D080, status: VALIDATED, value: "B008/M003 : l'adhésion à une organisation (organization_memberships) est distincte du rôle sur un chantier (project_memberships/membership_role) ; l'une ne se substitue pas à l'autre."}
+  - {id: D081, status: VALIDATED, value: "B008/M003 : le paiement de la licence ne confère aucun droit supplémentaire au sein d'une organisation (cohérent avec D004)."}
 open:
   - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
   - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}
