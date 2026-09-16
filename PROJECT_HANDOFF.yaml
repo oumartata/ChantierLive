@@ -2,15 +2,16 @@ project: "ChantierLive"
 prepared_at: "2026-09-15"
 preparation_status: "COMPLETE_AND_VALIDATED"
 software_status: "IN_PROGRESS"
-completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)"]
-current_lot: "L01/B006"
-lot_status: "L00 terminé (5/5, 100%); B006 (lot L01) autorisée comme prochaine tâche, non démarrée"
-tasks_validated: 5
+completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)", "B006 (M001 extensions/enums/fonctions communes — terminée et validée par le fondateur; application, double rollback DEV ONLY et réapplication locale tous réussis; permissions EXECUTE retirées à anon/authenticated/service_role; pgcrypto préexistante préservée; approval_status reste une question ouverte)"]
+current_lot: "L01/B007"
+lot_status: "B006/M001 terminée et validée par le fondateur ; B007 devient la prochaine tâche autorisée, non démarrée"
+open_questions: ["approval_status : forme non confirmée (STATE_MACHINES.yaml incomplet pour 'approval'), à résoudre explicitement avant toute migration qui en dépend (M015)"]
+tasks_validated: 6
 tasks_total: 60
-tasks_remaining: 55
-progress_global_percent: 8
+tasks_remaining: 54
+progress_global_percent: 10
 lot_L00_progress: "5/5 (100%) — terminé"
-pause_reason: "terminer FuturePro et ArchivaPro avant d'ouvrir un troisième chantier de développement (exception D075: démarrage progressif de L00 autorisé par le fondateur le 15/09/2026 pendant la pause; L00 terminé)"
+pause_reason: "terminer FuturePro et ArchivaPro avant d'ouvrir un troisième chantier de développement (exception D075: démarrage progressif de L00 et L01/B006 autorisé par le fondateur pendant la pause; L00 terminé; B006 validée)"
 
 validated_phases:
   - "Phase 0 - cadrage"
@@ -82,4 +83,4 @@ open_before_commercialization:
   - "prix final basé sur paiements et refus réels"
   - "sauvegarde et restauration réellement démontrées"
 
-next_authorized_action: "L00 terminé; B006 (lot L01) devient la prochaine tâche autorisée mais ne pas la démarrer sans nouvelle instruction explicite; FuturePro et ArchivaPro restent des projets séparés"
+next_authorized_action: "B006 (M001) terminée et validée par le fondateur ; B007 devient la prochaine tâche autorisée mais ne pas la démarrer sans nouvelle instruction explicite ; FuturePro et ArchivaPro restent des projets séparés"

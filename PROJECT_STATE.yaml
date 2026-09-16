@@ -95,15 +95,16 @@ progress:
   remaining_tasks_estimate: 0
   global_percent: 100
   progress_scope: "dossier de conception et préparation"
-  software_development_percent: 8
+  software_development_percent: 10
   project_status: "IN_PROGRESS"
-  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)"]
-  current_lot: "L01/B006"
-  lot_status: "L00 terminé (5/5, 100%); B006 (lot L01) autorisée comme prochaine tâche, non démarrée"
+  completed_build_items: ["B001 (preuve: commit 9d42859)", "B002 (preuve: commit c739ef8)", "B003 (preuve: commit a3f2d9d)", "B004 (terminé et validé par le fondateur; tests automatisés 4/4; vérification Chrome réelle réussie; cache final chantierlive-shell-v3)", "B005 (pipeline qualité local + CI GitHub Actions préparée; test de blocage prouvé; aucun remote/push)", "B006 (M001 extensions/enums/fonctions communes — terminée et validée par le fondateur; application, double rollback DEV ONLY et réapplication locale tous réussis; permissions EXECUTE retirées à anon/authenticated/service_role; pgcrypto préexistante préservée; approval_status reste une question ouverte)"]
+  current_lot: "L01/B007"
+  lot_status: "B006/M001 terminée et validée ; B007 devient la prochaine tâche autorisée, non démarrée"
   awaiting_validation: []
-  next_action: "B006 autorisée comme prochaine tâche; ne pas la démarrer sans nouvelle instruction explicite du fondateur"
-  tasks_validated: 5
+  next_action: "B007 autorisée comme prochaine tâche ; ne pas la démarrer sans nouvelle instruction explicite du fondateur"
+  open_questions: ["approval_status : forme non confirmée (STATE_MACHINES.yaml incomplet pour 'approval'), à résoudre explicitement avant toute migration qui en dépend (M015)"]
+  tasks_validated: 6
   tasks_total: 60
-  tasks_remaining: 55
+  tasks_remaining: 54
   lot_L00_progress: "5/5 (100%) — terminé"
-  updated_at: "2026-09-15"
+  updated_at: "2026-09-16"
