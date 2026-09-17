@@ -1,0 +1,26 @@
+-- ============================================================================
+-- DEV ONLY — M005 (audit_events, sync_operations) : PAS de rollback
+-- destructif, par arbitrage fondateur explicite (B011) et par le champ
+-- rollback_or_recovery de MIGRATION_ORDER.csv : "append-only; jamais
+-- rollback destructif".
+--
+-- Ce fichier ne contient AUCUN DROP TABLE/FUNCTION/POLICY. Il documente
+-- l'absence volontaire de rollback destructif, contrairement à la
+-- convention M001-M004a.
+--
+-- Validation de la migration en développement : essai transactionnel
+-- (BEGIN sur le corps de la migration SANS son propre COMMIT, puis
+-- ROLLBACK explicite) avant application réelle — jamais un DROP après
+-- coup. Voir le rapport d'implémentation B011 pour le détail de la
+-- méthode utilisée (le fichier de migration contient son propre
+-- BEGIN/COMMIT ; l'essai transactionnel remplace ce COMMIT par un
+-- ROLLBACK dans une copie temporaire, jamais en encapsulant un COMMIT
+-- existant dans un BEGIN externe).
+--
+-- Si une correction de schéma s'avère nécessaire après application
+-- réelle : privilégier une migration corrective ultérieure (nouvelle
+-- colonne, contrainte ajustée, etc.) plutôt qu'une suppression. Aucune
+-- procédure de suppression n'est fournie ici — une décision explicite du
+-- fondateur serait requise au cas par cas, hors du périmètre d'un script
+-- automatique.
+-- ============================================================================
