@@ -80,6 +80,7 @@ decisions:
   - {id: D079, status: VALIDATED, value: "B008/M003 : création automatique d'organisation (BR012/FR014) et permissions des collaborateurs différées à un lot ultérieur ; M003 ne crée ni trigger ni fonction de provisioning, ni policy de chantier."}
   - {id: D080, status: VALIDATED, value: "B008/M003 : l'adhésion à une organisation (organization_memberships) est distincte du rôle sur un chantier (project_memberships/membership_role) ; l'une ne se substitue pas à l'autre."}
   - {id: D081, status: VALIDATED, value: "B008/M003 : le paiement de la licence ne confère aucun droit supplémentaire au sein d'une organisation (cohérent avec D004)."}
+  - {id: D082, status: VALIDATED, value: "B010/M004a : pour PHASE_EDIT_DRAFT et EXPENSE_PUBLISH, CONTRACTOR a un droit natif ; SITE_MANAGER exige une délégation active (membership_permissions) ; OWNER (PRIMARY et CO_OWNER) est explicitement refusé sur ces deux codes, sans exception par délégation. Corrige l'ambiguïté du 'C' d'owner_primary dans PERMISSIONS.csv."}
 open:
   - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
   - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}
