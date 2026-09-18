@@ -12,12 +12,20 @@
 // ressource précachée "/" et interceptées, et le repli stale-while-revalidate
 // pouvait résoudre vers `undefined` (Promise toujours "truthy") au lieu
 // d'une vraie Response, provoquant "Failed to convert value to 'Response'".
-const CACHE_VERSION = "chantierlive-shell-v3";
+//
+// v4 (B012) : "/" retiré du précache. L'authentification introduit des
+// routes dont la réponse dépend de la session (cookies, éventuel
+// Set-Cookie) ; une réponse "/" figée à l'installation pourrait devenir
+// incohérente. Version de cache renouvelée pour purger l'ancienne entrée
+// précachée chez les utilisateurs existants (activate ci-dessous supprime
+// tout cache dont le nom ne correspond plus à CACHE_VERSION).
+const CACHE_VERSION = "chantierlive-shell-v4";
 const OFFLINE_URL = "/offline";
 
-// Shell + ressources publiques précachées à l'installation.
+// Shell + ressources publiques précachées à l'installation. Ne jamais y
+// remettre "/" ni aucune route dont la réponse peut varier selon la
+// session/l'authentification.
 const PRECACHE_URLS = [
-  "/",
   OFFLINE_URL,
   "/manifest.webmanifest",
   "/icon.svg",
