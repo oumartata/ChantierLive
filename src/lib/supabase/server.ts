@@ -52,3 +52,68 @@ export async function getVerifiedUser() {
   } = await supabase.auth.getUser();
   return user;
 }
+
+export type VerifiedAccountGuardResult =
+  | { ok: true; user: NonNullable<Awaited<ReturnType<typeof getVerifiedUser>>> }
+  | {
+      ok: false;
+      reason: "unauthenticated" | "provisional" | "verification_unavailable";
+      message: string;
+    };
+
+// B013 (FR008/AC008) : garde-fou générique à appeler avant toute action
+// sensible (BR006 : approbation, refus, transfert de rôle, retrait du
+// principal, activation — aucune n'est encore implémentée ; ce garde-fou est
+// le point de branchement commun qu'elles devront toutes utiliser).
+//
+// Fail-closed strict : seul `data === false` SANS erreur laisse passer.
+// Une identité absente, une erreur RPC ou un résultat indéterminé refusent
+// tous — jamais traités comme "vérifié" par défaut. Ne vérifie que
+// l'identité/la confirmation d'un identifiant ; les permissions métier
+// (rôle, adhésion, délégation) restent un contrôle séparé, propre à chaque
+// action, non couvert ici.
+export async function requireVerifiedAccount(): Promise<VerifiedAccountGuardResult> {
+  const user = await getVerifiedUser();
+  if (!user) {
+    return {
+      ok: false,
+      reason: "unauthenticated",
+      message: "Connexion requise.",
+    };
+  }
+
+  const supabase = await createClient();
+  const { data: provisional, error } = await supabase.rpc("is_account_provisional");
+
+  // Comparaisons strictes uniquement : is_account_provisional() est typée
+  // boolean côté SQL, mais rien ne garantit que la couche réseau/PostgREST
+  // ne renvoie jamais autre chose que true/false/null. `provisional` seul
+  // (truthy check) laisserait passer 0 ou "" par erreur — exclu ici.
+  if (error) {
+    return {
+      ok: false,
+      reason: "verification_unavailable",
+      message: "Vérification indisponible. Réessayez plus tard.",
+    };
+  }
+
+  if (provisional === true) {
+    return {
+      ok: false,
+      reason: "provisional",
+      message: "Vérifiez votre identifiant (e-mail ou téléphone) avant de continuer.",
+    };
+  }
+
+  if (provisional === false) {
+    return { ok: true, user };
+  }
+
+  // Toute autre valeur (null, undefined, 0, "", ...) : refusé, jamais admis
+  // par défaut.
+  return {
+    ok: false,
+    reason: "verification_unavailable",
+    message: "Vérification indisponible. Réessayez plus tard.",
+  };
+}
