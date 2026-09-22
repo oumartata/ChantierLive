@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Card, AlertBanner } from "@/components/ui";
 import { createClient, getVerifiedUser } from "@/lib/supabase/server";
@@ -53,6 +54,9 @@ export default async function TableauDeBordPage() {
       <h1 className="text-title font-bold text-ink">Tableau de bord</h1>
       <Card className="flex flex-col gap-4 p-6">
         {banner}
+        <Link href="/chantiers/nouveau" className="text-label font-semibold text-primary">
+          Créer un chantier
+        </Link>
         <LogoutButton />
       </Card>
     </div>
