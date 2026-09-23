@@ -3,6 +3,7 @@
 import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 import { Button, TextField, AlertBanner, Card } from "@/components/ui";
+import { parseInvitationToken } from "@/lib/invitationResume";
 import { verifyPhoneOtp, type AuthActionState } from "../actions";
 
 function PhoneField() {
@@ -18,6 +19,14 @@ function PhoneField() {
       required
     />
   );
+}
+
+// FR033 : voir connexion/page.tsx — même mécanisme dédié, revalidé côté
+// serveur dans verifyPhoneOtp.
+function InvitationHiddenField() {
+  const searchParams = useSearchParams();
+  const token = parseInvitationToken(searchParams.get("invitation"));
+  return <input type="hidden" name="invitation" value={token ?? ""} />;
 }
 
 export default function VerificationTelephonePage() {
@@ -50,6 +59,9 @@ export default function VerificationTelephonePage() {
             autoComplete="one-time-code"
             required
           />
+          <Suspense fallback={<input type="hidden" name="invitation" value="" />}>
+            <InvitationHiddenField />
+          </Suspense>
           <Button type="submit" loading={pending}>
             Confirmer
           </Button>

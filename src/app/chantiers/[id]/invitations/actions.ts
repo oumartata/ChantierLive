@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 
 export type CreateInvitationState =
@@ -150,4 +151,57 @@ export async function createInvitation(
     expiresAt: row.expires_at,
     token: row.token,
   };
+}
+
+export type RevokeInvitationState = { error: string } | null;
+
+function mapRevokeRpcError(message: string | undefined): string {
+  switch (message) {
+    case "account_provisional":
+      return "Vérifiez votre identifiant (e-mail ou téléphone) avant de continuer.";
+    case "not_authorized":
+      // Générique par construction côté SQL (revoke_invitation) : ne
+      // révèle ni l'existence de l'invitation, ni son statut, ni si
+      // l'appelant serait autorisé pour un autre rôle habilitant.
+      return "Vous n'êtes pas autorisé à révoquer cette invitation.";
+    case "invitation_not_available":
+      return "Cette invitation n'est plus en attente (déjà décidée ou introuvable).";
+    default:
+      return "Une erreur est survenue. Réessayez.";
+  }
+}
+
+// B016 : révocation par le responsable ACTUELLEMENT habilité (M006a),
+// jamais restreinte à l'émetteur d'origine — revoke_invitation revérifie
+// indépendamment cette autorisation côté SQL, ce guard applicatif n'est
+// qu'une première ligne.
+export async function revokeInvitation(
+  _prevState: RevokeInvitationState,
+  formData: FormData
+): Promise<RevokeInvitationState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const invitationId = requireUuid(formData.get("invitation_id"));
+  if (!invitationId.ok) {
+    return { error: "Invitation invalide." };
+  }
+  const projectId = requireUuid(formData.get("project_id"));
+  if (!projectId.ok) {
+    return { error: "Chantier invalide." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("revoke_invitation", {
+    p_invitation_id: invitationId.value,
+  });
+
+  if (error) {
+    return { error: mapRevokeRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/invitations`);
+  return null;
 }

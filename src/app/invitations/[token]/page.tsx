@@ -1,5 +1,8 @@
-import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
+import { createClient, getVerifiedUser } from "@/lib/supabase/server";
 import { AlertBanner, Card } from "@/components/ui";
+import { DecisionButtons } from "./DecisionButtons";
+import { RefuseOnlyButton } from "./RefuseOnlyButton";
 
 const ROLE_LABEL: Record<string, string> = {
   OWNER_PRIMARY: "Propriétaire principal",
@@ -20,9 +23,12 @@ function roleLabel(role: string, ownerProfile: string | null): string {
 // Cache-Control: no-store et Referrer-Policy: no-referrer posés par
 // src/proxy.ts pour tout /invitations/*, car le jeton figure dans l'URL.
 //
-// B015 ne couvre que cet aperçu en lecture seule : accepter, refuser et
-// révoquer restent B016 (non implémentés ici) — aucun bouton d'action
-// n'est proposé sur cette page pour cette raison, pas par oubli.
+// B015 fournissait l'aperçu lecture seule ; B016 ajoute les décisions
+// (accepter/refuser) — jamais déclenchées automatiquement : l'utilisateur
+// non authentifié est seulement dirigé vers connexion/inscription (avec
+// reprise, FR033), l'utilisateur authentifié doit cliquer explicitement
+// (DecisionButtons). La révocation reste une action de l'émetteur, sur une
+// page séparée (/chantiers/[id]/invitations), jamais proposée ici.
 export default async function InvitationPreviewPage({
   params,
 }: {
@@ -33,6 +39,7 @@ export default async function InvitationPreviewPage({
   const supabase = await createClient();
   const { data, error } = await supabase.rpc("get_invitation_preview", { p_token: token });
   const preview = Array.isArray(data) ? data[0] : data;
+  const user = await getVerifiedUser();
 
   if (error || !preview || preview.available !== true) {
     return (
@@ -43,6 +50,12 @@ export default async function InvitationPreviewPage({
           title="Invitation non disponible"
           explanation="Ce lien est invalide, expiré, ou l'invitation a déjà été traitée."
         />
+        {/* B016 (corrections post-revue) : "non disponible" couvre aussi le
+            cas où l'adhésion émettrice a été invalidée (get_invitation_preview,
+            M006) — refuse_invitation (M006a) reste utilisable dans ce cas
+            précis (aucune revérification de l'émetteur). Proposé seulement à
+            un utilisateur déjà authentifié, sans aucune donnée de chantier. */}
+        {user ? <RefuseOnlyButton token={token} /> : null}
       </div>
     );
   }
@@ -62,11 +75,31 @@ export default async function InvitationPreviewPage({
           Expire le {new Date(preview.expires_at).toLocaleString("fr-FR")}.
         </p>
       </Card>
-      <AlertBanner
-        variant="information"
-        title="Connexion requise pour continuer"
-        explanation="Connectez-vous ou inscrivez-vous avec l'identifiant concerné pour donner suite à cette invitation."
-      />
+      {user ? (
+        <DecisionButtons token={token} />
+      ) : (
+        <>
+          <AlertBanner
+            variant="information"
+            title="Connexion requise pour continuer"
+            explanation="Connectez-vous ou inscrivez-vous avec l'identifiant concerné pour donner suite à cette invitation."
+          />
+          <div className="flex flex-col gap-3">
+            <Link
+              href={`/connexion?invitation=${token}`}
+              className="flex h-12 w-full items-center justify-center rounded-small bg-primary text-label font-semibold text-surface"
+            >
+              Se connecter
+            </Link>
+            <Link
+              href={`/inscription?invitation=${token}`}
+              className="flex h-12 w-full items-center justify-center rounded-small border border-primary text-label font-semibold text-primary"
+            >
+              Créer un compte
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   );
 }

@@ -46,7 +46,22 @@ export async function proxy(request: NextRequest) {
   // par un proxy/CDN intermédiaire (contrairement aux autres pages, qui
   // n'exposent aucun secret dans l'URL), et sans fuite du jeton via
   // l'en-tête Referer si la page contient un lien sortant.
-  if (request.nextUrl.pathname.startsWith("/invitations/")) {
+  const carriesInvitationToken = request.nextUrl.searchParams.has("invitation");
+  const isAuthResumeStep =
+    request.nextUrl.pathname === "/connexion" ||
+    request.nextUrl.pathname === "/inscription" ||
+    request.nextUrl.pathname === "/verification-telephone" ||
+    request.nextUrl.pathname === "/auth/confirmer";
+
+  // B016 (FR033) : le jeton transite aussi par les étapes de reprise Auth
+  // (connexion/inscription/OTP téléphone/confirmation e-mail) — même
+  // protection, mais seulement quand ces pages le portent réellement, pour
+  // ne pas changer le comportement de cache de leur usage normal (sans
+  // invitation en cours).
+  if (
+    request.nextUrl.pathname.startsWith("/invitations/") ||
+    (isAuthResumeStep && carriesInvitationToken)
+  ) {
     response.headers.set("Cache-Control", "no-store");
     response.headers.set("Referrer-Policy", "no-referrer");
   }

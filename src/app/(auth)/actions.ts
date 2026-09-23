@@ -2,8 +2,17 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { parseInvitationToken, invitationResumePath } from "@/lib/invitationResume";
 
 export type AuthActionState = { error: string } | null;
+
+// FR033 : destination après une étape Auth réussie — reprend l'invitation
+// en cours si le formulaire en portait une (jeton strictement validé),
+// sinon le parcours habituel est inchangé. Jamais un `next` arbitraire.
+function postAuthRedirectPath(formData: FormData, fallback: string): string {
+  const token = parseInvitationToken(formData.get("invitation")?.toString() ?? null);
+  return token ? invitationResumePath(token) : fallback;
+}
 
 // FR001/FR002 : inscription. Ne fait que créer le compte (provisional) —
 // la confirmation et la connexion restent des étapes séparées.
@@ -14,6 +23,9 @@ export async function signUp(
   const identifier = String(formData.get("identifier") ?? "").trim();
   const password = String(formData.get("password") ?? "");
   const isEmail = identifier.includes("@");
+  // Revalidé ici (pas seulement transmis depuis le champ caché du
+  // formulaire) : seule une valeur au format exact est jamais réutilisée.
+  const invitationToken = parseInvitationToken(formData.get("invitation")?.toString() ?? null);
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signUp(
@@ -23,8 +35,12 @@ export async function signUp(
           password,
           // Flux PKCE (@supabase/ssr) : GoTrue redirige ici après validation
           // du lien, avec un `code` à échanger — voir src/app/auth/confirmer.
+          // Le jeton d'invitation (déjà validé ci-dessus) est répercuté tel
+          // quel dans cette seule URL fixe, jamais une valeur arbitraire.
           options: {
-            emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirmer`,
+            emailRedirectTo: invitationToken
+              ? `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirmer?invitation=${invitationToken}`
+              : `${process.env.NEXT_PUBLIC_APP_URL}/auth/confirmer`,
           },
         }
       : { phone: identifier, password }
@@ -35,10 +51,15 @@ export async function signUp(
   }
 
   if (isEmail) {
-    redirect("/connexion?inscription=ok");
+    redirect(
+      invitationToken
+        ? `/connexion?inscription=ok&invitation=${invitationToken}`
+        : "/connexion?inscription=ok"
+    );
   }
   // Téléphone : pas de lien, un code OTP est envoyé — étape de saisie dédiée.
-  redirect(`/verification-telephone?phone=${encodeURIComponent(identifier)}`);
+  const phoneStep = `/verification-telephone?phone=${encodeURIComponent(identifier)}`;
+  redirect(invitationToken ? `${phoneStep}&invitation=${invitationToken}` : phoneStep);
 }
 
 // FR005 : connexion.
@@ -61,7 +82,7 @@ export async function signIn(
     return { error: error.message };
   }
 
-  redirect("/tableau-de-bord");
+  redirect(postAuthRedirectPath(formData, "/tableau-de-bord"));
 }
 
 // Confirmation téléphone : saisie du code OTP reçu (FR001, parcours
@@ -80,7 +101,7 @@ export async function verifyPhoneOtp(
     return { error: error.message };
   }
 
-  redirect("/tableau-de-bord");
+  redirect(postAuthRedirectPath(formData, "/tableau-de-bord"));
 }
 
 // FR005 : déconnexion. Portée retenue : `scope: "local"` — ferme uniquement

@@ -4,6 +4,7 @@ import { Suspense, useActionState } from "react";
 import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, TextField, AlertBanner, Card } from "@/components/ui";
+import { parseInvitationToken } from "@/lib/invitationResume";
 import { signIn, type AuthActionState } from "../actions";
 
 function SignupNotice() {
@@ -17,6 +18,29 @@ function SignupNotice() {
       title="Compte créé"
       explanation="Confirmez votre identifiant (e-mail ou code reçu) avant de vous connecter."
     />
+  );
+}
+
+// FR033 : reprend l'invitation en cours (transmise via ?invitation=<jeton>)
+// à travers le formulaire — revalidée côté serveur dans signIn, jamais
+// utilisée telle quelle. Absente ou invalide -> champ vide, parcours normal.
+function InvitationHiddenField() {
+  const searchParams = useSearchParams();
+  const token = parseInvitationToken(searchParams.get("invitation"));
+  return <input type="hidden" name="invitation" value={token ?? ""} />;
+}
+
+// Préserve la reprise en cours si l'utilisateur bascule vers l'inscription.
+function CreateAccountLink() {
+  const searchParams = useSearchParams();
+  const token = parseInvitationToken(searchParams.get("invitation"));
+  return (
+    <Link
+      href={token ? `/inscription?invitation=${token}` : "/inscription"}
+      className="font-semibold text-primary"
+    >
+      Créer un compte
+    </Link>
   );
 }
 
@@ -51,6 +75,9 @@ export default function ConnexionPage() {
             autoComplete="current-password"
             required
           />
+          <Suspense fallback={<input type="hidden" name="invitation" value="" />}>
+            <InvitationHiddenField />
+          </Suspense>
           <Button type="submit" loading={pending}>
             Se connecter
           </Button>
@@ -58,9 +85,9 @@ export default function ConnexionPage() {
       </Card>
       <p className="text-body text-ink">
         Pas encore de compte ?{" "}
-        <Link href="/inscription" className="font-semibold text-primary">
-          Créer un compte
-        </Link>
+        <Suspense fallback={<Link href="/inscription" className="font-semibold text-primary">Créer un compte</Link>}>
+          <CreateAccountLink />
+        </Suspense>
       </p>
     </div>
   );

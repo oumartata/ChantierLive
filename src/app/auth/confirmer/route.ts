@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { cookies } from "next/headers";
+import { parseInvitationToken, invitationResumePath } from "@/lib/invitationResume";
 
 // Route Handler de confirmation e-mail, adaptée au flux PKCE retenu par
 // @supabase/ssr (flowType "pkce", non configurable). Le lien envoyé par
@@ -11,13 +12,21 @@ import { cookies } from "next/headers";
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
+  // FR033 : jeton revalidé ici (paramètre transmis par signUp via
+  // emailRedirectTo, jamais fait confiance tel quel) — reconstruit
+  // uniquement /invitations/<jeton>, jamais une redirection arbitraire.
+  const invitationToken = parseInvitationToken(searchParams.get("invitation"));
+  const successPath = invitationToken ? invitationResumePath(invitationToken) : "/tableau-de-bord";
+  // Échec : préserve la reprise pour que l'utilisateur ne perde pas son
+  // contexte après un nouvel essai de connexion.
+  const failurePath = invitationToken
+    ? `/connexion?confirmation=echec&invitation=${invitationToken}`
+    : "/connexion?confirmation=echec";
 
-  // Destination fixe : ce parcours ne mène qu'au tableau de bord, un
-  // paramètre `next` arbitraire n'a aucun usage actuel et n'est pas exposé.
-  const response = NextResponse.redirect(`${origin}/tableau-de-bord`);
+  const response = NextResponse.redirect(`${origin}${successPath}`);
 
   if (!code) {
-    response.headers.set("Location", `${origin}/connexion?confirmation=echec`);
+    response.headers.set("Location", `${origin}${failurePath}`);
     return response;
   }
 
@@ -49,7 +58,7 @@ export async function GET(request: NextRequest) {
 
   const { error } = await supabase.auth.exchangeCodeForSession(code);
   if (error) {
-    response.headers.set("Location", `${origin}/connexion?confirmation=echec`);
+    response.headers.set("Location", `${origin}${failurePath}`);
   }
 
   return response;

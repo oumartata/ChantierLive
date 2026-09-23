@@ -13,10 +13,10 @@ export default async function ModifierChantierPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ enregistre?: string }>;
+  searchParams: Promise<{ enregistre?: string; invitation?: string }>;
 }) {
   const { id } = await params;
-  const { enregistre } = await searchParams;
+  const { enregistre, invitation } = await searchParams;
 
   const user = await getVerifiedUser();
   if (!user) {
@@ -62,11 +62,24 @@ export default async function ModifierChantierPage({
           explanation="Vos modifications ont été enregistrées."
         />
       ) : null}
+      {invitation === "acceptee" ? (
+        <AlertBanner
+          variant="information"
+          title="Invitation acceptée"
+          explanation="Vous êtes désormais membre de ce chantier."
+        />
+      ) : null}
       {/* B015 : visible quel que soit le statut du chantier — aucune source
           ne restreint la création d'invitation aux seuls chantiers DRAFT
           (contrairement à create_draft_project/update_draft_project, B014). */}
       <Link href={`/chantiers/${id}/invitations/nouveau`} className="text-label font-semibold text-primary">
         Inviter quelqu&apos;un sur ce chantier
+      </Link>
+      {/* B016 : gestion (consultation + révocation) des invitations
+          relevant du rôle habilitant courant de l'appelant sur ce chantier
+          — accessible quel que soit le statut, comme le lien ci-dessus. */}
+      <Link href={`/chantiers/${id}/invitations`} className="text-label font-semibold text-primary">
+        Gérer les invitations
       </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
