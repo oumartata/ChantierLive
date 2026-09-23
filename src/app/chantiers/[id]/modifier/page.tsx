@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner } from "@/components/ui";
@@ -61,6 +62,12 @@ export default async function ModifierChantierPage({
           explanation="Vos modifications ont été enregistrées."
         />
       ) : null}
+      {/* B015 : visible quel que soit le statut du chantier — aucune source
+          ne restreint la création d'invitation aux seuls chantiers DRAFT
+          (contrairement à create_draft_project/update_draft_project, B014). */}
+      <Link href={`/chantiers/${id}/invitations/nouveau`} className="text-label font-semibold text-primary">
+        Inviter quelqu&apos;un sur ce chantier
+      </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
           variant="warning"

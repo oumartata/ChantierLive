@@ -41,6 +41,16 @@ export async function proxy(request: NextRequest) {
   // Déclenche le rafraîchissement si nécessaire (écrit les cookies via setAll).
   await supabase.auth.getUser();
 
+  // B015 (BR024) : la page d'aperçu d'invitation est accessible sans
+  // authentification et porte un jeton dans son URL — jamais mise en cache
+  // par un proxy/CDN intermédiaire (contrairement aux autres pages, qui
+  // n'exposent aucun secret dans l'URL), et sans fuite du jeton via
+  // l'en-tête Referer si la page contient un lien sortant.
+  if (request.nextUrl.pathname.startsWith("/invitations/")) {
+    response.headers.set("Cache-Control", "no-store");
+    response.headers.set("Referrer-Policy", "no-referrer");
+  }
+
   return response;
 }
 
