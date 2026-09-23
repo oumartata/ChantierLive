@@ -81,6 +81,12 @@ export default async function ModifierChantierPage({
       <Link href={`/chantiers/${id}/invitations`} className="text-label font-semibold text-primary">
         Gérer les invitations
       </Link>
+      {/* B017 : consultation de l'équipe, retrait des participants non
+          principaux et gestion des délégations — accessible quel que soit
+          le statut, comme les liens ci-dessus. */}
+      <Link href={`/chantiers/${id}/equipe`} className="text-label font-semibold text-primary">
+        Gérer l&apos;équipe
+      </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
           variant="warning"
