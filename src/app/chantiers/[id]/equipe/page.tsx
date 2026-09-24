@@ -4,12 +4,24 @@ import { AlertBanner, Card, StatusChip } from "@/components/ui";
 import { RemoveParticipantButton } from "./RemoveParticipantButton";
 import { GrantDelegationForm } from "./GrantDelegationForm";
 import { RevokeDelegationButton } from "./RevokeDelegationButton";
+import { RequestRoleTransferButton } from "./RequestRoleTransferButton";
+import { TransferContractorRoleButton } from "./TransferContractorRoleButton";
+import { RoleTransferRequestCard } from "./RoleTransferRequestCard";
 
 const ROLE_LABEL: Record<string, string> = {
   OWNER_PRIMARY: "Propriétaire principal",
   OWNER_CO_OWNER: "Copropriétaire",
   CONTRACTOR: "Entrepreneur principal",
   SITE_MANAGER: "Chef de chantier",
+};
+
+const ROLE_TRANSFER_STATUS_LABEL: Record<string, string> = {
+  PENDING: "En attente de confirmation",
+  CONFIRMED: "Confirmée",
+  REFUSED: "Refusée",
+  CANCELLED: "Annulée",
+  EXPIRED: "Expirée",
+  INVALIDATED: "Invalidée",
 };
 
 const PERMISSION_LABEL: Record<string, string> = {
@@ -48,6 +60,20 @@ interface Membership {
   role: string;
   owner_profile: string | null;
   created_at_server: string;
+}
+
+interface RoleTransfer {
+  id: string;
+  role: string;
+  status: string;
+  initiator_membership_id: string;
+  successor_membership_id: string;
+  requested_at_server: string;
+  expires_at: string | null;
+  decided_at_server: string | null;
+  request_reason: string;
+  decision_reason: string | null;
+  is_pending: boolean;
 }
 
 interface Delegation {
@@ -124,6 +150,12 @@ export default async function EquipePage({ params }: { params: Promise<{ id: str
   });
   const delegations: Delegation[] = Array.isArray(delegationsData) ? delegationsData : [];
 
+  const { data: transfersData, error: transfersError } = await supabase.rpc("list_role_transfers", {
+    p_project_id: id,
+  });
+  const roleTransfers: RoleTransfer[] = Array.isArray(transfersData) ? transfersData : [];
+  const hasPendingOwnerTransfer = roleTransfers.some((t) => t.role === "OWNER" && t.is_pending);
+
   const canRemove = (target: Membership): boolean => {
     if (!caller) return false;
     if (caller.role === "OWNER" && caller.owner_profile === "PRIMARY") {
@@ -156,6 +188,21 @@ export default async function EquipePage({ params }: { params: Promise<{ id: str
     return delegant !== null && caller.role === delegant.role && caller.owner_profile === delegant.ownerProfile;
   };
 
+  // B018 : successeur éligible = adhésion active CO_OWNER (pour OWNER/
+  // PRIMARY) ou SITE_MANAGER (pour CONTRACTOR) — même matrice que
+  // role_transfer_couple (M006b), reproduite ici pour l'affichage uniquement
+  // (jamais l'autorité finale).
+  const canRequestOwnerTransfer = (target: Membership): boolean =>
+    !!caller &&
+    caller.role === "OWNER" &&
+    caller.owner_profile === "PRIMARY" &&
+    target.role === "OWNER" &&
+    target.owner_profile === "CO_OWNER" &&
+    !hasPendingOwnerTransfer;
+
+  const canTransferContractorRole = (target: Membership): boolean =>
+    !!caller && caller.role === "CONTRACTOR" && target.role === "SITE_MANAGER";
+
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
       <h1 className="text-h1 font-bold text-ink">Équipe — {project.name}</h1>
@@ -173,6 +220,12 @@ export default async function EquipePage({ params }: { params: Promise<{ id: str
               </p>
               <p className="text-caption text-muted break-all">Repère : {m.id}</p>
               {canRemove(m) ? <RemoveParticipantButton projectId={id} membershipId={m.id} /> : null}
+              {canRequestOwnerTransfer(m) ? (
+                <RequestRoleTransferButton projectId={id} successorMembershipId={m.id} />
+              ) : null}
+              {canTransferContractorRole(m) ? (
+                <TransferContractorRoleButton projectId={id} successorMembershipId={m.id} />
+              ) : null}
               <GrantDelegationForm
                 projectId={id}
                 projectMembershipId={m.id}
@@ -225,6 +278,44 @@ export default async function EquipePage({ params }: { params: Promise<{ id: str
               {d.revoked_at_server === null && canRevoke(d) ? (
                 <RevokeDelegationButton projectId={id} delegationId={d.id} />
               ) : null}
+            </Card>
+          ))
+        )}
+      </section>
+
+      <section className="flex flex-col gap-3">
+        <h2 className="text-h2 font-semibold text-ink">Transfert de rôle principal</h2>
+        {transfersError ? (
+          <AlertBanner
+            variant="error"
+            title="Lecture impossible"
+            explanation="Les demandes de transfert n'ont pas pu être chargées."
+          />
+        ) : roleTransfers.length === 0 ? (
+          <AlertBanner
+            variant="information"
+            title="Aucune demande"
+            explanation="Aucun transfert de rôle principal n'a été demandé sur ce chantier."
+          />
+        ) : (
+          roleTransfers.map((t) => (
+            <Card key={t.id} className="flex flex-col gap-2 p-6">
+              <p className="text-body text-ink">
+                {roleLabel(t.role, t.role === "OWNER" ? "PRIMARY" : null)} —{" "}
+                <span className="text-caption text-muted">{ROLE_TRANSFER_STATUS_LABEL[t.status] ?? t.status}</span>
+              </p>
+              <StatusChip
+                variant={t.is_pending ? "success" : "neutral"}
+                label={t.is_pending ? "En attente" : "Terminée"}
+              />
+              <RoleTransferRequestCard
+                projectId={id}
+                transferId={t.id}
+                role={t.role}
+                isInitiator={caller?.id === t.initiator_membership_id}
+                isSuccessor={caller?.id === t.successor_membership_id}
+                isPending={t.is_pending}
+              />
             </Card>
           ))
         )}

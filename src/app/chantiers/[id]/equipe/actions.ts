@@ -29,6 +29,18 @@ function mapRpcError(message: string | undefined): string {
       return "Cette délégation est déjà révoquée.";
     case "invalid_permission_code":
       return "Type de délégation invalide.";
+    case "successor_not_eligible":
+      return "Ce participant ne peut pas être désigné comme successeur.";
+    case "successor_account_provisional":
+      return "Le compte du successeur doit d'abord être vérifié.";
+    case "pending_transfer_exists":
+      return "Une demande de transfert est déjà en attente pour ce rôle.";
+    case "transfer_request_not_pending":
+      return "Cette demande n'est plus en attente.";
+    case "transfer_request_expired":
+      return "Cette demande a expiré.";
+    case "transfer_request_invalidated":
+      return "Cette demande n'est plus valide (une adhésion concernée a changé).";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -148,6 +160,185 @@ export async function revokeDelegationAction(
   const supabase = await createClient();
   const { error } = await supabase.rpc("revoke_delegation", {
     p_delegation_id: delegationId.value,
+  });
+
+  if (error) {
+    return { error: mapRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/equipe`);
+  return null;
+}
+
+// B018 : demande de transfert du rôle OWNER/PRIMARY (request_role_transfer,
+// M006b) — OWNER/PRIMARY uniquement, aucune bascule ici (voir
+// confirmRoleTransferAction). Motif obligatoire, revérifié côté RPC.
+export async function requestRoleTransferAction(
+  _prevState: EquipeActionState,
+  formData: FormData
+): Promise<EquipeActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const projectId = requireUuid(formData.get("project_id"));
+  const successorMembershipId = requireUuid(formData.get("successor_membership_id"));
+  const reason = requireNonEmptyText(formData.get("reason"));
+  if (!projectId.ok || !successorMembershipId.ok) {
+    return { error: "Requête invalide." };
+  }
+  if (!reason.ok) {
+    return { error: "Un motif est obligatoire pour demander un transfert." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("request_role_transfer", {
+    p_project_id: projectId.value,
+    p_successor_membership_id: successorMembershipId.value,
+    p_reason: reason.value,
+  });
+
+  if (error) {
+    return { error: mapRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/equipe`);
+  return null;
+}
+
+// B018 : annulation par l'initiateur (cancel_role_transfer, M006b), depuis
+// PENDING uniquement.
+export async function cancelRoleTransferAction(
+  _prevState: EquipeActionState,
+  formData: FormData
+): Promise<EquipeActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const projectId = requireUuid(formData.get("project_id"));
+  const transferId = requireUuid(formData.get("transfer_id"));
+  const reason = requireNonEmptyText(formData.get("reason"));
+  if (!projectId.ok || !transferId.ok) {
+    return { error: "Requête invalide." };
+  }
+  if (!reason.ok) {
+    return { error: "Un motif est obligatoire pour annuler une demande." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("cancel_role_transfer", {
+    p_transfer_id: transferId.value,
+    p_reason: reason.value,
+  });
+
+  if (error) {
+    return { error: mapRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/equipe`);
+  return null;
+}
+
+// B018 : refus par le successeur (refuse_role_transfer, M006b), depuis
+// PENDING uniquement, aucune mutation d'adhésion.
+export async function refuseRoleTransferAction(
+  _prevState: EquipeActionState,
+  formData: FormData
+): Promise<EquipeActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const projectId = requireUuid(formData.get("project_id"));
+  const transferId = requireUuid(formData.get("transfer_id"));
+  const reason = requireNonEmptyText(formData.get("reason"));
+  if (!projectId.ok || !transferId.ok) {
+    return { error: "Requête invalide." };
+  }
+  if (!reason.ok) {
+    return { error: "Un motif est obligatoire pour refuser une demande." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("refuse_role_transfer", {
+    p_transfer_id: transferId.value,
+    p_reason: reason.value,
+  });
+
+  if (error) {
+    return { error: mapRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/equipe`);
+  return null;
+}
+
+// B018 : confirmation explicite par le successeur (confirm_role_transfer,
+// M006b) — SEULE action qui bascule réellement les rôles (double
+// confirmation, AC038).
+export async function confirmRoleTransferAction(
+  _prevState: EquipeActionState,
+  formData: FormData
+): Promise<EquipeActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const projectId = requireUuid(formData.get("project_id"));
+  const transferId = requireUuid(formData.get("transfer_id"));
+  const reason = requireNonEmptyText(formData.get("reason"));
+  if (!projectId.ok || !transferId.ok) {
+    return { error: "Requête invalide." };
+  }
+  if (!reason.ok) {
+    return { error: "Un motif est obligatoire pour confirmer un transfert." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("confirm_role_transfer", {
+    p_transfer_id: transferId.value,
+    p_reason: reason.value,
+  });
+
+  if (error) {
+    return { error: mapRpcError(error.message) };
+  }
+
+  revalidatePath(`/chantiers/${projectId.value}/equipe`);
+  return null;
+}
+
+// B018 : transfert immédiat du rôle CONTRACTOR (transfer_contractor_role,
+// M006b) — sans période de double contrôle (AC039), une seule action.
+export async function transferContractorRoleAction(
+  _prevState: EquipeActionState,
+  formData: FormData
+): Promise<EquipeActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) {
+    return { error: guard.message };
+  }
+
+  const projectId = requireUuid(formData.get("project_id"));
+  const successorMembershipId = requireUuid(formData.get("successor_membership_id"));
+  const reason = requireNonEmptyText(formData.get("reason"));
+  if (!projectId.ok || !successorMembershipId.ok) {
+    return { error: "Requête invalide." };
+  }
+  if (!reason.ok) {
+    return { error: "Un motif est obligatoire pour transférer ce rôle." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("transfer_contractor_role", {
+    p_project_id: projectId.value,
+    p_successor_membership_id: successorMembershipId.value,
+    p_reason: reason.value,
   });
 
   if (error) {
