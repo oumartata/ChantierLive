@@ -37,7 +37,7 @@ export default function VerificationTelephonePage() {
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
-      <h1 className="text-title font-bold text-ink">Confirmer le téléphone</h1>
+      <h1 className="text-h1 font-bold text-ink">Confirmer le téléphone</h1>
       <Card className="flex flex-col gap-4 p-6">
         <AlertBanner
           variant="information"

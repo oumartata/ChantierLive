@@ -13,7 +13,7 @@ foundations:
     body: {size: 16, weight: 400}
     label: {size: 14, weight: 600}
     caption: {size: 13, weight: 400}
-  elevation: {card: "0 1px 3px rgba(23,33,29,.10)", modal: "0 16px 40px rgba(23,33,29,.18)"}
+  elevation: {card: "0 1px 3px rgba(22,33,43,.10)", modal: "0 16px 40px rgba(22,33,43,.18)"}
   motion: {micro_ms: 160, panel_ms: 220, reduced_motion: true}
 
 components:
@@ -39,7 +39,7 @@ components:
   navigation:
     mobile: "barre basse, cinq destinations maximum"
     desktop: "barre latérale 240 px, repliable à 72 px"
-    active_state: "fond vert pâle + libellé semibold"
+    active_state: "fond marine pâle + libellé semibold"
   connectivity:
     variants: [online, unstable, offline]
     always_visible: true

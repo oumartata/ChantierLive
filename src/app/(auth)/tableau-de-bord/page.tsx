@@ -61,7 +61,7 @@ export default async function TableauDeBordPage() {
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
-      <h1 className="text-title font-bold text-ink">Tableau de bord</h1>
+      <h1 className="text-h1 font-bold text-ink">Tableau de bord</h1>
       <Card className="flex flex-col gap-4 p-6">
         {banner}
         <Link href="/chantiers/nouveau" className="text-label font-semibold text-primary">

@@ -20,7 +20,7 @@ export const viewport: Viewport = {
   // Nécessaire pour que env(safe-area-inset-*) résolve à une vraie valeur
   // sur les appareils à encoche (voir AppShell).
   viewportFit: "cover",
-  themeColor: "#126b54",
+  themeColor: "#0b3b5c",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

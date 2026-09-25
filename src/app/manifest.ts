@@ -13,8 +13,8 @@ export default function manifest(): MetadataRoute.Manifest {
     // Non verrouillée : l'application est utilisée aussi bien en portrait
     // (mobile) qu'en paysage (tablette, ordinateur) — voir RESPONSIVE_RULES.yaml.
     orientation: "any",
-    background_color: "#f3eee4",
-    theme_color: "#126b54",
+    background_color: "#eef2f5",
+    theme_color: "#0b3b5c",
     // Uniquement des icônes PNG rastérisées : /icon.svg reste le favicon
     // Next.js mais n'est plus déclaré comme icône du manifeste (échec de
     // chargement constaté dans le panneau Application de Chrome DevTools

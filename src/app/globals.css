@@ -8,16 +8,16 @@
  * définis ci-dessous.
  */
 @theme {
-  /* Couleurs — DESIGN_TOKENS.csv (color.*) */
-  --color-primary: #126b54;
-  --color-primary-dark: #0a4637;
-  --color-action: #bf570f;
-  --color-sand: #f3eee4;
-  --color-ink: #17211d;
-  --color-muted: #65716b;
+  /* Couleurs — DESIGN_TOKENS.csv (color.*) : marine, émeraude, doré, surfaces blanches */
+  --color-primary: #0b3b5c;
+  --color-primary-dark: #072a42;
+  --color-action: #8a6a15;
+  --color-sand: #eef2f5;
+  --color-ink: #16212b;
+  --color-muted: #5c6b75;
   --color-surface: #ffffff;
   --color-danger: #b42318;
-  --color-success: #16794f;
+  --color-success: #0b6b49;
 
   /* Typographie — DESIGN_TOKENS.csv (font.*) + UI_KIT_SPEC.yaml (foundations.typography) */
   --font-ui: var(--font-inter), "Inter", system-ui, sans-serif;
@@ -36,8 +36,8 @@
   --radius-large: 18px;
 
   /* Ombres — UI_KIT_SPEC.yaml (foundations.elevation) */
-  --shadow-card: 0 1px 3px rgba(23, 33, 29, 0.1);
-  --shadow-modal: 0 16px 40px rgba(23, 33, 29, 0.18);
+  --shadow-card: 0 1px 3px rgba(22, 33, 43, 0.1);
+  --shadow-modal: 0 16px 40px rgba(22, 33, 43, 0.18);
 
   /* Taille tactile minimale — DESIGN_TOKENS.csv (touch.minimum) */
   --spacing-touch: 44px;

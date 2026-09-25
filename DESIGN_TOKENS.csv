@@ -1,13 +1,13 @@
 token,type,value,usage
-color.primary,color,#126B54,Marque et action principale
-color.primary_dark,color,#0A4637,Action pressée et texte accentué
-color.action,color,#BF570F,Action secondaire et attention
-color.sand,color,#F3EEE4,Fond chaud
-color.ink,color,#17211D,Texte principal
-color.muted,color,#65716B,Texte secondaire
-color.surface,color,#FFFFFF,Carte et surface
+color.primary,color,#0B3B5C,Marque et action principale (marine)
+color.primary_dark,color,#072A42,Action pressée et texte accentué (marine nuit)
+color.action,color,#8A6A15,Action secondaire et attention (doré)
+color.sand,color,#EEF2F5,Fond neutre clair
+color.ink,color,#16212B,Texte principal
+color.muted,color,#5C6B75,Texte secondaire
+color.surface,color,#FFFFFF,Carte et surface (blanc)
 color.danger,color,#B42318,Erreur refus incident
-color.success,color,#16794F,Validation synchronisation réussie
+color.success,color,#0B6B49,Validation synchronisation réussie (émeraude)
 font.ui,font,"Inter, system-ui, sans-serif",Interface
 font.mobile_fallback,font,"Roboto, Arial, sans-serif",Android modeste
 font.body_size,size,16px,Texte courant minimum

@@ -17,15 +17,15 @@ concept:
     - "version monochrome obligatoire"
 
 palette:
-  primary: {name: "Vert chantier", hex: "#126B54", use: "marque, navigation, actions principales"}
-  primary_dark: {name: "Vert nuit", hex: "#0A4637", use: "texte accentué, états pressés"}
-  action: {name: "Orange action", hex: "#BF570F", use: "actions secondaires, attention non critique"}
-  sand: {name: "Sable clair", hex: "#F3EEE4", use: "fonds chauds et cartes"}
-  ink: {name: "Encre", hex: "#17211D", use: "texte principal"}
-  muted: {name: "Gris chantier", hex: "#65716B", use: "texte secondaire"}
+  primary: {name: "Marine", hex: "#0B3B5C", use: "marque, navigation, actions principales"}
+  primary_dark: {name: "Marine nuit", hex: "#072A42", use: "texte accentué, états pressés"}
+  action: {name: "Doré", hex: "#8A6A15", use: "actions secondaires, attention non critique"}
+  sand: {name: "Perle", hex: "#EEF2F5", use: "fonds neutres clairs et cartes"}
+  ink: {name: "Encre marine", hex: "#16212B", use: "texte principal"}
+  muted: {name: "Gris marine", hex: "#5C6B75", use: "texte secondaire"}
   surface: {name: "Blanc", hex: "#FFFFFF", use: "surfaces"}
   danger: {name: "Rouge incident", hex: "#B42318", use: "refus, erreur, incident critique"}
-  success: {name: "Vert succès", hex: "#16794F", use: "validation et synchronisation réussie"}
+  success: {name: "Émeraude", hex: "#0B6B49", use: "validation et synchronisation réussie"}
 
 typography:
   ui: "Inter, system-ui, sans-serif"

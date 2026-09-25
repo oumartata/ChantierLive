@@ -36,7 +36,7 @@ export default function InscriptionPage() {
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
-      <h1 className="text-title font-bold text-ink">Créer un compte</h1>
+      <h1 className="text-h1 font-bold text-ink">Créer un compte</h1>
       <Card className="flex flex-col gap-4 p-6">
         {state?.error ? (
           <AlertBanner variant="error" title="Inscription impossible" explanation={state.error} />

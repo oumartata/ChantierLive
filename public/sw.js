@@ -19,7 +19,13 @@
 // incohérente. Version de cache renouvelée pour purger l'ancienne entrée
 // précachée chez les utilisateurs existants (activate ci-dessous supprime
 // tout cache dont le nom ne correspond plus à CACHE_VERSION).
-const CACHE_VERSION = "chantierlive-shell-v4";
+//
+// v5 (adaptation visuelle maquettes) : contenu des icônes précachées
+// (icon.svg, icon-192/512/maskable) changé (palette marine/émeraude/doré).
+// Version renouvelée pour que les utilisateurs déjà installés reçoivent les
+// nouvelles icônes au lieu de servir indéfiniment les anciennes depuis le
+// cache précédent. Portée inchangée : toujours aucune route Auth/session.
+const CACHE_VERSION = "chantierlive-shell-v5";
 const OFFLINE_URL = "/offline";
 
 // Shell + ressources publiques précachées à l'installation. Ne jamais y
