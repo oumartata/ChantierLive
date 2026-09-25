@@ -400,10 +400,17 @@ async function main() {
     concClientB.rpc("prepare_project_plan_upload", { p_operation_uuid: concOp, p_project_id: chantierConc.projectId, p_expected_checksum: concChecksum, p_expected_size_bytes: concBytes.length, p_expected_mime_type: "application/pdf" }),
   ]);
 
+  // Deux issues légitimes pour le prepare rejoué, selon l'ordre réel d'acquisition
+  // des verrous : il passe AVANT finalize (renvoie la ligne existante, non
+  // finalisée) ou APRÈS (operation_already_finalized, règle commune M010/M019 :
+  // aucune nouvelle URL d'écriture sur une opération FINALIZED). Un interblocage
+  // (deadlock detected) ou toute autre erreur reste un échec.
   const finalizeOk = finalizeResult.status === "fulfilled" && !finalizeResult.value.error && !!finalizeResult.value.data?.id;
-  const prepareReplayOk = prepareReplayResult.status === "fulfilled" && !prepareReplayResult.value.error;
+  const prepareReplayOk =
+    prepareReplayResult.status === "fulfilled" &&
+    (!prepareReplayResult.value.error || prepareReplayResult.value.error.message === "operation_already_finalized");
   record(
-    "Concurrence prepare/finalize (même operation_uuid, 2 connexions réelles) — aucun interblocage, les deux aboutissent",
+    "Concurrence prepare/finalize (même operation_uuid, 2 connexions réelles) — aucun interblocage, finalize aboutit, prepare rejoué renvoie la ligne existante ou operation_already_finalized",
     finalizeOk && prepareReplayOk,
     JSON.stringify({
       finalize: finalizeResult.status === "fulfilled" ? finalizeResult.value.error?.message ?? "ok" : finalizeResult.reason?.message,
