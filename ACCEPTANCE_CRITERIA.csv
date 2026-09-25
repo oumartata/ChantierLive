@@ -159,3 +159,4 @@ AC157,FR157,"Signalements existent","admin ouvre support","liste minimisée et s
 AC158,FR158,"Session compromise identifiée","admin la révoque","session perd l'accès dans le délai cible"
 AC159,FR159,"Accès exceptionnel demandé","admin définit dossier; motif; périmètre et durée","autorisation limitée est créée"
 AC160,FR160,"Accès exceptionnel commence ou finit","système traite événement","audit et notification conformes à la politique sont créés"
+AC177,FR177,"Photo finalisée en brouillon, auteur toujours CONTRACTOR/SITE_MANAGER actif","auteur publie explicitement la photo","statut passe à publié, droits revérifiés côté serveur, lecture ouverte à l'équipe selon MEDIA_VIEW"

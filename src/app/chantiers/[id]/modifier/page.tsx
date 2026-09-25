@@ -87,6 +87,12 @@ export default async function ModifierChantierPage({
       <Link href={`/chantiers/${id}/equipe`} className="text-label font-semibold text-primary">
         Gérer l&apos;équipe
       </Link>
+      {/* B027 : suivi par photos/vidéos — accessible quel que soit le
+          statut, comme les liens ci-dessus ; list_project_media (M010)
+          reste la seule autorité sur ce qui est effectivement affiché. */}
+      <Link href={`/chantiers/${id}/photos`} className="text-label font-semibold text-primary">
+        Photos et vidéos
+      </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
           variant="warning"

@@ -17,3 +17,4 @@ order,id,name,depends_on,rollback_or_recovery,validation_gate
 16,M016,"incidents incident_events",M004;M005,"événement correctif","machine d'états testée"
 17,M017,"licenses payments notifications",M004;M005;M010,"nouvel événement ou statut","droits indépendants du paiement"
 18,M018,"reports shares conflicts duplicates",M005;M010;M013,"révocation et résolution","liens expirants et conflits visibles"
+26,M026,"private_object_uploads",M001,"append-only idempotent, aucun rollback destructif","chemin construit serveur, refus par défaut hors branches connues"

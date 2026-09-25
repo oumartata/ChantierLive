@@ -89,3 +89,4 @@ BR087,audit,"Les rôles métier ne modifient ni ne suppriment l'audit; la consul
 BR088,admin,"PLATFORM_ADMIN gère la plateforme via métadonnées minimales et n'accède pas par défaut aux contenus privés."
 BR089,admin,"L'accès exceptionnel précise motif; dossier support; périmètre; durée; approbateur et journal; il expire automatiquement."
 BR090,admin,"Suspension bloque les nouvelles actions concernées; préserve preuves et audit; fournit un recours support."
+BR107,media,"Une photo/vidéo de suivi reste en brouillon, lisible uniquement par son auteur tant qu'il reste CONTRACTOR ou SITE_MANAGER actif, jusqu'à sa publication explicite par ce même auteur (droits revérifiés au moment de la publication) ; après publication, lecture ouverte à l'équipe du chantier selon MEDIA_VIEW. Ne s'applique qu'aux photos/vidéos de suivi, jamais aux plans ni aux documents."

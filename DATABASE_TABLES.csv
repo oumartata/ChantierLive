@@ -42,3 +42,4 @@ T040,sync_operations,integrity,"Idempotence et résultat des opérations hors li
 T041,sync_conflicts,integrity,"Conflit de révision et résolution choisie",project_id,"append-only",sync_operations
 T042,audit_events,integrity,"Acteur, action, cible, résultat et heure serveur",project_id,"append-only serveur",profiles
 T043,duplicate_candidates,integrity,"Doublons probables et décision de rapprochement",project_id,"workflow sans fusion automatique",projects
+T054,private_object_uploads,integrity,"Suivi générique idempotent de préparation/finalisation d'un fichier privé, consommé par les domaines applicatifs","project_id et organization_id (colonnes nullables avec FK réelles, exactement l'une des deux renseignée)","insert-first sur operation_uuid unique (acteur+paramètres), append-only, aucun remplacement d'octets après FINALIZED",projects;organizations;profiles

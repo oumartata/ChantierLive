@@ -159,3 +159,4 @@ FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support.",M
 FR158,admin,PlatformAdmin,"Révoquer une session compromise.",MUST,BR008|BR088,AC158
 FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel.",MUST,BR089,AC159
 FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable.",MUST,BR089,AC160
+FR177,media,Uploader,"Publier explicitement une photo en brouillon (droits revérifiés côté serveur) ; avant publication, lecture réservée à l'auteur tant qu'il reste CONTRACTOR ou SITE_MANAGER actif.",MUST,BR107,AC177
