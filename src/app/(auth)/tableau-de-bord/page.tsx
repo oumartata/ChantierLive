@@ -76,6 +76,22 @@ export default async function TableauDeBordPage() {
             Ingénieurs habilités — {org.name}
           </Link>
         ))}
+        {/* B061 : catalogue par agence, même périmètre propriétaire que
+            ci-dessus ; parcours ingénieur (validations-plans) toujours
+            affiché, sans dépendre d'une désignation connue ici (la page gère
+            elle-même l'absence de demande en attente). */}
+        {(ownedOrganizations ?? []).map((org) => (
+          <Link
+            key={`catalogue-${org.id}`}
+            href={`/organisations/${org.id}/catalogue`}
+            className="text-label font-semibold text-primary"
+          >
+            Catalogue de plans — {org.name}
+          </Link>
+        ))}
+        <Link href="/validations-plans" className="text-label font-semibold text-primary">
+          Plans à valider (ingénieur)
+        </Link>
         <LogoutButton />
       </Card>
     </div>

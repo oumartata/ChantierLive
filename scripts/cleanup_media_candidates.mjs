@@ -1,4 +1,15 @@
-// Nettoyage RÉEL des objets Storage devenus inutiles (B026, media_asset).
+// Nettoyage RÉEL des objets Storage devenus inutiles — B026 (media_asset,
+// bucket project-media) ET B061 (plan_catalog_item_version, bucket
+// organization-catalog, EN REVUE). CORRIGÉ (revue ciblée B061, point 4) :
+// cette version précédente était fixée à project-media — les uploads
+// catalogue expirés n'étaient JAMAIS sélectionnés en phase A (list_expired_
+// media_uploads filtre déjà entity_type='media_asset'), et une clé tracée
+// pour un upload catalogue aurait été cherchée dans le MAUVAIS bucket en
+// phases B/C. Le bucket de chaque clé tracée est désormais choisi CÔTÉ
+// SERVEUR (get_stale_key_bucket, M019) selon l'entity_type de l'upload
+// d'origine — jamais déduit ou codé en dur ici. La protection des fichiers
+// FINALIZED (list_recently_cleaned_media_keys) reste agnostique du domaine,
+// inchangée.
 // REFONDU (revue 2026-09-26) après trois défauts identifiés dans la version
 // précédente :
 //   1. claim_candidate_for_cleanup supprimait la ligne SQL AVANT
@@ -35,7 +46,6 @@ import { createClient } from "@supabase/supabase-js";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const BUCKET = "project-media";
 const DRY_RUN = process.argv.includes("--dry-run");
 
 if (!SERVICE_KEY) {
@@ -46,12 +56,27 @@ if (!SERVICE_KEY) {
 const service = createClient(URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
 
 async function phaseAbandon() {
-  const { data: expired, error: listError } = await service.rpc("list_expired_media_uploads", { p_older_than: "1 hour" });
-  if (listError) throw new Error(`list_expired_media_uploads: ${listError.message}`);
+  await phaseAbandonDomain({
+    label: "media_asset",
+    listFn: "list_expired_media_uploads",
+    abandonFn: "abandon_expired_media_upload",
+    describeRow: (row) => `projet ${row.project_id}`,
+  });
+  await phaseAbandonDomain({
+    label: "plan_catalog_item_version",
+    listFn: "list_expired_catalog_item_uploads",
+    abandonFn: "abandon_expired_catalog_item_upload",
+    describeRow: (row) => `organisation ${row.organization_id}`,
+  });
+}
 
-  console.log(`Phase A — sélection : ${expired?.length ?? 0} opération(s) expirée(s) candidate(s) à l'abandon.`);
+async function phaseAbandonDomain({ label, listFn, abandonFn, describeRow }) {
+  const { data: expired, error: listError } = await service.rpc(listFn, { p_older_than: "1 hour" });
+  if (listError) throw new Error(`${listFn}: ${listError.message}`);
+
+  console.log(`Phase A (${label}) — sélection : ${expired?.length ?? 0} opération(s) expirée(s) candidate(s) à l'abandon.`);
   if (DRY_RUN) {
-    for (const row of expired ?? []) console.log(`[dry-run] abandonnerait l'opération ${row.id} (projet ${row.project_id})`);
+    for (const row of expired ?? []) console.log(`[dry-run] abandonnerait l'opération ${row.id} (${describeRow(row)})`);
     return;
   }
 
@@ -59,17 +84,17 @@ async function phaseAbandon() {
   for (const row of expired ?? []) {
     // Revalidation À L'INSTANT PRÉSENT, une ligne à la fois — la sélection
     // ci-dessus peut déjà être périmée (finalisation ou reprise entre-temps).
-    const { data: didAbandon, error: abandonError } = await service.rpc("abandon_expired_media_upload", {
+    const { data: didAbandon, error: abandonError } = await service.rpc(abandonFn, {
       p_id: row.id,
       p_older_than: "1 hour",
     });
     if (abandonError) {
-      console.error(`abandon_expired_media_upload(${row.id}): ${abandonError.message}`);
+      console.error(`${abandonFn}(${row.id}): ${abandonError.message}`);
       continue;
     }
     if (didAbandon) abandoned++;
   }
-  console.log(`Phase A — abandonnées réellement : ${abandoned}.`);
+  console.log(`Phase A (${label}) — abandonnées réellement : ${abandoned}.`);
 }
 
 async function phaseDeleteStaleKeys() {
@@ -78,13 +103,24 @@ async function phaseDeleteStaleKeys() {
 
   console.log(`Phase B — sélection : ${staleKeys?.length ?? 0} clé(s) tracée(s) non encore nettoyée(s).`);
   if (DRY_RUN) {
-    for (const k of staleKeys ?? []) console.log(`[dry-run] supprimerait (${k.kind}) ${k.storage_key}`);
+    for (const k of staleKeys ?? []) {
+      const { data: bucket } = await service.rpc("get_stale_key_bucket", { p_id: k.id });
+      console.log(`[dry-run] supprimerait (${k.kind}, bucket ${bucket ?? "?"}) ${k.storage_key}`);
+    }
     return;
   }
 
   let deleted = 0;
   let skipped = 0;
   for (const k of staleKeys ?? []) {
+    // Sélection du bucket CÔTÉ SERVEUR selon le domaine de l'upload d'origine
+    // (get_stale_key_bucket, M019) — jamais un bucket unique codé en dur.
+    const { data: bucket, error: bucketError } = await service.rpc("get_stale_key_bucket", { p_id: k.id });
+    if (bucketError || !bucket) {
+      console.error(`get_stale_key_bucket(${k.id}): ${bucketError?.message ?? "bucket introuvable"} — clé ignorée, réessayable.`);
+      continue;
+    }
+
     // Porte CAS avant tout appel Storage réel : jamais deux suppressions
     // concurrentes de la même clé, jamais une reréclamation d'une clé déjà
     // confirmée nettoyée.
@@ -98,7 +134,7 @@ async function phaseDeleteStaleKeys() {
       continue;
     }
 
-    const { error: removeError } = await service.storage.from(BUCKET).remove([claimed[0].storage_key]);
+    const { error: removeError } = await service.storage.from(bucket).remove([claimed[0].storage_key]);
     if (removeError) {
       // Échec Storage : la trace REND la réclamation, jamais supprimée ici —
       // réclamable à nouveau après le délai de grâce (claim_stale_key_for_cleanup).
@@ -158,10 +194,19 @@ async function phaseReconcile() {
   let recreated = 0;
   let uncertain = 0;
   for (const k of candidates ?? []) {
+    // Sélection du bucket CÔTÉ SERVEUR selon le domaine de l'upload
+    // d'origine — même principe qu'en phase B, jamais un bucket unique.
+    const { data: bucket, error: bucketError } = await service.rpc("get_stale_key_bucket", { p_id: k.id });
+    if (bucketError || !bucket) {
+      console.error(`get_stale_key_bucket(${k.id}): ${bucketError?.message ?? "bucket introuvable"} — clé ignorée, réessayable.`);
+      uncertain++;
+      continue;
+    }
+
     // download() est une LECTURE, sûre même en dry-run : seules la
     // suppression réelle et le marquage reconciled_at ci-dessous sont
     // conditionnés à --dry-run.
-    const { data: reappeared, error: dlError } = await service.storage.from(BUCKET).download(k.storage_key);
+    const { data: reappeared, error: dlError } = await service.storage.from(bucket).download(k.storage_key);
     if (dlError) {
       if (isConfirmedStorageNotFound(dlError)) {
         // Absence CONFIRMÉE : contrôle réel effectué, rien à supprimer —
@@ -184,7 +229,7 @@ async function phaseReconcile() {
       recreated++;
       continue;
     }
-    const { error: removeError } = await service.storage.from(BUCKET).remove([k.storage_key]);
+    const { error: removeError } = await service.storage.from(bucket).remove([k.storage_key]);
     if (removeError) {
       console.error(`storage.remove(${k.storage_key}) [écriture tardive]: ${removeError.message} — non marquée, réessayable.`);
       continue;
