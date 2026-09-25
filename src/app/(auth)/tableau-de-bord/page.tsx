@@ -19,6 +19,16 @@ export default async function TableauDeBordPage() {
     "is_account_provisional"
   );
 
+  // B062 : point d'entrée minimal vers la gestion des ingénieurs habilités —
+  // uniquement les organisations dont l'utilisateur est PROPRIÉTAIRE
+  // (organizations.owner_profile_id), lues via RLS (organizations_select_owner_or_member,
+  // M003), jamais un annuaire des organisations d'autrui.
+  const { data: ownedOrganizations } = await supabase
+    .from("organizations")
+    .select("id, name")
+    .eq("owner_profile_id", user.id)
+    .is("archived_at", null);
+
   // Seul data === false SANS erreur permet "Compte vérifié". Une erreur RPC
   // ou un résultat null/undefined ne doit jamais être traité comme "vérifié"
   // ni comme "provisoire" — l'information est simplement indisponible.
@@ -57,6 +67,15 @@ export default async function TableauDeBordPage() {
         <Link href="/chantiers/nouveau" className="text-label font-semibold text-primary">
           Créer un chantier
         </Link>
+        {(ownedOrganizations ?? []).map((org) => (
+          <Link
+            key={org.id}
+            href={`/organisations/${org.id}/ingenieurs`}
+            className="text-label font-semibold text-primary"
+          >
+            Ingénieurs habilités — {org.name}
+          </Link>
+        ))}
         <LogoutButton />
       </Card>
     </div>

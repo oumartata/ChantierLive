@@ -21,7 +21,7 @@ order,id,name,depends_on,rollback_or_recovery,validation_gate
 20,M020,"project_plans",M004;M019,"nouvelle version corrective","plan publié seulement après validation technique"
 21,M021,"quotes quote_versions",M004,"nouvelle version corrective","montant contractuel dérivé du seul devis accepté"
 22,M022,"change_orders change_order_versions",M004;M021,"nouvelle version corrective","exécution autorisée seulement si avenant accepté"
-23,M023,"plan_engineer_designations plan_validations",M003;M020,"désignation/révocation, jamais suppression physique","validation refusée sans habilitation active au moment de la décision"
+23,M023,"plan_engineer_designations",M002;M003,"désignation/révocation, jamais suppression physique","propriétaire courant revérifié sous verrou (is_account_provisional, M002a), isolation par organisation et anti-énumération prouvées par appel RPC direct"
 24,M024,"catalog_access_grants",M003,"révocation du lien commercial","aucune adhésion créée par le lien commercial"
 25,M025,"project_plan_shares",M020,"octroi/révocation explicite","accès SITE_MANAGER distinct des délégations existantes"
 26,M026,"private_object_uploads",M001,"append-only idempotent, aucun rollback destructif","chemin construit serveur, refus par défaut hors branches connues"
