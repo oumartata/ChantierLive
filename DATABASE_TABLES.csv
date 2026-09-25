@@ -42,4 +42,14 @@ T040,sync_operations,integrity,"Idempotence et résultat des opérations hors li
 T041,sync_conflicts,integrity,"Conflit de révision et résolution choisie",project_id,"append-only",sync_operations
 T042,audit_events,integrity,"Acteur, action, cible, résultat et heure serveur",project_id,"append-only serveur",profiles
 T043,duplicate_candidates,integrity,"Doublons probables et décision de rapprochement",project_id,"workflow sans fusion automatique",projects
+T044,plan_catalog_items,commercial,"Modèle de plan proposé par l'agence (organisation)",organization_id,"versionnement administratif",organizations
+T045,project_plans,commercial,"Plan retenu ou déposé pour un chantier, avec validation technique et publication",project_id,"pointeur de version + état",projects;plan_catalog_items
+T046,quotes,commercial,"Identité et état du devis d'un chantier",project_id,"pointeur de version + état",projects;quote_versions
+T047,quote_versions,commercial,"Prestations, montant chiffré et statut (estimation; proposé; accepté; refusé; remplacé) d'un devis",project_id,"append-only",quotes
+T048,change_orders,commercial,"Identité et état d'un avenant rattaché à un devis accepté",project_id,"pointeur de version + état",projects;quotes;change_order_versions
+T049,change_order_versions,commercial,"Prestations additionnelles, montant chiffré et décision d'un avenant",project_id,"append-only",change_orders
+T050,plan_engineer_designations,commercial,"Ingénieur désigné par le propriétaire de l'agence pour valider techniquement ses plans, périmètre organisationnel",organization_id,"désignation/révocation, jamais de suppression physique",organizations;profiles
+T051,plan_validations,commercial,"Décision de validation technique d'un plan : identité de l'ingénieur, version examinée et décision",project_id,"append-only",project_plans;plan_engineer_designations
+T052,catalog_access_grants,commercial,"Lien commercial invitant un client à consulter le catalogue publié d'une agence, sans adhésion",organization_id,"invitation/révocation, jamais une adhésion",organizations;profiles
+T053,project_plan_shares,commercial,"Accès explicite à un plan de chantier accordé par le CONTRACTOR à un SITE_MANAGER, document par document",project_id,"octroi/révocation explicite, distinct des délégations membership_permissions",project_plans;project_memberships
 T054,private_object_uploads,integrity,"Suivi générique idempotent de préparation/finalisation d'un fichier privé, consommé par les domaines applicatifs","project_id et organization_id (colonnes nullables avec FK réelles, exactement l'une des deux renseignée)","insert-first sur operation_uuid unique (acteur+paramètres), append-only, aucun remplacement d'octets après FINALIZED",projects;organizations;profiles

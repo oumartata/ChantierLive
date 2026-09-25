@@ -29,3 +29,6 @@ UC027,Activer une licence manuellement,Owner|Contractor|PlatformAdmin,"Formule c
 UC028,Gérer l'expiration,AuthorizedMember,"Licence proche/expirée","Notifier; grâce; lecture seule; renouveler","Données conservées; écriture réactivable",FR144|FR145|FR146|FR147|FR148
 UC029,Examiner l'audit chantier,OwnerPrimary|Contractor,"Adhésion et droit audit","Ouvrir; filtrer","Événements autorisés visibles et intacts",FR149|FR150|FR151|FR152
 UC030,Assister par accès exceptionnel,PlatformAdmin,"Ticket légitime; autorisation renforcée","Définir motif/périmètre/durée; intervenir; fermer","Accès expiré; actions auditées et notifiées",FR153|FR154|FR157|FR159|FR160
+UC031,Préparer un plan de chantier,Contractor,"Catalogue d'agence disponible ou plan client","Choisir au catalogue ou déposer; valider techniquement; publier","Plan publié référencé par le chantier",FR161|FR162|FR163|FR164
+UC032,Contractualiser un devis,Contractor|OwnerPrimary,"Plan publié","Chiffrer en estimation; proposer; client décide","Devis accepté fixe le montant contractuel",FR165|FR166|FR167
+UC033,Autoriser une modification en cours de travaux,Contractor|OwnerPrimary,"Devis accepté; modification demandée","Chiffrer l'avenant; proposer; client décide; autoriser exécution","Avenant accepté seul autorise son périmètre; reste du chantier non affecté",FR168|FR169|FR170

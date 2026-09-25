@@ -67,8 +67,8 @@ FR065,media,Uploader,"Rattacher une photo à un chantier; une phase et une lége
 FR066,media,AuthorizedMember,"Consulter les photos en chronologie et par phase.",MUST,BR016,AC066
 FR067,media,Uploader,"Supprimer une photo seulement tant qu'elle reste en brouillon.",MUST,BR044,AC067
 FR068,media,AuthorizedAuthor,"Annuler ou remplacer une photo publiée sans effacer l'original.",MUST,BR044,AC068
-FR069,finance,OwnerPrimary|Contractor,"Déclarer le budget initial du chantier.",MUST,BR045,AC069
-FR070,finance,Owner|Contractor,"Consulter budget; dépenses; acomptes et reste calculé.",MUST,BR016|BR046,AC070
+FR069,finance,Contractor,"Déclarer le budget prévisionnel interne du chantier (privé, distinct du montant contractuel).",MUST,BR045|BR099,AC069
+FR070,finance,Contractor,"Consulter budget; dépenses; acomptes et reste calculé (vue interne complète).",MUST,BR016|BR046|BR098,AC070
 FR071,finance,Contractor|SiteManager,"Créer une dépense en brouillon.",MUST,BR047,AC071
 FR072,finance,Contractor|SiteManager,"Saisir montant; date; catégorie; fournisseur; note et phase.",MUST,BR047,AC072
 FR073,finance,Contractor|SiteManager,"Joindre un reçu facultatif à une dépense.",MUST,BR048,AC073
@@ -79,7 +79,7 @@ FR077,finance,AuthorizedMember,"Consulter l'historique d'une dépense et de ses 
 FR078,finance,OwnerPrimary|Contractor,"Corriger une dépense validée par contre-écriture motivée.",MUST,BR051,AC078
 FR079,finance,System,"Calculer les totaux sans modifier les écritures sources.",MUST,BR046,AC079
 FR080,finance,System,"Alerter lorsqu'une dépense entraîne un dépassement du budget déclaré.",MUST,BR052,AC080
-FR081,finance,AuthorizedMember,"Filtrer les dépenses par date; phase; catégorie et statut.",SHOULD,BR016,AC081
+FR081,finance,Contractor|SiteManager,"Filtrer les dépenses par date; phase; catégorie et statut.",SHOULD,BR016|BR098,AC081
 FR082,finance,AuthorizedMember,"Exporter les dépenses autorisées.",SHOULD,BR053,AC082
 FR083,finance,System,"Autoriser les écritures textuelles même si le quota média est atteint.",MUST,BR054,AC083
 FR084,advance,OwnerPrimary|Contractor,"Déclarer un acompte envoyé ou reçu sans exécuter le paiement.",MUST,BR055,AC084
@@ -159,4 +159,20 @@ FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support.",M
 FR158,admin,PlatformAdmin,"Révoquer une session compromise.",MUST,BR008|BR088,AC158
 FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel.",MUST,BR089,AC159
 FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable.",MUST,BR089,AC160
+FR161,commercial,OrganizationOwner,"Déposer, faire valider techniquement et publier un modèle au catalogue de son agence.",MUST,BR091|BR092,AC161
+FR162,commercial,Contractor,"Déposer un plan fourni par le client pour un chantier.",MUST,BR091,AC162
+FR163,commercial,DesignatedEngineer,"Valider techniquement un plan, de catalogue ou de chantier, avant sa publication ; habilitation active vérifiée à chaque décision, identité, version examinée et décision enregistrées.",MUST,BR092|BR100,AC163
+FR164,commercial,OwnerPrimary|Contractor,"Choisir un plan du catalogue de l'agence ou le plan déposé pour le chantier.",MUST,BR091|BR092,AC164
+FR165,commercial,Contractor,"Créer un devis en estimation puis le proposer chiffré au client.",MUST,BR093,AC165
+FR166,commercial,OwnerPrimary,"Accepter ou refuser un devis proposé.",MUST,BR093|BR094,AC166
+FR167,commercial,System,"Calculer le montant contractuel à partir du devis accepté et des avenants acceptés.",MUST,BR094,AC167
+FR168,commercial,Contractor,"Proposer un avenant chiffré pour une prestation supplémentaire demandée pendant les travaux.",MUST,BR095,AC168
+FR169,commercial,OwnerPrimary,"Accepter ou refuser un avenant proposé.",MUST,BR095|BR096,AC169
+FR170,commercial,System,"Refuser l'autorisation d'exécution d'une prestation dont l'avenant n'est pas accepté, sans bloquer les travaux déjà convenus.",MUST,BR096,AC170
+FR171,advance,Contractor,"Fixer le montant de l'avance exigée avant démarrage des travaux.",MUST,BR097,AC171
+FR172,finance,AuthorizedMember,"Consulter le montant contractuel, les paiements reconnus, le reste dû (avenants acceptés inclus lorsqu'ils existent), les étapes et les photos, sans le détail des dépenses internes.",MUST,BR094|BR097|BR098|BR102,AC172
+FR173,commercial,OrganizationOwner,"Désigner ou révoquer l'ingénieur habilité à valider les plans de son organisation.",MUST,BR100,AC173
+FR174,commercial,Contractor,"Autoriser seul le démarrage des travaux dans l'application, sans confirmation OWNER, une fois le devis accepté, l'avance intégralement reconnue (même en plusieurs versements) et la validation technique enregistrée pour la version du plan ; conditions revérifiées côté serveur à la décision ; auteur et heure enregistrés, visibles du client.",MUST,BR101|BR103,AC174
+FR175,commercial,OrganizationOwner,"Inviter un client à consulter le catalogue publié de son agence, sans créer d'adhésion chantier ni organisationnelle.",MUST,BR104,AC175
+FR176,commercial,InvitedClient,"Consulter les aperçus et descriptions des modèles publiés d'une agence l'ayant invité, sans accès aux fichiers techniques privés.",MUST,BR104,AC176
 FR177,media,Uploader,"Publier explicitement une photo en brouillon (droits revérifiés côté serveur) ; avant publication, lecture réservée à l'auteur tant qu'il reste CONTRACTOR ou SITE_MANAGER actif.",MUST,BR107,AC177
