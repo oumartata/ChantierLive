@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
@@ -181,7 +182,7 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
           status.contract_amount_fcfa === null ? (
             <p className="text-caption text-muted">L&apos;avance pourra être fixée après acceptation du devis.</p>
           ) : (
-            <RequirementForm projectId={id} expectedRevision={revision} hasRequirement={status.has_requirement} />
+            <RequirementForm projectId={id} expectedRevision={revision} hasRequirement={status.has_requirement} initialOperationUuid={randomUUID()} />
           )
         ) : null}
       </Card>
@@ -189,7 +190,7 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
       {canAct && status.has_requirement ? (
         <Card className="flex flex-col gap-3">
           <h2 className="text-h2 font-semibold text-ink">Déclarer un versement</h2>
-          <DeclareForm projectId={id} expectedRevision={revision} isContractor={isContractor} />
+          <DeclareForm projectId={id} expectedRevision={revision} isContractor={isContractor} initialOperationUuid={randomUUID()} />
         </Card>
       ) : null}
 
@@ -225,8 +226,9 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
                   canConfirm={p.can_confirm}
                   canDispute={p.can_dispute}
                   canCancel={p.can_cancel}
+                  initialOperationUuid={randomUUID()}
                 />
-                {p.can_attach_receipt ? <ReceiptForm projectId={id} advanceId={p.advance_id} /> : null}
+                {p.can_attach_receipt ? <ReceiptForm projectId={id} advanceId={p.advance_id} initialOperationUuid={randomUUID()} /> : null}
               </li>
             ))}
           </ul>

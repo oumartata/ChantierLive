@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import { Button, AlertBanner, TextField } from "@/components/ui";
 import {
   actOnAdvanceAction,
@@ -15,8 +15,10 @@ type Action = (prev: AdvanceActionState, formData: FormData) => Promise<AdvanceA
 // Un operation_uuid par saisie : un nouvel envoi après une réponse perdue
 // réutilise le même identifiant (rejeu idempotent côté serveur) ; il n'est
 // renouvelé qu'après un succès confirmé.
-function useOperation(action: Action) {
-  const [operationUuid, setOperationUuid] = useState(() => crypto.randomUUID());
+// L'UUID initial vient du rendu serveur (prop) : identique au HTML hydraté,
+// jamais retiré au hasard une seconde fois côté client.
+function useOperation(action: Action, initialOperationUuid: string) {
+  const [operationUuid, setOperationUuid] = useState(initialOperationUuid);
   const [state, formAction, pending] = useActionState<AdvanceActionState, FormData>(async (prev, formData) => {
     const result = await action(prev, formData);
     if (result && "ok" in result) setOperationUuid(crypto.randomUUID());
@@ -33,8 +35,8 @@ const MODES: [string, string][] = [
   ["OTHER", "Autre"],
 ];
 
-export function RequirementForm({ projectId, expectedRevision, hasRequirement }: { projectId: string; expectedRevision: number; hasRequirement: boolean }) {
-  const op = useOperation(setAdvanceRequirementAction);
+export function RequirementForm({ projectId, expectedRevision, hasRequirement, initialOperationUuid }: { projectId: string; expectedRevision: number; hasRequirement: boolean; initialOperationUuid: string }) {
+  const op = useOperation(setAdvanceRequirementAction, initialOperationUuid);
   return (
     <form action={op.formAction} className="flex flex-col gap-2">
       <input type="hidden" name="project_id" value={projectId} />
@@ -49,8 +51,8 @@ export function RequirementForm({ projectId, expectedRevision, hasRequirement }:
   );
 }
 
-export function DeclareForm({ projectId, expectedRevision, isContractor }: { projectId: string; expectedRevision: number; isContractor: boolean }) {
-  const op = useOperation(declareAdvanceAction);
+export function DeclareForm({ projectId, expectedRevision, isContractor, initialOperationUuid }: { projectId: string; expectedRevision: number; isContractor: boolean; initialOperationUuid: string }) {
+  const op = useOperation(declareAdvanceAction, initialOperationUuid);
   return (
     <form action={op.formAction} className="flex flex-col gap-2">
       <input type="hidden" name="project_id" value={projectId} />
@@ -89,7 +91,9 @@ export function AdvanceActions({
   canConfirm,
   canDispute,
   canCancel,
+  initialOperationUuid,
 }: {
+  initialOperationUuid: string;
   projectId: string;
   advanceId: string;
   expectedRevision: number;
@@ -98,7 +102,7 @@ export function AdvanceActions({
   canDispute: boolean;
   canCancel: boolean;
 }) {
-  const op = useOperation(actOnAdvanceAction);
+  const op = useOperation(actOnAdvanceAction, initialOperationUuid);
   if (!canConfirm && !canDispute && !canCancel) return null;
   return (
     <form action={op.formAction} className="flex flex-col gap-2">
@@ -129,10 +133,20 @@ export function AdvanceActions({
   );
 }
 
-export function ReceiptForm({ projectId, advanceId }: { projectId: string; advanceId: string }) {
-  const op = useOperation(attachAdvanceReceiptAction);
+export function ReceiptForm({ projectId, advanceId, initialOperationUuid }: { projectId: string; advanceId: string; initialOperationUuid: string }) {
+  const op = useOperation(attachAdvanceReceiptAction, initialOperationUuid);
+  // Soumission sans réinitialisation automatique du formulaire (React 19) :
+  // après un échec, le fichier choisi et l'operation_uuid sont conservés pour
+  // une nouvelle tentative idempotente.
   return (
-    <form action={op.formAction} className="flex flex-col gap-2">
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        const formData = new FormData(event.currentTarget);
+        startTransition(() => op.formAction(formData));
+      }}
+      className="flex flex-col gap-2"
+    >
       <input type="hidden" name="project_id" value={projectId} />
       <input type="hidden" name="advance_id" value={advanceId} />
       <input type="hidden" name="operation_uuid" value={op.operationUuid} />

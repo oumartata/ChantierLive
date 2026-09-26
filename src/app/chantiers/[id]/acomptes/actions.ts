@@ -165,7 +165,8 @@ function sniffReceiptMimeType(bytes: Uint8Array): string | null {
 // Justificatif (D134) : même pipeline que les plans (B026/B063) — préparation
 // liée au versement, revendication, écriture serveur de la candidate, relecture
 // des octets RÉELLEMENT stockés, attestation (service_role), finalisation
-// atomique. Reprise d'une opération existante via get_upload_status.
+// atomique. Toute reprise passe d'abord par la vérification de la cible et
+// des paramètres liés à l'opération.
 export async function attachAdvanceReceiptAction(_prev: AdvanceActionState, formData: FormData): Promise<AdvanceActionState> {
   const guard = await requireVerifiedAccount();
   if (!guard.ok) return { error: guard.message };
@@ -185,17 +186,10 @@ export async function attachAdvanceReceiptAction(_prev: AdvanceActionState, form
   const supabase = await createClient();
   const service = createServiceClient();
 
-  const { data: status } = await supabase.rpc("get_upload_status", { p_operation_uuid: operationUuid });
-  if (status?.status === "FINALIZED" || status?.status === "FINALIZING") {
-    const { error } = await supabase.rpc("finalize_advance_receipt_upload", { p_operation_uuid: operationUuid });
-    if (error) return { error: mapAdvanceError(error.message) };
-    return done(projectId);
-  }
-  if (status && new Date(status.attempt_expires_at).getTime() <= Date.now()) {
-    const { error } = await supabase.rpc("recover_media_upload_attempt", { p_operation_uuid: operationUuid });
-    if (error) return { error: mapAdvanceError(error.message) };
-  }
-
+  // 1. Cible et paramètres immuables vérifiés côté serveur AVANT tout retour
+  // ou reprise : prepare_advance_receipt_upload refuse le même operation_uuid
+  // avec un autre versement ou un autre contenu (operation_uuid_conflict),
+  // sans mutation, et renvoie sinon la ligne existante, quel que soit son état.
   const { data: prepared, error: prepErr } = await supabase.rpc("prepare_advance_receipt_upload", {
     p_operation_uuid: operationUuid,
     p_advance_id: advanceId,
@@ -205,11 +199,44 @@ export async function attachAdvanceReceiptAction(_prev: AdvanceActionState, form
   });
   if (prepErr || !prepared) return { error: mapAdvanceError(prepErr?.message) };
 
+  // FINALIZED légitime : résultat existant (finalisation idempotente).
+  if (prepared.status === "FINALIZED") {
+    const { error } = await supabase.rpc("finalize_advance_receipt_upload", { p_operation_uuid: operationUuid });
+    if (error) return { error: mapAdvanceError(error.message) };
+    return done(projectId);
+  }
+
+  // 2. Tentative expirée (PENDING ou FINALIZING) : reprise prévue AVANT toute
+  // finalisation — même operation_uuid, nouvelle tentative et nouvelle
+  // candidate ; l'ancienne candidate n'est jamais réécrite (tracée pour nettoyage).
+  let attemptId: string = prepared.attempt_id;
+  if (new Date(prepared.attempt_expires_at).getTime() <= Date.now()) {
+    const { data: recovered, error: recoverErr } = await supabase.rpc("recover_media_upload_attempt", { p_operation_uuid: operationUuid });
+    if (recoverErr || !recovered) return { error: mapAdvanceError(recoverErr?.message) };
+    if (recovered.status === "FINALIZED") {
+      const { error } = await supabase.rpc("finalize_advance_receipt_upload", { p_operation_uuid: operationUuid });
+      if (error) return { error: mapAdvanceError(error.message) };
+      return done(projectId);
+    }
+    attemptId = recovered.attempt_id;
+  } else if (prepared.status === "FINALIZING") {
+    // Tentative encore valide déjà attestée : finalisation directe.
+    const { error } = await supabase.rpc("finalize_advance_receipt_upload", { p_operation_uuid: operationUuid });
+    if (error) return { error: mapAdvanceError(error.message) };
+    return done(projectId);
+  }
+
   const { data: claim, error: claimErr } = await supabase.rpc("claim_upload_attempt", {
     p_operation_uuid: operationUuid,
-    p_expected_attempt_id: prepared.attempt_id,
+    p_expected_attempt_id: attemptId,
   });
   if (claimErr || !claim) return { error: mapAdvanceError(claimErr?.message) };
+  if (claim.status === "FINALIZING") {
+    // Attestée entre-temps par un envoi concurrent : finalisation idempotente.
+    const { error } = await supabase.rpc("finalize_advance_receipt_upload", { p_operation_uuid: operationUuid });
+    if (error) return { error: mapAdvanceError(error.message) };
+    return done(projectId);
+  }
 
   if (claim.won) {
     const { error: writeError } = await service.storage.from(BUCKET).upload(claim.candidate_key, bytes, { contentType: mimeType, upsert: false });
