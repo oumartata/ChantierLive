@@ -78,3 +78,16 @@ machines:
       - {from: [ACTIVE, EXPIRING], to: GRACE, guard: "expiry_reached"}
       - {from: GRACE, to: READ_ONLY, guard: "30_days_elapsed"}
       - {from: [EXPIRING, GRACE, READ_ONLY], to: ACTIVE, guard: "renewal_verified"}
+  change_order_version:
+    initial: ESTIMATE
+    terminal: [ACCEPTED, REFUSED, SUPERSEDED]
+    transitions:
+      - {from: ESTIMATE, to: PROPOSED, guard: "contractor_active_and_total_positive_and_quote_accepted (D119, D121)"}
+      - {from: PROPOSED, to: ACCEPTED, guard: "owner_primary_decision_expected_revision (D117)"}
+      - {from: PROPOSED, to: REFUSED, guard: "owner_primary_decision_expected_revision (D117)"}
+      - {from: PROPOSED, to: SUPERSEDED, guard: "contractor_proposes_new_version_same_change_order (D120)"}
+  change_order_execution:
+    initial: NOT_AUTHORIZED
+    terminal: [AUTHORIZED]
+    transitions:
+      - {from: NOT_AUTHORIZED, to: AUTHORIZED, guard: "contractor_active_and_change_order_accepted_once_insert_only (D125)"}

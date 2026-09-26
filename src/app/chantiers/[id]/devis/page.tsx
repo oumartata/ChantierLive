@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, StatusChip, EmptyState } from "@/components/ui";
@@ -110,6 +111,9 @@ export default async function DevisPage({ params }: { params: Promise<{ id: stri
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
       <h1 className="text-h1 font-bold text-ink">Devis — {project.name}</h1>
+      <Link href={`/chantiers/${project.id}/avenants`} className="text-label font-semibold text-primary">
+        Avenants
+      </Link>
 
       <Card className="flex flex-col gap-2">
         <h2 className="text-h2 font-semibold text-ink">Montant contractuel</h2>
