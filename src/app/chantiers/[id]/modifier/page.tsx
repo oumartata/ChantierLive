@@ -99,6 +99,11 @@ export default async function ModifierChantierPage({
       <Link href={`/chantiers/${id}/plans`} className="text-label font-semibold text-primary">
         Plans du chantier
       </Link>
+      {/* B065 : devis (estimation privée, proposition, décision du client) ;
+          les RPC M021 restent la seule autorité sur ce qui est affiché. */}
+      <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
+        Devis
+      </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
           variant="warning"
