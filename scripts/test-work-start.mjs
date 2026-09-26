@@ -480,6 +480,44 @@ async function main() {
     oldFull.error?.message === "not_authorized" && same(Object.keys(oldSum.row).sort(), ["authorized", "authorized_at_server"]), err(oldFull));
   record("19. Enregistrement d'autorisation inchangé après transfert", same(await wsRow(V.pid), wsV));
 
+  // 20. Commande B033 bloquée sur le verrou d'operation_uuid (M027c) :
+  // rivale tenant le même UUID, déclaration réellement envoyée, compte rendu
+  // provisoire (ou non, contrôle positif) pendant l'attente, rollback rival.
+  const advFootprint = async (pid) => ({
+    advances: (await service.from("advances").select("id").eq("project_id", pid)).data.length,
+    seqs: await seqs(pid),
+    audits: (await service.from("audit_events").select("id").eq("project_id", pid).like("action", "ADVANCE%")).data.length,
+    revision: (await ledger(pid)).revision,
+  });
+  async function b033BlockedDeclare(label, makeProvisional) {
+    const before = await advFootprint(E17.pid);
+    const u = randomUUID();
+    let rRival, rDecl, elapsed;
+    await installDelayOn("b067_rival_b033", "advance_operations", `new.operation_uuid = '${u}' and new.project_id = '${B.pid}'`, 3, true);
+    try {
+      const pRival = declare(B.owner.client, B.pid, "5000", await rev(B.pid), u);
+      await sleep(1000);
+      const t0 = Date.now();
+      const pDecl = declare(E17.owner.client, E17.pid, "7000", before.revision, u);
+      await sleep(800);
+      if (makeProvisional) await setVerified(E17.owner.id, false);
+      rDecl = await pDecl;
+      elapsed = Date.now() - t0;
+      rRival = await pRival;
+    } finally { await dropDelay("b067_rival_b033", "advance_operations"); await setVerified(E17.owner.id, true); }
+    return { before, after: await advFootprint(E17.pid), rRival, rDecl, elapsed, op: await opRow(u) };
+  }
+  const neg = await b033BlockedDeclare("provisoire", true);
+  record(`20. B033 declare bloqué ${neg.elapsed} ms (UUID tenu par une rivale annulée), compte rendu provisoire pendant l'attente — account_provisional`,
+    neg.rRival.error?.message === "forced_failure" && neg.rDecl.error?.message === "account_provisional" && neg.elapsed >= 1500, `${err(neg.rRival)} / ${err(neg.rDecl)}`);
+  record("20. Aucune mutation persistée (versement, événement, audit, opération, compteur, révision)",
+    same(neg.after, neg.before) && neg.op === null, JSON.stringify({ before: neg.before, after: neg.after }));
+  const pos = await b033BlockedDeclare("vérifié", false);
+  record(`20. Contrôle positif — compte toujours vérifié, même scénario, bloqué ${pos.elapsed} ms puis déclaration réussie après le rollback rival`,
+    pos.rRival.error?.message === "forced_failure" && !pos.rDecl.error && pos.rDecl.row.replayed === false && pos.elapsed >= 1500 &&
+    pos.after.advances === pos.before.advances + 1 && pos.after.seqs.length === pos.before.seqs.length + 1 && contiguous(pos.after.seqs) &&
+    pos.after.audits === pos.before.audits + 1 && pos.op?.project_id === E17.pid && pos.op?.command === "DECLARE", `${err(pos.rRival)} / ${err(pos.rDecl)}`);
+
   const passed = results.filter(Boolean).length;
   console.log(`\n${passed}/${results.length} vérifications réussies`);
   process.exit(passed === results.length ? 0 : 1);
