@@ -5,6 +5,7 @@ import { Button, AlertBanner, TextField } from "@/components/ui";
 import {
   actOnAdvanceAction,
   attachAdvanceReceiptAction,
+  authorizeWorkStartAction,
   declareAdvanceAction,
   setAdvanceRequirementAction,
   type AdvanceActionState,
@@ -157,6 +158,25 @@ export function ReceiptForm({ projectId, advanceId, initialOperationUuid }: { pr
       </label>
       <Button type="submit" size="compact" variant="secondary" loading={op.pending}>
         Joindre le justificatif
+      </Button>
+    </form>
+  );
+}
+
+export function WorkStartForm({ projectId, expectedRevision, initialOperationUuid }: { projectId: string; expectedRevision: number; initialOperationUuid: string }) {
+  const op = useOperation(authorizeWorkStartAction, initialOperationUuid);
+  return (
+    <form action={op.formAction} className="flex flex-col gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="operation_uuid" value={op.operationUuid} />
+      <input type="hidden" name="expected_revision" value={expectedRevision} />
+      {op.error ? <AlertBanner variant="error" title="Démarrage refusé" explanation={op.error} /> : null}
+      <p className="text-caption text-muted">
+        Autorisation unique et définitive : elle fige l&apos;avance exigée. Le serveur revérifie le devis accepté, le plan validé du devis et
+        l&apos;avance intégralement reconnue.
+      </p>
+      <Button type="submit" size="compact" loading={op.pending}>
+        Autoriser le démarrage des travaux
       </Button>
     </form>
   );

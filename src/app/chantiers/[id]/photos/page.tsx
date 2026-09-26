@@ -66,6 +66,10 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
 
   const { data: mediaData, error: mediaError } = await supabase.rpc("list_project_media", { p_project_id: id });
   const media: MediaAssetView[] = Array.isArray(mediaData) ? mediaData : [];
+  // B067 (D137) : résumé commun aux quatre rôles actifs — le serveur ne
+  // renvoie que le fait et la date, aucune donnée financière.
+  const { data: workStartData, error: workStartError } = await supabase.rpc("get_work_start_summary", { p_project_id: id });
+  const workStart: { authorized: boolean; authorized_at_server: string | null } | null = Array.isArray(workStartData) ? workStartData[0] : workStartData;
 
   // Émission des URLs de lecture : opération Storage privilégiée, APRÈS que
   // list_project_media a déjà statué sur le droit de voir chaque ligne —
@@ -86,6 +90,17 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
         <h1 className="text-h1 font-bold text-ink">Photos — {project.name}</h1>
         <p className="text-body text-muted">Suivi du chantier par photos, sans justificatif obligatoire.</p>
       </div>
+
+      {!workStartError && workStart ? (
+        <Card className="flex flex-col gap-1" data-testid="work-start-summary">
+          <h2 className="text-h2 font-semibold text-ink">Démarrage des travaux</h2>
+          {workStart.authorized ? (
+            <p className="text-body text-ink">Autorisé le {new Date(workStart.authorized_at_server as string).toLocaleString("fr-FR")}</p>
+          ) : (
+            <p className="text-body text-muted">Non autorisé à ce jour.</p>
+          )}
+        </Card>
+      ) : null}
 
       {mediaError && (
         <AlertBanner variant="error" title="Lecture indisponible" explanation="Réessayez plus tard." />

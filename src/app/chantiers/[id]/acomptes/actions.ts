@@ -63,6 +63,16 @@ function mapAdvanceError(message: string | undefined): string {
     case "attempt_expired":
     case "operation_abandoned":
       return "L'envoi a expiré. Recommencez.";
+    case "work_start_already_authorized":
+      return "Le démarrage des travaux est déjà autorisé pour ce chantier.";
+    case "project_status_incompatible":
+      return "Le statut actuel du chantier ne permet pas d'autoriser le démarrage.";
+    case "plan_divergence":
+      return "Le plan retenu ou publié ne correspond plus au plan du devis accepté : démarrage refusé.";
+    case "plan_not_validated":
+      return "Le plan du devis accepté n'a pas de validation technique.";
+    case "advance_not_fully_recognized":
+      return "L'avance exigée n'est pas intégralement reconnue.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -100,6 +110,27 @@ export async function setAdvanceRequirementAction(_prev: AdvanceActionState, for
     p_expected_revision: revision,
   });
   if (error) return { error: mapAdvanceError(error.message) };
+  return done(projectId);
+}
+
+// B067 (M027) — autorisation de démarrage : conditions revérifiées sous
+// verrou par la RPC (D094, D135-D139) ; rien n'est décidé ici.
+export async function authorizeWorkStartAction(_prev: AdvanceActionState, formData: FormData): Promise<AdvanceActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  const projectId = formData.get("project_id");
+  const operationUuid = formData.get("operation_uuid");
+  const revision = readRevision(formData);
+  if (!isUuid(projectId) || !isUuid(operationUuid) || revision === null) return { error: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("authorize_work_start", {
+    p_operation_uuid: operationUuid,
+    p_project_id: projectId,
+    p_expected_revision: revision,
+  });
+  if (error) return { error: mapAdvanceError(error.message) };
+  revalidatePath(`/chantiers/${projectId}/photos`);
   return done(projectId);
 }
 
