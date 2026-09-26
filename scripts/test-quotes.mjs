@@ -235,6 +235,8 @@ async function main() {
   const e2After = await versionRow(e2.id);
   const { data: prop4 } = await service.from("quote_proposals").select("supersedes_version_id").eq("version_id", e4.id).single();
   record("9. Nouvelle proposition — l'ancienne passe SUPERSEDED, trace conservée", p4.error === null && e2After.status === "SUPERSEDED" && prop4.supersedes_version_id === e2.id, err(p4));
+  const { data: supersededRow } = await service.from("quote_versions").select("project_id").eq("id", prop4.supersedes_version_id).single();
+  record("9. Clé composite — une proposition remplaçant une version du MÊME chantier est acceptée", p4.error === null && supersededRow.project_id === pid);
   const decideOld = await owner.client.rpc("decide_quote_version", { p_version_id: e2.id, p_decision: "ACCEPTED", p_reason: null, p_expected_revision: await rev(owner.client, pid) });
   record("9. Décision sur la proposition remplacée refusée (version_not_pending)", decideOld.error?.message === "version_not_pending", err(decideOld));
 
@@ -327,6 +329,12 @@ create trigger b065_fail_audit before insert on public.audit_events for each row
   const crossRead = await contractor.client.rpc("list_quote_versions", { p_project_id: otherPid });
   const crossLines = await contractor.client.rpc("get_quote_version_lines", { p_version_id: eo.id });
   const crossPropose = await contractor.client.rpc("propose_quote_version", { p_version_id: eo.id, p_expected_revision: 1 });
+  const crossSupersede = await service.from("quote_proposals").insert({
+    version_id: e3.id, project_id: pid, proposed_by_profile_id: contractor.id, proposed_at_server: new Date().toISOString(),
+    published_plan_version_id: planA.id, supersedes_version_id: eo.id,
+  });
+  record("15. Clé composite — insertion privilégiée référençant une version remplacée d'un AUTRE chantier refusée",
+    crossSupersede.error?.message?.includes("quote_proposals_supersedes_project_fk"), crossSupersede.error?.message);
   record("15. Isolation — aucun accès aux devis d'un autre chantier", crossRead.error?.message === "not_authorized" && crossLines.error?.message === "not_authorized" && crossPropose.error?.message === "not_authorized");
   const { data: membership } = await service.from("project_memberships").select("id").eq("project_id", otherPid).eq("profile_id", other.id).single();
   const w2 = await callDuringRealWait(otherPid,

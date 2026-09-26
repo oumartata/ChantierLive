@@ -93,7 +93,9 @@ create table public.quote_proposals (
   published_plan_version_id uuid not null,
   supersedes_version_id uuid null references public.quote_versions (id) on delete restrict,
   constraint quote_proposals_version_project_fk foreign key (version_id, project_id) references public.quote_versions (id, project_id),
-  constraint quote_proposals_plan_project_fk foreign key (published_plan_version_id, project_id) references public.project_plan_versions (id, project_id)
+  constraint quote_proposals_plan_project_fk foreign key (published_plan_version_id, project_id) references public.project_plan_versions (id, project_id),
+  -- La version remplacée appartient au MÊME chantier (aucun mélange entre chantiers).
+  constraint quote_proposals_supersedes_project_fk foreign key (supersedes_version_id, project_id) references public.quote_versions (id, project_id)
 );
 
 create table public.quote_decisions (
