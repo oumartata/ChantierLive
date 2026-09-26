@@ -93,6 +93,12 @@ export default async function ModifierChantierPage({
       <Link href={`/chantiers/${id}/photos`} className="text-label font-semibold text-primary">
         Photos et vidéos
       </Link>
+      {/* B063 : plans candidats et plan retenu — accessible quel que soit
+          le statut ; list_project_plan_candidates (M020) reste la seule
+          autorité sur ce qui est affiché. */}
+      <Link href={`/chantiers/${id}/plans`} className="text-label font-semibold text-primary">
+        Plans du chantier
+      </Link>
       {project.status !== "DRAFT" ? (
         <AlertBanner
           variant="warning"

@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test:sw": "node scripts/sw.test.mjs",
     "test": "npm run test:sw",
     "verify": "node scripts/quality-gate.mjs"
