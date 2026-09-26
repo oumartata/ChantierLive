@@ -22,7 +22,7 @@ domains:
   construction: [phase_templates, phase_template_items, project_phases, phase_versions, daily_logs, daily_log_versions]
   evidence: [media_assets, media_links, documents, document_versions, comments]
   finance: [budgets, budget_versions, expense_categories, expenses, expense_versions, receipts, advances, advance_events]
-  commercial: [plan_catalog_items, plan_catalog_item_versions, plan_catalog_item_validations, project_plans, quotes, quote_versions, change_orders, change_order_versions, plan_engineer_designations, plan_validations, catalog_access_grants, project_plan_shares]
+  commercial: [plan_catalog_items, plan_catalog_item_versions, plan_catalog_item_validations, project_plans, quotes, quote_versions, change_orders, change_order_versions, plan_engineer_designations, plan_validations, catalog_access_grants, project_plan_shares, project_plan_publications]
   workflow: [approval_requests, approval_decisions, incidents, incident_events]
   service: [project_licenses, license_payments, notifications, notification_preferences, report_exports, share_links]
   integrity: [sync_operations, sync_conflicts, audit_events, duplicate_candidates, private_object_uploads, plan_catalog_item_upload_targets]
@@ -30,7 +30,8 @@ domains:
 versioning:
   stable_identity_tables: [project_phases, daily_logs, budgets, expenses, documents, project_plans, quotes, change_orders]
   append_only_version_tables: [phase_versions, daily_log_versions, budget_versions, expense_versions, document_versions, quote_versions, change_order_versions]
-  append_only_event_tables: [advance_events, approval_decisions, incident_events, audit_events, plan_validations]
+  append_only_event_tables: [advance_events, approval_decisions, incident_events, audit_events, project_plan_publications]
+  terminal_state_tables: "plan_catalog_item_validations et plan_validations (B064) : PENDING puis un seul état terminal (VALIDATED/REJECTED/CANCELLED), immuable ensuite, jamais supprimé"
   current_pointer: "la table identité peut pointer vers la dernière version; les anciennes restent consultables"
   approved_finance_correction: "nouvelle version ou contre-écriture liée avec motif, jamais UPDATE du montant validé"
 
@@ -50,7 +51,8 @@ critical_transactions:
   publish_version: "contrôle révision + insertion version + changement pointeur + audit"
   financial_decision: "cible une version exacte + décision append-only + audit"
   commercial_decision: "cible une version exacte (devis ou avenant) + décision append-only + montant contractuel recalculé + audit ; un avenant non décidé ne bloque que son propre périmètre"
-  plan_technical_validation: "habilitation active vérifiée au moment de la décision (plan_engineer_designations) + décision append-only (identité, version, décision) + audit ; jamais déduite d'une habilitation seulement passée"
+  plan_technical_validation: "habilitation active vérifiée au moment de la décision (plan_engineer_designations) + décision append-only (identité, version, décision) + audit ; jamais déduite d'une habilitation seulement passée. LIVRÉ (B064, EN REVUE) : plan_validations porte identité, version exacte et décision ; ÉCART DOCUMENTÉ : aucune ligne audit_events n'est écrite, la trace repose sur plan_validations et project_plan_publications"
+  plan_publication: "B064 (EN REVUE) : publication explicite par le CONTRACTOR actif du plan retenu dont la version exacte porte une validation VALIDATED, révision attendue obligatoire ; pointeur projects.published_plan_version_id + insertion dans project_plan_publications ; jamais modifié par un changement du plan retenu"
   private_object_access: "trois autorisations distinctes (préparer, finaliser, lire), jamais déduites l'une de l'autre ; is_active_project_member est une condition d'appartenance nécessaire mais jamais suffisante, chaque entity_type enregistre son propre contrôle fin (registre par domaine, refus par défaut si non enregistré) ; branche organisation = owner_profile_id, OU désignation ingénieur active ET soumission explicite de la version concernée (dépend de lots futurs, voie refusée sans stub tant qu'absente) ; chemin de stockage toujours construit serveur, jamais une autorisation à lui seul ; revalidation à chaque requête, jamais un accès mis en cache. Atomicité métier : le passage à FINALIZED et la création/liaison de l'objet métier consommateur (ex. media_assets) s'exécutent dans LA MÊME transaction PostgreSQL, après que le contrôle Storage a déjà produit son attestation (voir privileged_boundary) ; un échec de cette liaison annule toute la transaction — l'opération reste non-FINALIZED et récupérable, jamais un FINALIZED sans sa liaison métier attendue. Idempotence : même operation_uuid = toujours la même opération logique ; une reprise après panne ou après abandon d'une candidate (voir upload_immutability) peut exiger un nouvel attempt_id et une nouvelle clé candidate, mais ne crée jamais une seconde ligne d'opération ni un second objet métier pour la même operation_uuid."
   license_activation: "paiement contrôlé + activation + audit, sans modifier rôles"
   sync_apply: "operation_uuid unique + base_revision + résultat mémorisé"
