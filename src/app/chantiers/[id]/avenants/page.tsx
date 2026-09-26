@@ -113,13 +113,18 @@ export default async function AvenantsPage({ params }: { params: Promise<{ id: s
   }
   const amount: ContractAmount | null = Array.isArray(amountData) ? amountData[0] : amountData;
   const versions: ChangeOrderVersionView[] = Array.isArray(versionsData) ? versionsData : [];
-  const linesByVersion = new Map<string, Line[]>();
-  await Promise.all(
+  // Lecture fermée en cas d'échec : si les lignes d'une seule version ne
+  // peuvent être lues, aucune donnée contractuelle partielle n'est affichée.
+  const lineResults = await Promise.all(
     versions.map(async (v) => {
-      const { data } = await supabase.rpc("get_change_order_version_lines", { p_version_id: v.version_id });
-      linesByVersion.set(v.version_id, Array.isArray(data) ? data : []);
+      const { data, error } = await supabase.rpc("get_change_order_version_lines", { p_version_id: v.version_id });
+      return { versionId: v.version_id, data, error };
     })
   );
+  if (lineResults.some((r) => r.error || !Array.isArray(r.data))) {
+    return <Unavailable heading="Avenants" title="Lecture impossible" explanation="Réessayez plus tard." />;
+  }
+  const linesByVersion = new Map<string, Line[]>(lineResults.map((r) => [r.versionId, r.data as Line[]]));
 
   // Regroupement par avenant ; versions déjà triées (plus récente d'abord).
   const orders = new Map<string, ChangeOrderVersionView[]>();
