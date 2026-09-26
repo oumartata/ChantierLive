@@ -76,6 +76,14 @@ async function phaseAbandon() {
     abandonFn: "abandon_expired_project_plan_upload",
     describeRow: (row) => `projet ${row.project_id}`,
   });
+  // B033 (M014) : justificatifs de versement, bucket advance-receipts (choisi
+  // côté serveur en phases B/C par get_stale_key_bucket, étendu par M014).
+  await phaseAbandonDomain({
+    label: "advance_receipt",
+    listFn: "list_expired_advance_receipt_uploads",
+    abandonFn: "abandon_expired_advance_receipt_upload",
+    describeRow: (row) => `projet ${row.project_id}`,
+  });
 }
 
 async function phaseAbandonDomain({ label, listFn, abandonFn, describeRow }) {

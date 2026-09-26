@@ -40,13 +40,15 @@ machines:
       - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: CANCELLED, guard: "linked_counter_entry_created"}
   advance:
     initial: DRAFT
+    note: "DRAFT n'existe que côté client (déclaration en ligne uniquement) ; le serveur crée directement DECLARED. RECEIVED = versement confirmé (D126, BR108)."
     states: [DRAFT, DECLARED, RECEIVED, DISPUTED, CANCELLED]
+    terminal: [CANCELLED]
     transitions:
-      - {from: DRAFT, to: DECLARED, guard: "authorized_declarant"}
-      - {from: DECLARED, to: RECEIVED, guard: "expected_recipient"}
-      - {from: DECLARED, to: DISPUTED, guard: "authorized_party_with_reason"}
-      - {from: RECEIVED, to: DISPUTED, guard: "authorized_party_with_reason"}
-      - {from: [DECLARED, RECEIVED, DISPUTED], to: CANCELLED, guard: "counter_entry_with_reason"}
+      - {from: DRAFT, to: DECLARED, guard: "owner_primary_or_contractor_with_advance_requirement_set (D126, AC171)"}
+      - {from: DECLARED, to: RECEIVED, guard: "current_holder_of_opposite_role_not_declarant (D133)"}
+      - {from: DECLARED, to: DISPUTED, guard: "owner_primary_or_contractor_with_reason (D132)"}
+      - {from: RECEIVED, to: DISPUTED, guard: "owner_primary_or_contractor_with_reason (D130, D132)"}
+      - {from: [DECLARED, RECEIVED, DISPUTED], to: CANCELLED, guard: "declarant_with_current_authorized_role_and_reason (D132)"}
   approval:
     initial: PENDING
     terminal: [APPROVED, REJECTED, INFO_REQUESTED, CORRECTION_REQUESTED, CANCELLED]
