@@ -54,6 +54,8 @@ interface WorkStart {
   authorized: boolean;
   authorized_at_server: string | null;
   authorized_by_me: boolean | null;
+  authorized_by_membership_id: string | null;
+  authorized_by_role: "CONTRACTOR" | null;
   quote_version_number: number | null;
   quote_total_fcfa: string | null;
   contract_amount_fcfa: string | null;
@@ -211,7 +213,11 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
           <>
             <StatusChip variant="success" label="Démarrage autorisé" className="self-start" />
             <p className="text-caption text-muted">
-              Autorisé par {workStart.authorized_by_me ? "vous" : "l'entreprise"} le {new Date(workStart.authorized_at_server as string).toLocaleString("fr-FR")}
+              Autorisé par l&apos;entreprise{workStart.authorized_by_me ? " (vous)" : ""} le {new Date(workStart.authorized_at_server as string).toLocaleString("fr-FR")}
+            </p>
+            {/* Auteur historique : repère d'adhésion figé à l'autorisation (convention de l'écran Équipe, jamais un contact privé). */}
+            <p className="text-caption text-muted break-all" data-testid="work-start-author">
+              Repère de l&apos;auteur : {workStart.authorized_by_membership_id}
             </p>
             {workStart.deficit_fcfa ? (
               <AlertBanner

@@ -150,6 +150,7 @@ const frozenEvents = async (pid) => (await service.from("advance_events").select
 const revoke = (pid, profileId) => must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", pid).eq("profile_id", profileId).is("revoked_at", null), "revoke");
 // État complet du domaine pour vérifier qu'une transaction perdante ne laisse rien.
 const footprint = async (pid) => ({ ledger: await ledger(pid), seqs: await seqs(pid), ws: await wsRow(pid), audits: (await wsAudits(pid)).length, frozen: (await frozenEvents(pid)).length });
+const membershipId = async (pid, profileId) => (await service.from("project_memberships").select("id").eq("project_id", pid).eq("profile_id", profileId).is("revoked_at", null).single()).data.id;
 const noTrace = (f) => f.ws === null && f.audits === 0 && f.frozen === 0 && f.ledger.requirement_frozen_at === null;
 
 // Chantier prêt : devis accepté, avance 1 000 000 déclarée par le client et confirmée.
@@ -261,9 +262,13 @@ async function main() {
   record("5. Même operation_uuid par un autre rôle — not_authorized (droits avant rejeu)", otherUser.error?.message === "not_authorized", err(otherUser));
 
   // 6. Lectures par rôle (D137) ; SITE_MANAGER : fait et date seulement.
+  const authorMembership = await membershipId(pid, contractor.id);
+  record("6. Auteur historique figé — repère d'adhésion du CONTRACTOR auteur", ws.authorized_by_membership_id === authorMembership, ws.authorized_by_membership_id);
   for (const [label, u] of [["OWNER/PRIMARY", owner], ["CO_OWNER", coOwner], ["CONTRACTOR", contractor]]) {
     const r = one(await u.client.rpc("get_work_start", { p_project_id: pid }));
-    record(`6. Lecture complète — ${label}`, !r.error && r.row.authorized === true && r.row.advance_required_fcfa === "1000000" && r.row.deficit_fcfa === null && r.row.plan_version_number === 1, err(r));
+    record(`6. Lecture complète — ${label} (auteur : repère ${authorMembership.slice(0, 8)}…, rôle CONTRACTOR)`,
+      !r.error && r.row.authorized === true && r.row.advance_required_fcfa === "1000000" && r.row.deficit_fcfa === null && r.row.plan_version_number === 1 &&
+      r.row.authorized_by_membership_id === authorMembership && r.row.authorized_by_role === "CONTRACTOR" && r.row.authorized_by_me === (u === contractor), err(r));
   }
   const smFull = await siteManager.client.rpc("get_work_start", { p_project_id: pid });
   record("6. Lecture complète refusée — SITE_MANAGER", smFull.error?.message === "not_authorized", err(smFull));
@@ -422,6 +427,58 @@ async function main() {
     : x2.error?.message === "advance_not_fully_recognized" || x2.error?.message === "advance_conflict";
   record("16. Contestation et autorisation concurrentes — état cohérent (jamais d'autorisation sous une avance non reconnue)",
     coherent && contiguous(evX.map((e) => Number(e.event_seq))), `${err(x1)} / ${err(x2)} / ${evX.map((e) => e.kind).join(",")}`);
+
+  // 17-18. Rivale tenant le même UUID, B067 réellement bloqué, compte devenu
+  // provisoire pendant l'attente, puis rollback de la rivale : refus sans trace.
+  const E17 = await readyProject("provisional-wait");
+  async function provisionalDuringRivalWait(label, startRival, dropRival) {
+    const fE = await footprint(E17.pid);
+    const u = randomUUID();
+    let rRival, rE, elapsed;
+    try {
+      const pRival = startRival(u);
+      await sleep(1000);
+      const t0 = Date.now();
+      const pE = authorize(E17.contractor.client, E17.pid, fE.ledger.revision, u).then((r) => r);
+      await sleep(800);
+      await setVerified(E17.contractor.id, false);
+      rE = await pE;
+      elapsed = Date.now() - t0;
+      rRival = await pRival;
+    } finally { await dropRival(); await setVerified(E17.contractor.id, true); }
+    const fE2 = await footprint(E17.pid);
+    record(`${label} — rivale annulée (forced_failure), B067 bloqué ${elapsed} ms puis refus account_provisional`,
+      rRival.error?.message === "forced_failure" && rE.error?.message === "account_provisional" && elapsed >= 1500, `${err(rRival)} / ${err(rE)}`);
+    record(`${label} — aucune trace (autorisation, figement, événement, audit, opération, compteur, révision)`,
+      noTrace(fE2) && same(fE2.seqs, fE.seqs) && fE2.ledger.revision === fE.ledger.revision && (await opRow(u)) === null &&
+      (await service.from("work_start_authorizations").select("id").eq("operation_uuid", u)).data.length === 0);
+  }
+  // Point d'attente 1 : UUID tenu dans work_start_authorizations par une autorisation rivale (chantier D).
+  await provisionalDuringRivalWait("17. UUID tenu par une autorisation rivale",
+    async (u) => { await installDelay("b067_rival_ws", "WORK_START_AUTHORIZE", D.pid, 3, true); return authorize(D.contractor.client, D.pid, await rev(D.pid), u).then((r) => r); },
+    () => dropDelay("b067_rival_ws"));
+  // Point d'attente 2 : UUID tenu dans advance_operations par une déclaration d'acompte rivale (chantier B).
+  await provisionalDuringRivalWait("18. UUID tenu par une opération d'acompte rivale",
+    async (u) => { await installDelayOn("b067_rival_op", "advance_operations", `new.operation_uuid = '${u}'`, 3, true); return declare(B.owner.client, B.pid, "5000", await rev(B.pid), u); },
+    () => dropDelay("b067_rival_op", "advance_operations"));
+  const ok18 = await authorize(E17.contractor.client, E17.pid, await rev(E17.pid));
+  record("18. Compte revérifié — l'autorisation réussit ensuite normalement", !ok18.error, err(ok18));
+
+  // 19. Auteur historique conservé après transfert du rôle CONTRACTOR (M006b).
+  const chef = await createTestUser("divergence-chef");
+  await must(service.from("project_memberships").insert({ project_id: V.pid, profile_id: chef.id, role: "SITE_MANAGER", owner_profile: null }), "chef");
+  const authorV = await membershipId(V.pid, V.contractor.id);
+  const wsV = await wsRow(V.pid);
+  await must(V.contractor.client.rpc("transfer_contractor_role", { p_project_id: V.pid, p_successor_membership_id: await membershipId(V.pid, chef.id), p_reason: "Changement d'entreprise" }), "transfert");
+  const newC = one(await chef.client.rpc("get_work_start", { p_project_id: V.pid }));
+  const ownV = one(await V.owner.client.rpc("get_work_start", { p_project_id: V.pid }));
+  record("19. Après transfert — nouveau CONTRACTOR et OWNER voient l'auteur d'origine (même repère), authorized_by_me faux pour le successeur",
+    !newC.error && newC.row.authorized_by_membership_id === authorV && newC.row.authorized_by_me === false && ownV.row.authorized_by_membership_id === authorV, `${err(newC)} ${newC.row?.authorized_by_membership_id}`);
+  const oldFull = await V.contractor.client.rpc("get_work_start", { p_project_id: V.pid });
+  const oldSum = one(await V.contractor.client.rpc("get_work_start_summary", { p_project_id: V.pid }));
+  record("19. Ancien auteur devenu SITE_MANAGER — lecture complète refusée, résumé strictement fait + date",
+    oldFull.error?.message === "not_authorized" && same(Object.keys(oldSum.row).sort(), ["authorized", "authorized_at_server"]), err(oldFull));
+  record("19. Enregistrement d'autorisation inchangé après transfert", same(await wsRow(V.pid), wsV));
 
   const passed = results.filter(Boolean).length;
   console.log(`\n${passed}/${results.length} vérifications réussies`);
