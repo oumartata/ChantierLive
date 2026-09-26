@@ -41,6 +41,8 @@ function mapPlanError(message: string | undefined): string {
       return "Ce plan ne vous a pas encore été partagé.";
     case "no_organization":
       return "Ce chantier n'est rattaché à aucune organisation : aucun catalogue disponible.";
+    case "expected_revision_required":
+      return "Requête invalide. Rechargez la page puis réessayez.";
     case "retained_plan_conflict":
       return "Le chantier a été modifié entre-temps. Rechargez la page puis réessayez.";
     case "checksum_required":

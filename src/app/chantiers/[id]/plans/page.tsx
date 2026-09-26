@@ -187,7 +187,9 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
                     {depositorLabel(candidate, user.id)} le{" "}
                     {new Date(candidate.created_at_server).toLocaleDateString("fr-FR")}
                   </p>
-                  {candidate.deposited_as_role === "CONTRACTOR" && candidate.origin === "DIRECT" ? (
+                  {/* Dépôt direct ou rattachement catalogue : une version CONTRACTOR
+                      reste privée jusqu'au partage explicite (D104). */}
+                  {candidate.deposited_as_role === "CONTRACTOR" ? (
                     <StatusChip
                       variant={candidate.is_shared ? "info" : "neutral"}
                       label={candidate.is_shared ? "Partagé avec le propriétaire" : "Non partagé"}

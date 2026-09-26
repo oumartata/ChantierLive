@@ -68,6 +68,14 @@ async function phaseAbandon() {
     abandonFn: "abandon_expired_catalog_item_upload",
     describeRow: (row) => `organisation ${row.organization_id}`,
   });
+  // B063 (M020) : troisième domaine, bucket project-plans (choisi côté
+  // serveur en phases B/C par get_stale_key_bucket, déjà étendu par M020).
+  await phaseAbandonDomain({
+    label: "project_plan_version",
+    listFn: "list_expired_project_plan_uploads",
+    abandonFn: "abandon_expired_project_plan_upload",
+    describeRow: (row) => `projet ${row.project_id}`,
+  });
 }
 
 async function phaseAbandonDomain({ label, listFn, abandonFn, describeRow }) {
