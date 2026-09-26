@@ -69,6 +69,19 @@ function holdLock(lockSql, holdSeconds) {
     proc.stdin.end();
   });
 }
+// Exécute du SQL de test (création/suppression d'un déclencheur d'échec) sur
+// la base locale, par une connexion psql séparée.
+function runSql(sql) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"], { stdio: ["pipe", "pipe", "pipe"] });
+    let stderr = "";
+    proc.stderr.on("data", (d) => (stderr += d.toString()));
+    proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`runSql exit ${code}: ${stderr}`))));
+    proc.stdin.write(sql);
+    proc.stdin.end();
+  });
+}
+const rowLockSql = (table, id) => `select 1 from public.${table} where id = '${id}' for update`;
 const advisoryLockSql = (projectId) => `select pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint)`;
 
 // L'appel est ENVOYÉ (then) pendant qu'une autre connexion tient le verrou ;
@@ -313,6 +326,21 @@ async function main() {
 
   // Nouvelle désignation : la demande orpheline est close explicitement (CANCELLED).
   const designation2Id = await designate(contractor.client, chantier.organizationId, engineer);
+
+  // Correction 1 : attente réelle sur l'ANCIENNE désignation (révoquée), perte
+  // de vérification pendant cette attente -> refus, aucune annulation ni insertion.
+  const rowsBeforeWait = (await service.from("plan_validations").select("id").eq("project_plan_version_id", vOwner.id)).data.length;
+  const w5 = await callDuringRealWait(rowLockSql("plan_engineer_designations", designationId),
+    () => contractor.client.rpc("submit_plan_version_for_validation", { p_version_id: vOwner.id, p_designation_id: designation2Id }),
+    () => setVerified(contractor.id, false));
+  await setVerified(contractor.id, true);
+  const rowsAfterWait = (await service.from("plan_validations").select("id").eq("project_plan_version_id", vOwner.id)).data.length;
+  record("6. Attente réelle sur l'ancienne désignation, compte devenu provisoire — resoumission refusée, ancienne demande PENDING, aucune nouvelle",
+    w5.elapsed >= 2500 && w5.res.error?.message === "account_provisional" && (await validation(valOwner.id)).status === "PENDING" && rowsAfterWait === rowsBeforeWait,
+    `${w5.elapsed}ms ${err(w5.res)}`);
+  const historyWithDesignation = await contractor.client.rpc("list_project_plan_validations", { p_project_id: pid });
+  record("6. Liste — la demande orpheline est signalée avec une désignation inactive (designation_active = false)",
+    (historyWithDesignation.data ?? []).some((v) => v.validation_id === valOwner.id && v.status === "PENDING" && v.designation_active === false), err(historyWithDesignation));
   const { data: valOwner2, error: resubErr } = await contractor.client.rpc("submit_plan_version_for_validation", { p_version_id: vOwner.id, p_designation_id: designation2Id });
   const orphan = await validation(valOwner.id);
   record("6. Resoumission — l'ancienne demande (désignation révoquée) passe CANCELLED, une nouvelle PENDING", resubErr === null && orphan.status === "CANCELLED" && orphan.cancelled_reason === "designation_revoked" && valOwner2?.status === "PENDING", resubErr?.message ?? orphan.status);
@@ -413,6 +441,69 @@ async function main() {
   record("8. Republication — l'octroi ne suit pas vers la nouvelle version (nouvel octroi requis)", ok3.error === null && smAfterRepublish.error?.message === "not_authorized", `${err(ok3)} / ${err(smAfterRepublish)}`);
   const shareUpd = await service.from("project_plan_shares").update({ granted_at_server: new Date().toISOString() }).eq("id", grant.data.id);
   record("8. Octroi — aucune modification hors révocation", shareUpd.error?.message?.includes("project_plan_share_immutable"), shareUpd.error?.message);
+
+  // ---------------------------------------------------------------------
+  // 9. Correction 3 : aucun ancien octroi réactivé par une republication (A -> B -> A).
+  // ---------------------------------------------------------------------
+  // État courant : A = vContractor publié, B = vCatalog validé.
+  const grantA = await contractor.client.rpc("grant_project_plan_share", { p_project_id: pid, p_version_id: vContractor.id, p_site_manager_membership_id: smMembershipId });
+  const smOnA = await siteManager.client.rpc("get_published_project_plan_file", { p_project_id: pid });
+  record("9. A publié et partagé — le SITE_MANAGER lit A", grantA.error === null && smOnA.error === null, `${err(grantA)} / ${err(smOnA)}`);
+  await retain(owner, pid, vCatalog.id);
+  const pubB = await publish(contractor.client, pid, vCatalog.id);
+  await retain(owner, pid, vContractor.id);
+  const pubA = await publish(contractor.client, pid, vContractor.id);
+  const smAfterABA = await siteManager.client.rpc("get_published_project_plan_file", { p_project_id: pid });
+  const shareARow = (await service.from("project_plan_shares").select("revoked_at_server, revoked_by_profile_id").eq("id", grantA.data.id).single()).data;
+  record("9. A -> B -> A — l'ancien octroi sur A n'est PAS réactivé, accès refusé",
+    pubB.error === null && pubA.error === null && smAfterABA.error?.message === "not_authorized", `${err(pubB)} / ${err(pubA)} / ${err(smAfterABA)}`);
+  record("9. Historique conservé — l'octroi sur A est révoqué par la publication de B, jamais supprimé",
+    !!shareARow?.revoked_at_server && shareARow.revoked_by_profile_id === contractor.id);
+  const regrantA = await contractor.client.rpc("grant_project_plan_share", { p_project_id: pid, p_version_id: vContractor.id, p_site_manager_membership_id: smMembershipId });
+  const smRegrant = await siteManager.client.rpc("get_published_project_plan_file", { p_project_id: pid });
+  record("9. Nouvel octroi explicite sur A — le SITE_MANAGER lit de nouveau A", regrantA.error === null && regrantA.data.id !== grantA.data.id && smRegrant.error === null, `${err(regrantA)} / ${err(smRegrant)}`);
+
+  // ---------------------------------------------------------------------
+  // 10. Correction 4 : audit dans la transaction de la décision et de la publication.
+  // ---------------------------------------------------------------------
+  const auditRows = async (action, targetId) => (await service.from("audit_events").select("id").eq("action", action).eq("target_id", targetId)).data.length;
+  record("10. Audit — la décision enregistrée a sa ligne PLAN_VALIDATION_DECIDED", (await auditRows("PLAN_VALIDATION_DECIDED", validatedContractor.id)) === 1);
+  record("10. Audit — chaque publication a sa ligne PLAN_PUBLISHED",
+    (await auditRows("PLAN_PUBLISHED", pid)) === (await publications(pid)).length, `${await auditRows("PLAN_PUBLISHED", pid)} audit / ${(await publications(pid)).length} publications`);
+
+  const failTrigger = (action) => `create or replace function public.b064_test_fail_audit() returns trigger language plpgsql as $f$ begin if new.action = '${action}' then raise exception 'audit_test_failure'; end if; return new; end $f$;
+create trigger b064_test_fail_audit before insert on public.audit_events for each row execute function public.b064_test_fail_audit();\n`;
+  const dropTrigger = "drop trigger if exists b064_test_fail_audit on public.audit_events; drop function if exists public.b064_test_fail_audit();\n";
+
+  // Décision : un échec d'audit annule la décision.
+  await runSql(failTrigger("PLAN_VALIDATION_DECIDED"));
+  let decFail;
+  try {
+    decFail = await engineer.client.rpc("decide_plan_validation", { p_validation_id: valOwner2.id, p_decision: "VALIDATED", p_note: null });
+  } finally {
+    await runSql(dropTrigger);
+  }
+  const valOwner2After = await validation(valOwner2.id);
+  record("10. Échec d'audit — la décision est annulée (demande toujours PENDING, aucune ligne d'audit)",
+    decFail.error?.message === "audit_test_failure" && valOwner2After.status === "PENDING" && valOwner2After.decided_at_server === null && (await auditRows("PLAN_VALIDATION_DECIDED", valOwner2.id)) === 0, err(decFail));
+
+  // Publication : un échec d'audit annule pointeur, journal et révocation des octrois.
+  await retain(owner, pid, vCatalog.id);
+  const projBeforeFail = await project(pid);
+  const pubsBeforeFail = (await publications(pid)).length;
+  let pubFail;
+  await runSql(failTrigger("PLAN_PUBLISHED"));
+  try {
+    pubFail = await publish(contractor.client, pid, vCatalog.id);
+  } finally {
+    await runSql(dropTrigger);
+  }
+  const regrantRow = (await service.from("project_plan_shares").select("revoked_at_server").eq("id", regrantA.data.id).single()).data;
+  record("10. Échec d'audit — publication annulée : pointeur, journal et octroi SITE_MANAGER inchangés",
+    pubFail.error?.message === "audit_test_failure" && (await project(pid)).published_plan_version_id === projBeforeFail.published_plan_version_id &&
+      (await publications(pid)).length === pubsBeforeFail && regrantRow.revoked_at_server === null, err(pubFail));
+  const pubAfterRecovery = await publish(contractor.client, pid, vCatalog.id);
+  record("10. Déclencheur d'échec retiré — la même publication aboutit ensuite", pubAfterRecovery.error === null, err(pubAfterRecovery));
 
   const passed = results.filter(Boolean).length;
   console.log(`\n${passed}/${results.length} tests réussis.`);

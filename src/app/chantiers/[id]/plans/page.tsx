@@ -41,6 +41,7 @@ interface PlanValidationView {
   decided_at_server: string | null;
   decision_note: string | null;
   engineer_identifier_masked: string;
+  designation_active: boolean;
 }
 
 interface PlanEngineer {
@@ -344,10 +345,19 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
                   {canShare ? (
                     <PlanVersionActionButton kind="share" projectId={project.id} versionId={candidate.version_id} />
                   ) : null}
+                  {latestValidation.get(candidate.version_id)?.status === "PENDING" &&
+                  !latestValidation.get(candidate.version_id)?.designation_active ? (
+                    <p className="text-caption text-muted">
+                      L&apos;ingénieur de cette demande n&apos;est plus habilité : elle ne peut plus aboutir.
+                    </p>
+                  ) : null}
+                  {/* Soumission : aucune demande en cours, ou demande PENDING dont la
+                      désignation est révoquée (la RPC la clôt puis en crée une nouvelle). */}
                   {isContractor &&
                   engineers.length > 0 &&
                   !validatedVersions.has(candidate.version_id) &&
-                  latestValidation.get(candidate.version_id)?.status !== "PENDING" ? (
+                  (latestValidation.get(candidate.version_id)?.status !== "PENDING" ||
+                    !latestValidation.get(candidate.version_id)?.designation_active) ? (
                     <PlanVersionActionButton
                       kind="submit"
                       projectId={project.id}
