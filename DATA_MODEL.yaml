@@ -22,7 +22,7 @@ domains:
   construction: [phase_templates, phase_template_items, project_phases, phase_versions, daily_logs, daily_log_versions]
   evidence: [media_assets, media_links, documents, document_versions, comments]
   finance: [budgets, budget_versions, expense_categories, expenses, expense_versions, receipts, advances, advance_events]
-  commercial: [plan_catalog_items, plan_catalog_item_versions, plan_catalog_item_validations, project_plans, quotes, quote_versions, quote_version_lines, quote_proposals, quote_decisions, change_orders, change_order_versions, plan_engineer_designations, plan_validations, catalog_access_grants, project_plan_shares, project_plan_publications]
+  commercial: [plan_catalog_items, plan_catalog_item_versions, plan_catalog_item_validations, project_plans, quotes, quote_versions, quote_version_lines, quote_proposals, quote_decisions, change_orders, change_order_versions, change_order_version_lines, change_order_proposals, change_order_decisions, change_order_execution_authorizations, plan_engineer_designations, plan_validations, catalog_access_grants, project_plan_shares, project_plan_publications]
   workflow: [approval_requests, approval_decisions, incidents, incident_events]
   service: [project_licenses, license_payments, notifications, notification_preferences, report_exports, share_links]
   integrity: [sync_operations, sync_conflicts, audit_events, duplicate_candidates, private_object_uploads, plan_catalog_item_upload_targets]
@@ -30,7 +30,7 @@ domains:
 versioning:
   stable_identity_tables: [project_phases, daily_logs, budgets, expenses, documents, project_plans, quotes, change_orders]
   append_only_version_tables: [phase_versions, daily_log_versions, budget_versions, expense_versions, document_versions, quote_versions, change_order_versions]
-  append_only_event_tables: [advance_events, approval_decisions, incident_events, audit_events, project_plan_publications, quote_proposals, quote_decisions]
+  append_only_event_tables: [advance_events, approval_decisions, incident_events, audit_events, project_plan_publications, quote_proposals, quote_decisions, change_order_proposals, change_order_decisions, change_order_execution_authorizations]
   terminal_state_tables: "plan_catalog_item_validations et plan_validations (B064) : PENDING puis un seul état terminal (VALIDATED/REJECTED/CANCELLED), immuable ensuite, jamais supprimé"
   current_pointer: "la table identité peut pointer vers la dernière version; les anciennes restent consultables"
   approved_finance_correction: "nouvelle version ou contre-écriture liée avec motif, jamais UPDATE du montant validé"
