@@ -431,25 +431,77 @@ async function main() {
     concClientB.rpc("prepare_project_plan_upload", { p_operation_uuid: concOp, p_project_id: chantierConc.projectId, p_expected_checksum: concChecksum, p_expected_size_bytes: concBytes.length, p_expected_mime_type: "application/pdf" }),
   ]);
 
-  // Deux issues légitimes pour le prepare rejoué, selon l'ordre réel d'acquisition
-  // des verrous : il passe AVANT finalize (renvoie la ligne existante, non
-  // finalisée) ou APRÈS (operation_already_finalized, règle commune M010/M019 :
-  // aucune nouvelle URL d'écriture sur une opération FINALIZED). Un interblocage
-  // (deadlock detected) ou toute autre erreur reste un échec.
-  const finalizeOk = finalizeResult.status === "fulfilled" && !finalizeResult.value.error && !!finalizeResult.value.data?.id;
-  const prepareReplayOk =
-    prepareReplayResult.status === "fulfilled" &&
-    (!prepareReplayResult.value.error || prepareReplayResult.value.error.message === "operation_already_finalized");
+  // Exactement DEUX issues acceptées pour le prepare rejoué, selon l'ordre
+  // réel d'acquisition du verrou avisoire du chantier (qui sérialise les deux
+  // appels) — toute autre réponse (interblocage "deadlock detected", autre
+  // code, nouvelle tentative ouverte) reste un échec :
+  //   A. prepare passe AVANT finalize : aucune erreur, renvoie la ligne
+  //      existante inchangée (même operation_uuid, même attempt_id, statut
+  //      FINALIZING) — jamais une nouvelle tentative ni une nouvelle URL ;
+  //   B. prepare passe APRÈS finalize : erreur PostgreSQL P0001, message
+  //      exact "operation_already_finalized" (règle commune M010/M019).
+  // Dans les deux cas l'état final est le même : upload FINALIZED, une seule
+  // version rattachée à cet upload, celle renvoyée par finalize.
+  const finalizeVersion = finalizeResult.status === "fulfilled" && !finalizeResult.value.error ? finalizeResult.value.data : null;
+  const prepareValue = prepareReplayResult.status === "fulfilled" ? prepareReplayResult.value : null;
+  const outcomeA =
+    !!prepareValue && !prepareValue.error &&
+    prepareValue.data?.operation_uuid === concOp &&
+    prepareValue.data?.attempt_id === concClaim.attempt_id &&
+    prepareValue.data?.status === "FINALIZING";
+  const outcomeB =
+    !!prepareValue && prepareValue.error?.code === "P0001" && prepareValue.error?.message === "operation_already_finalized";
   record(
-    "Concurrence prepare/finalize (même operation_uuid, 2 connexions réelles) — aucun interblocage, finalize aboutit, prepare rejoué renvoie la ligne existante ou operation_already_finalized",
-    finalizeOk && prepareReplayOk,
+    "Concurrence prepare/finalize (même operation_uuid, 2 connexions réelles) — finalize aboutit, prepare rejoué = issue A (ligne FINALIZING inchangée) ou B (P0001 operation_already_finalized), rien d'autre",
+    !!finalizeVersion?.id && (outcomeA || outcomeB),
     JSON.stringify({
+      issue_observee: outcomeA ? "A" : outcomeB ? "B" : "aucune",
       finalize: finalizeResult.status === "fulfilled" ? finalizeResult.value.error?.message ?? "ok" : finalizeResult.reason?.message,
-      prepareReplay: prepareReplayResult.status === "fulfilled" ? prepareReplayResult.value.error?.message ?? "ok" : prepareReplayResult.reason?.message,
+      prepareReplay: prepareValue ? (prepareValue.error ? `${prepareValue.error.code} ${prepareValue.error.message}` : `ok ${prepareValue.data?.status}`) : prepareReplayResult.reason?.message,
     })
+  );
+  const { data: concUpload } = await service.from("private_object_uploads").select("id, status, entity_id, attempt_id").eq("operation_uuid", concOp).single();
+  const { data: concVersionsForUpload } = await service.from("project_plan_versions").select("id").eq("private_object_upload_id", concUpload.id);
+  record(
+    "Concurrence prepare/finalize — état final : upload FINALIZED, même tentative, une seule version pour cet upload, celle renvoyée par finalize",
+    concUpload.status === "FINALIZED" && concUpload.attempt_id === concClaim.attempt_id && concUpload.entity_id === finalizeVersion?.id &&
+      (concVersionsForUpload ?? []).length === 1 && concVersionsForUpload[0].id === finalizeVersion?.id,
+    JSON.stringify({ status: concUpload.status, versions: (concVersionsForUpload ?? []).length })
   );
   const { data: concVersions } = await service.from("project_plan_versions").select("id").eq("project_id", chantierConc.projectId);
   record("Concurrence prepare/finalize — une seule version créée malgré l'entrelacement", (concVersions ?? []).length === 1, (concVersions ?? []).length);
+
+  // Preuve DÉTERMINISTE de chacune des deux issues (la course ci-dessus ne
+  // tombe que sur l'une d'elles, selon l'ordonnancement) : même séquence,
+  // mais prepare rejoué explicitement AVANT puis APRÈS finalize.
+  const detOp = randomUUID();
+  const detBytes = Buffer.from("PLAN-ISSUES-DETERMINISTES");
+  const detParams = { p_operation_uuid: detOp, p_project_id: chantierConc.projectId, p_expected_checksum: checksumOf(detBytes), p_expected_size_bytes: detBytes.length, p_expected_mime_type: "application/pdf" };
+  const { data: detPrep } = await concClient.client.rpc("prepare_project_plan_upload", detParams);
+  const { data: detClaim } = await concClient.client.rpc("claim_upload_attempt", { p_operation_uuid: detOp, p_expected_attempt_id: detPrep.attempt_id });
+  await service.storage.from("project-plans").upload(detClaim.candidate_key, detBytes, { contentType: "application/pdf", upsert: false });
+  await service.rpc("attest_storage_verified", { p_operation_uuid: detOp, p_attempt_id: detClaim.attempt_id, p_actual_checksum: checksumOf(detBytes), p_actual_size_bytes: detBytes.length, p_actual_mime_type: "application/pdf" });
+
+  const { data: detA, error: detAErr } = await concClientB.rpc("prepare_project_plan_upload", detParams);
+  record(
+    "Issue A (déterministe) — prepare rejoué avant finalize : aucune erreur, ligne FINALIZING inchangée (même tentative)",
+    detAErr === null && detA?.status === "FINALIZING" && detA?.attempt_id === detClaim.attempt_id && detA?.candidate_key === detClaim.candidate_key,
+    detAErr?.message ?? detA?.status
+  );
+  const { data: detVersion, error: detFinErr } = await concClient.client.rpc("finalize_project_plan_upload", { p_operation_uuid: detOp });
+  const { error: detBErr } = await concClientB.rpc("prepare_project_plan_upload", detParams);
+  record(
+    "Issue B (déterministe) — prepare rejoué après finalize : P0001 operation_already_finalized",
+    detFinErr === null && detBErr?.code === "P0001" && detBErr?.message === "operation_already_finalized",
+    detBErr ? `${detBErr.code} ${detBErr.message}` : "aucune erreur"
+  );
+  const { data: detUpload } = await service.from("private_object_uploads").select("id, status").eq("operation_uuid", detOp).single();
+  const { data: detVersions } = await service.from("project_plan_versions").select("id").eq("private_object_upload_id", detUpload.id);
+  record(
+    "Issues A puis B — upload FINALIZED et une seule version pour cet upload (aucun doublon)",
+    detUpload.status === "FINALIZED" && (detVersions ?? []).length === 1 && detVersions[0].id === detVersion?.id,
+    JSON.stringify({ status: detUpload.status, versions: (detVersions ?? []).length })
+  );
 
   const total = results.length;
   const passed = results.filter((r) => r.pass).length;
