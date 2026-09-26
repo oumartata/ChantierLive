@@ -117,6 +117,9 @@ export default async function DevisPage({ params }: { params: Promise<{ id: stri
       <Link href={`/chantiers/${project.id}/acomptes`} className="text-label font-semibold text-primary">
         Acomptes
       </Link>
+      <Link href={`/chantiers/${project.id}/finances`} className="text-label font-semibold text-primary">
+        Synthèse financière
+      </Link>
 
       <Card className="flex flex-col gap-2">
         <h2 className="text-h2 font-semibold text-ink">Montant contractuel</h2>
