@@ -240,6 +240,37 @@ async function main() {
   });
   record("Désignation refusée — version non partagée (not_readable, avant même la revision)", retainNotSharedErr?.message === "not_readable", retainNotSharedErr?.message);
 
+  // Liste des candidats (écran /chantiers/[id]/plans) — même prédicat que la
+  // lecture du fichier, jamais une liste plus large (correction M020 : la
+  // fonction échouait à chaque appel, STABLE + FOR UPDATE).
+  const { data: listContractor, error: listContractorErr } = await contractorPro.client.rpc("list_project_plan_candidates", { p_project_id: chantierPro.projectId });
+  const contractorIds = new Set((listContractor ?? []).map((c) => c.version_id));
+  record(
+    "Liste — CONTRACTOR voit ses dépôts (partagé ou non) et celui d'OWNER/PRIMARY (D105)",
+    listContractorErr === null && [vProDirect.id, vClientOnProDirect.id, vUnsharedOnPro.id].every((v) => contractorIds.has(v)),
+    listContractorErr?.message
+  );
+
+  const { data: listOwner, error: listOwnerErr } = await clientOnPro.client.rpc("list_project_plan_candidates", { p_project_id: chantierPro.projectId });
+  const ownerIds = new Set((listOwner ?? []).map((c) => c.version_id));
+  record(
+    "Liste — OWNER/PRIMARY voit le dépôt partagé et le sien, jamais le dépôt CONTRACTOR non partagé (D104)",
+    listOwnerErr === null && ownerIds.has(vProDirect.id) && ownerIds.has(vClientOnProDirect.id) && !ownerIds.has(vUnsharedOnPro.id),
+    listOwnerErr?.message
+  );
+
+  const { data: projRetained } = await service.from("projects").select("retained_plan_version_id").eq("id", chantierPro.projectId).single();
+  const retainedFlags = (listOwner ?? []).filter((c) => c.is_retained).map((c) => c.version_id);
+  const sharedFlag = (listOwner ?? []).find((c) => c.version_id === vProDirect.id)?.is_shared;
+  record(
+    "Liste — un seul candidat marqué retenu (celui du chantier) et le partage est signalé",
+    retainedFlags.length === 1 && retainedFlags[0] === projRetained.retained_plan_version_id && sharedFlag === true,
+    JSON.stringify({ retainedFlags, sharedFlag })
+  );
+
+  const { error: listCoOwnerErr } = await coOwnerUser.client.rpc("list_project_plan_candidates", { p_project_id: chantierPro.projectId });
+  record("Liste refusée — CO_OWNER (D101)", listCoOwnerErr?.message === "not_authorized", listCoOwnerErr?.message);
+
   // =========================================================================
   // 4. Catalogue — version publiée exacte figée, droits séparés
   // =========================================================================
