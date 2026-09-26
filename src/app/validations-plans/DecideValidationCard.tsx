@@ -2,10 +2,30 @@
 
 import { useActionState, useState, useTransition } from "react";
 import { Button, AlertBanner, TextField } from "@/components/ui";
-import { decideValidationAction, getValidationFileUrlAction, type ValidationsActionState } from "./actions";
+import {
+  decideProjectValidationAction,
+  decideValidationAction,
+  getProjectValidationFileUrlAction,
+  getValidationFileUrlAction,
+  type ValidationsActionState,
+} from "./actions";
 
-export function DecideValidationCard({ validationId, versionNumber }: { validationId: string; versionNumber: number }) {
-  const [state, formAction, pending] = useActionState<ValidationsActionState, FormData>(decideValidationAction, null);
+// variant "catalog" (B061, par défaut, inchangé) ou "project" (B064, plan de
+// chantier) : seules les actions serveur appelées diffèrent.
+export function DecideValidationCard({
+  validationId,
+  versionNumber,
+  variant = "catalog",
+  title,
+}: {
+  validationId: string;
+  versionNumber?: number;
+  variant?: "catalog" | "project";
+  title?: string;
+}) {
+  const decideAction = variant === "project" ? decideProjectValidationAction : decideValidationAction;
+  const fileAction = variant === "project" ? getProjectValidationFileUrlAction : getValidationFileUrlAction;
+  const [state, formAction, pending] = useActionState<ValidationsActionState, FormData>(decideAction, null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [filePending, startFileTransition] = useTransition();
 
@@ -18,9 +38,14 @@ export function DecideValidationCard({ validationId, versionNumber }: { validati
     // s'ouvrait jamais). Un onglet vide est ouvert SYNCHRONEMENT dans le
     // gestionnaire de clic ; son emplacement est fixé une fois l'URL signée
     // obtenue — même onglet, jamais bloqué.
-    const pendingTab = window.open("", "_blank", "noopener,noreferrer");
+    // CORRIGÉ (B064) : avec "noopener", window.open renvoie toujours null
+    // (spécification HTML) — l'onglet restait vide et seul le lien de repli
+    // s'affichait. L'onglet est ouvert sans ce drapeau puis détaché
+    // immédiatement de cette page (opener = null), même protection.
+    const pendingTab = window.open("", "_blank");
+    if (pendingTab) pendingTab.opener = null;
     startFileTransition(async () => {
-      const result = await getValidationFileUrlAction(validationId);
+      const result = await fileAction(validationId);
       if (!result.ok) {
         setFileError(result.message);
         pendingTab?.close();
@@ -38,7 +63,7 @@ export function DecideValidationCard({ validationId, versionNumber }: { validati
 
   return (
     <li className="flex flex-col gap-3 border-b border-sand pb-4 last:border-b-0 last:pb-0">
-      <span className="text-label font-semibold text-ink">Version {versionNumber}</span>
+      <span className="text-label font-semibold text-ink">{title ?? `Version ${versionNumber}`}</span>
       {fileError ? <AlertBanner variant="error" title="Fichier indisponible" explanation={fileError} /> : null}
       <Button type="button" variant="secondary" size="compact" loading={filePending} onClick={handleOpenFile}>
         Ouvrir le fichier

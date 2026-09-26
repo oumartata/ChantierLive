@@ -40,7 +40,19 @@ function mapPlanError(message: string | undefined): string {
     case "not_readable":
       return "Ce plan ne vous a pas encore été partagé.";
     case "no_organization":
-      return "Ce chantier n'est rattaché à aucune organisation : aucun catalogue disponible.";
+      return "Ce chantier n'est rattaché à aucune organisation : aucun catalogue ni ingénieur disponible.";
+    case "already_pending":
+      return "Une demande de validation est déjà en attente pour ce plan.";
+    case "version_not_retained":
+      return "Seul le plan retenu par le propriétaire peut être publié.";
+    case "version_not_validated":
+      return "Ce plan doit d'abord être validé techniquement par l'ingénieur.";
+    case "already_published":
+      return "Ce plan est déjà le plan publié du chantier.";
+    case "publication_conflict":
+      return "Le chantier a été modifié entre-temps. Rechargez la page puis réessayez.";
+    case "version_not_published":
+      return "Seul le plan actuellement publié peut être partagé.";
     case "expected_revision_required":
       return "Requête invalide. Rechargez la page puis réessayez.";
     case "retained_plan_conflict":
@@ -289,6 +301,111 @@ export async function setRetainedPlanAction(
     p_version_id: versionId,
     p_expected_revision: expectedRevision,
   });
+  if (error) return { error: mapPlanError(error.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return null;
+}
+
+// B064 — soumission d'une version précise à une désignation active (D109) ;
+// submit_plan_version_for_validation revérifie rôle, lecture, organisation
+// (D108) et désignation sous verrou.
+export async function submitPlanForValidationAction(
+  _prevState: PlanActionState,
+  formData: FormData
+): Promise<PlanActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+
+  const projectId = formData.get("project_id");
+  const versionId = formData.get("version_id");
+  const designationId = formData.get("designation_id");
+  if (!requireUuid(projectId) || !requireUuid(versionId) || !requireUuid(designationId)) {
+    return { error: "Choisissez un ingénieur." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("submit_plan_version_for_validation", {
+    p_version_id: versionId,
+    p_designation_id: designationId,
+  });
+  if (error) return { error: mapPlanError(error.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return null;
+}
+
+// B064 — publication explicite du plan retenu validé (D110), révision lue à
+// l'affichage : un changement intermédiaire est refusé sans écriture.
+export async function publishPlanAction(
+  _prevState: PlanActionState,
+  formData: FormData
+): Promise<PlanActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+
+  const projectId = formData.get("project_id");
+  const versionId = formData.get("version_id");
+  const expectedRevisionRaw = formData.get("expected_revision");
+  const expectedRevision = typeof expectedRevisionRaw === "string" ? Number(expectedRevisionRaw) : NaN;
+  if (!requireUuid(projectId) || !requireUuid(versionId) || !Number.isInteger(expectedRevision)) {
+    return { error: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("publish_project_plan_version", {
+    p_project_id: projectId,
+    p_version_id: versionId,
+    p_expected_revision: expectedRevision,
+  });
+  if (error) return { error: mapPlanError(error.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return null;
+}
+
+// B064 — octroi/révocation de l'accès d'un SITE_MANAGER au plan publié (D111).
+export async function grantSiteManagerShareAction(
+  _prevState: PlanActionState,
+  formData: FormData
+): Promise<PlanActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+
+  const projectId = formData.get("project_id");
+  const versionId = formData.get("version_id");
+  const membershipId = formData.get("membership_id");
+  if (!requireUuid(projectId) || !requireUuid(versionId) || !requireUuid(membershipId)) {
+    return { error: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("grant_project_plan_share", {
+    p_project_id: projectId,
+    p_version_id: versionId,
+    p_site_manager_membership_id: membershipId,
+  });
+  if (error) return { error: mapPlanError(error.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return null;
+}
+
+export async function revokeSiteManagerShareAction(
+  _prevState: PlanActionState,
+  formData: FormData
+): Promise<PlanActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+
+  const projectId = formData.get("project_id");
+  const shareId = formData.get("share_id");
+  if (!requireUuid(projectId) || !requireUuid(shareId)) {
+    return { error: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("revoke_project_plan_share", { p_share_id: shareId });
   if (error) return { error: mapPlanError(error.message) };
 
   revalidatePath(`/chantiers/${projectId}/plans`);
