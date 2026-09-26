@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { AlertBanner, Card, StatusChip, EmptyState } from "@/components/ui";
-import { AdvanceActions, DeclareForm, ReceiptForm, RequirementForm } from "./AdvanceForms";
+import { AdvanceActions, DeclareForm, ReceiptForm, RequirementForm, WorkStartForm } from "./AdvanceForms";
 
 type Status = "DECLARED" | "RECEIVED" | "DISPUTED" | "CANCELLED";
 
@@ -50,6 +50,23 @@ interface EventRow {
   created_at_server: string;
 }
 
+interface WorkStart {
+  authorized: boolean;
+  authorized_at_server: string | null;
+  authorized_by_me: boolean | null;
+  authorized_by_membership_id: string | null;
+  authorized_by_role: "CONTRACTOR" | null;
+  quote_version_number: number | null;
+  quote_total_fcfa: string | null;
+  contract_amount_fcfa: string | null;
+  plan_version_number: number | null;
+  advance_required_fcfa: string | null;
+  advance_recognized_at_start_fcfa: string | null;
+  advance_event_seq: number | null;
+  current_recognized_fcfa: string | null;
+  deficit_fcfa: string | null;
+}
+
 const RECEIPT_URL_TTL_SECONDS = 300;
 const MODE_LABEL: Record<string, string> = { ORANGE_MONEY: "Orange Money", MOOV_MONEY: "Moov Money", CASH: "Espèces", BANK: "Virement bancaire", OTHER: "Autre" };
 const ROLE_LABEL = { OWNER_PRIMARY: "le client", CONTRACTOR: "l'entreprise" } as const;
@@ -61,6 +78,7 @@ const STATUS_CHIP: Record<Status, { variant: "neutral" | "info" | "success" | "d
 };
 const EVENT_LABEL: Record<string, string> = {
   REQUIREMENT_SET: "Avance exigée fixée",
+  REQUIREMENT_FROZEN: "Démarrage autorisé, avance exigée figée",
   DECLARED: "Versement déclaré",
   CONFIRMED: "Versement confirmé",
   DISPUTED: "Versement contesté",
@@ -96,22 +114,24 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
     return <Unavailable heading="Acomptes" title="Chantier inaccessible" explanation="Ce chantier n'existe pas ou vous n'y avez pas accès." />;
   }
 
-  const [statusRes, paymentsRes, eventsRes, membershipRes] = await Promise.all([
+  const [statusRes, paymentsRes, eventsRes, membershipRes, workStartRes] = await Promise.all([
     supabase.rpc("get_advance_status", { p_project_id: id }),
     supabase.rpc("list_advance_payments", { p_project_id: id }),
     supabase.rpc("list_advance_events", { p_project_id: id }),
     supabase.from("project_memberships").select("role, owner_profile").eq("project_id", id).eq("profile_id", user.id).is("revoked_at", null).maybeSingle(),
+    supabase.rpc("get_work_start", { p_project_id: id }),
   ]);
   if (statusRes.error?.message === "not_authorized") {
     return <Unavailable heading="Acomptes" title="Accès indisponible" explanation="Vous n'avez pas accès à cette page." />;
   }
   // Lecture fermée : aucune donnée partielle si une lecture échoue.
-  if (statusRes.error || paymentsRes.error || eventsRes.error || !Array.isArray(paymentsRes.data) || !Array.isArray(eventsRes.data)) {
+  if (statusRes.error || paymentsRes.error || eventsRes.error || workStartRes.error || !Array.isArray(paymentsRes.data) || !Array.isArray(eventsRes.data)) {
     return <Unavailable heading="Acomptes" title="Lecture impossible" explanation="Réessayez plus tard." />;
   }
   const status: AdvanceStatus = Array.isArray(statusRes.data) ? statusRes.data[0] : statusRes.data;
   const payments: Payment[] = paymentsRes.data;
   const events: EventRow[] = eventsRes.data;
+  const workStart: WorkStart = Array.isArray(workStartRes.data) ? workStartRes.data[0] : workStartRes.data;
   const isContractor = membershipRes.data?.role === "CONTRACTOR";
   const canAct = status.revision !== null;
   const revision = status.revision ?? 0;
@@ -185,6 +205,56 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
             <RequirementForm projectId={id} expectedRevision={revision} hasRequirement={status.has_requirement} initialOperationUuid={randomUUID()} />
           )
         ) : null}
+      </Card>
+
+      <Card className="flex flex-col gap-2" data-testid="work-start">
+        <h2 className="text-h2 font-semibold text-ink">Démarrage des travaux</h2>
+        {workStart.authorized ? (
+          <>
+            <StatusChip variant="success" label="Démarrage autorisé" className="self-start" />
+            <p className="text-caption text-muted">
+              Autorisé par l&apos;entreprise{workStart.authorized_by_me ? " (vous)" : ""} le {new Date(workStart.authorized_at_server as string).toLocaleString("fr-FR")}
+            </p>
+            {/* Auteur historique : repère d'adhésion figé à l'autorisation (convention de l'écran Équipe, jamais un contact privé). */}
+            <p className="text-caption text-muted break-all" data-testid="work-start-author">
+              Repère de l&apos;auteur : {workStart.authorized_by_membership_id}
+            </p>
+            {workStart.deficit_fcfa ? (
+              <AlertBanner
+                variant="warning"
+                title="Avance figée plus intégralement reconnue"
+                explanation={`La somme reconnue actuelle (${fcfa(workStart.current_recognized_fcfa)}) est inférieure de ${fcfa(workStart.deficit_fcfa)} à l'avance exigée figée. L'autorisation de démarrage reste enregistrée telle quelle.`}
+              />
+            ) : null}
+            <dl className="flex flex-col gap-1" data-testid="work-start-snapshot">
+              <div className="flex justify-between gap-3">
+                <dt className="text-body text-muted">Devis accepté</dt>
+                <dd className="text-body text-ink">version {workStart.quote_version_number} — {fcfa(workStart.quote_total_fcfa)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-body text-muted">Montant contractuel au démarrage</dt>
+                <dd className="text-body text-ink">{fcfa(workStart.contract_amount_fcfa)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-body text-muted">Plan validé</dt>
+                <dd className="text-body text-ink">version {workStart.plan_version_number}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-body text-muted">Avance exigée figée</dt>
+                <dd className="text-body text-ink">{fcfa(workStart.advance_required_fcfa)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-body text-muted">Somme reconnue au démarrage</dt>
+                <dd className="text-body text-ink">{fcfa(workStart.advance_recognized_at_start_fcfa)}</dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <>
+            <StatusChip variant="neutral" label="Démarrage non autorisé" className="self-start" />
+            {isContractor && canAct ? <WorkStartForm projectId={id} expectedRevision={revision} initialOperationUuid={randomUUID()} /> : null}
+          </>
+        )}
       </Card>
 
       {canAct && status.has_requirement ? (
