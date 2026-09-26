@@ -19,6 +19,8 @@ function mapDecisionError(message: string | undefined): string {
       return "Décision invalide.";
     case "file_not_finalized":
       return "Le fichier n'est pas encore disponible.";
+    case "already_pending":
+      return "Une demande est déjà en attente pour ce plan.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -80,6 +82,56 @@ export async function getValidationFileUrlAction(
 
   const service = createServiceClient();
   const { data: signed, error: signError } = await service.storage.from(BUCKET).createSignedUrl(storageKey, 300);
+  if (signError || !signed) return { ok: false, message: "Impossible de générer le lien. Réessayez." };
+
+  return { ok: true, url: signed.signedUrl };
+}
+
+// B064 — plans de CHANTIER : decide_plan_validation revérifie la désignation
+// active, l'organisation actuelle du chantier et le compte vérifié sous
+// verrou ; aucune équivalence avec les validations catalogue ci-dessus.
+export async function decideProjectValidationAction(
+  _prevState: ValidationsActionState,
+  formData: FormData
+): Promise<ValidationsActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+
+  const validationId = formData.get("validation_id");
+  const decision = formData.get("decision");
+  const note = formData.get("note");
+  if (!requireUuid(validationId) || (decision !== "VALIDATED" && decision !== "REJECTED")) {
+    return { error: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("decide_plan_validation", {
+    p_validation_id: validationId,
+    p_decision: decision,
+    p_note: typeof note === "string" && note.trim() !== "" ? note.trim() : null,
+  });
+  if (error) return { error: mapDecisionError(error.message) };
+
+  revalidatePath("/validations-plans");
+  return null;
+}
+
+// Fichier exact soumis (D097) : get_plan_validation_file choisit la clé ET le
+// bucket côté serveur selon l'origine de la version (dépôt direct ou catalogue).
+export async function getProjectValidationFileUrlAction(
+  validationId: string
+): Promise<{ ok: true; url: string } | { ok: false; message: string }> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!UUID_RE.test(validationId)) return { ok: false, message: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_plan_validation_file", { p_validation_id: validationId });
+  const row = Array.isArray(data) ? data[0] : data;
+  if (error || !row?.storage_key) return { ok: false, message: mapDecisionError(error?.message) };
+
+  const service = createServiceClient();
+  const { data: signed, error: signError } = await service.storage.from(row.bucket).createSignedUrl(row.storage_key, 300);
   if (signError || !signed) return { ok: false, message: "Impossible de générer le lien. Réessayez." };
 
   return { ok: true, url: signed.signedUrl };
