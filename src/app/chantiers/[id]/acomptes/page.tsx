@@ -157,6 +157,9 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
       <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
         Retour au devis
       </Link>
+      <Link href={`/chantiers/${id}/finances`} className="text-label font-semibold text-primary">
+        Synthèse financière
+      </Link>
       <AlertBanner
         variant="information"
         title="Déclarations uniquement"
