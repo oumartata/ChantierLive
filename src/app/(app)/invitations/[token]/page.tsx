@@ -79,31 +79,29 @@ export default async function InvitationPreviewPage({
         <DecisionButtons
           token={token}
           identity={user.email ?? user.phone ?? null}
+          alreadyMember={preview.already_member === true}
           proposedRoleLabel={roleLabel(preview.role, preview.owner_profile)}
           projectName={preview.project_name}
         />
       ) : (
-        <>
-          <AlertBanner
-            variant="information"
-            title="Connexion requise pour continuer"
-            explanation="Connectez-vous ou inscrivez-vous avec l'identifiant concerné pour donner suite à cette invitation."
-          />
-          <div className="flex flex-col gap-3">
-            <Link
-              href={`/connexion?invitation=${token}`}
-              className="flex h-12 w-full items-center justify-center rounded-small bg-primary text-label font-semibold text-surface"
-            >
-              Se connecter
-            </Link>
-            <Link
-              href={`/inscription?invitation=${token}`}
-              className="flex h-12 w-full items-center justify-center rounded-small border border-primary text-label font-semibold text-primary"
-            >
-              Créer un compte
-            </Link>
-          </div>
-        </>
+        // Page d'accueil explicite pour un visiteur non connecté : les deux
+        // parcours possibles, jamais de session créée ni de décision prise
+        // ici. "Créer mon compte" en premier (nouveau client, le cas le plus
+        // fréquent pour une invitation), "J'ai déjà un compte" ensuite.
+        <div className="flex flex-col gap-3">
+          <Link
+            href={`/inscription?invitation=${token}`}
+            className="flex h-12 w-full items-center justify-center rounded-small bg-primary text-label font-semibold text-surface"
+          >
+            Créer mon compte
+          </Link>
+          <Link
+            href={`/connexion?invitation=${token}`}
+            className="flex h-12 w-full items-center justify-center rounded-small border border-primary text-label font-semibold text-primary"
+          >
+            J&apos;ai déjà un compte
+          </Link>
+        </div>
       )}
     </div>
   );
