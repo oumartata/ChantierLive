@@ -37,6 +37,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# identifiants de démonstration locaux (jamais commités), un fichier par scénario
+scripts/.demo-credentials*.json
+
 # temporary files
 *.tmp
 *.temp
