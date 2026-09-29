@@ -114,7 +114,15 @@ export default async function ChantierFichePage({
         {field("Position (latitude, longitude)", locationLabel)}
         {field("Date de début prévue", project.planned_start_date)}
         {field("Date de fin prévue", project.planned_end_date)}
-        {field("Budget", budgetLabel)}
+        <div>
+          {field("Enveloppe indicative du projet", budgetLabel)}
+          {/* D143 : ni le montant contractuel (devis accepté), ni le budget
+              prévisionnel interne (B030, séparée, non démarrée) — exclue de
+              tout calcul de reste dû, d'acomptes ou de synthèse. */}
+          <p className="mt-1 text-caption text-muted">
+            Simple ordre de grandeur indicatif, distinct du devis accepté (montant contractuel) et du futur budget prévisionnel interne de l&apos;entreprise.
+          </p>
+        </div>
       </Card>
 
       {canEdit ? (

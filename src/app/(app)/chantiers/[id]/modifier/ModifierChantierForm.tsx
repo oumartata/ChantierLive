@@ -286,13 +286,20 @@ export function ModifierChantierForm({ project }: ModifierChantierFormProps) {
             widget (incréments, validation native) — la validation réelle
             (entier décimal, plage bigint) reste dans actions.ts. */}
         <TextField
-          label="Budget"
+          label="Enveloppe indicative du projet"
           name="budget"
           type="text"
           inputMode="numeric"
           value={budget}
           onChange={(e) => setBudget(e.target.value)}
         />
+        {/* D143 : simple ordre de grandeur partagé, distinct du montant
+            contractuel (devis accepté) et du futur budget prévisionnel
+            interne (B030, séparée, non démarrée) — jamais utilisée dans un
+            calcul de reste dû, d'acomptes ou de synthèse. */}
+        <p className="-mt-2 text-caption text-muted">
+          Ordre de grandeur indicatif, distinct du devis accepté (montant contractuel) et du futur budget prévisionnel interne de l&apos;entreprise.
+        </p>
 
         <Button type="submit" loading={pending}>
           Enregistrer
