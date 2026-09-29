@@ -75,12 +75,40 @@ export default async function ModifierChantierPage({
   // est omise.
   const { data: membership } = await supabase
     .from("project_memberships")
-    .select("role")
+    .select("role, owner_profile")
     .eq("project_id", id)
     .eq("profile_id", user.id)
     .is("revoked_at", null)
     .maybeSingle();
   const spaceLabel = membership ? SPACE_LABEL[membership.role] : null;
+
+  // Visibilité des liens dérivée EXACTEMENT des gardes serveur déjà en place
+  // (aucune permission inventée) — masquer un lien interdit n'est qu'un
+  // confort d'affichage, les RPC ci-dessous restent seules décisionnaires :
+  //  - invitation_required_emitter (M006) : seul un CONTRACTOR ou un
+  //    OWNER/PRIMARY est jamais un émetteur requis, quel que soit le rôle
+  //    demandé — un SITE_MANAGER (ou un CO_OWNER) ne peut jamais inviter ni
+  //    gérer une invitation, create_invitation/list_manageable_invitations
+  //    le confirment.
+  //  - quote_version_readable / get_quote_state (M021), change_order_version_readable
+  //    (M022) : lecteurs CONTRACTOR ou OWNER (PRIMARY/CO_OWNER) uniquement —
+  //    jamais SITE_MANAGER.
+  //  - advance_require_reader (M014, réutilisé tel quel par
+  //    get_project_financial_summary, M028) : CONTRACTOR, OWNER_PRIMARY ou
+  //    CO_OWNER uniquement — SITE_MANAGER explicitement exclu
+  //    ("v_role not in (...)").
+  // Équipe et Photos restent visibles pour tous (aucune restriction de rôle
+  // dans list_project_media/la lecture RLS des participants) ; Plans reste
+  // visible pour SITE_MANAGER, qui y obtient déjà une vue réduite au seul
+  // plan publié (voir plans/page.tsx, isSiteManager) — masquer ce lien
+  // aurait caché un écran qui fonctionne réellement pour lui.
+  const role = membership?.role ?? null;
+  const ownerProfile = membership?.owner_profile ?? null;
+  const isOwnerPrimary = role === "OWNER" && ownerProfile === "PRIMARY";
+  const isCoOwner = role === "OWNER" && ownerProfile === "CO_OWNER";
+  const isContractor = role === "CONTRACTOR";
+  const canInvite = isContractor || isOwnerPrimary;
+  const canSeeFinancials = isContractor || isOwnerPrimary || isCoOwner;
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
@@ -102,18 +130,24 @@ export default async function ModifierChantierPage({
           explanation="Vous êtes désormais membre de ce chantier."
         />
       ) : null}
-      {/* B015 : visible quel que soit le statut du chantier — aucune source
-          ne restreint la création d'invitation aux seuls chantiers DRAFT
-          (contrairement à create_draft_project/update_draft_project, B014). */}
-      <Link href={`/chantiers/${id}/invitations/nouveau`} className="text-label font-semibold text-primary">
-        Inviter quelqu&apos;un sur ce chantier
-      </Link>
-      {/* B016 : gestion (consultation + révocation) des invitations
-          relevant du rôle habilitant courant de l'appelant sur ce chantier
-          — accessible quel que soit le statut, comme le lien ci-dessus. */}
-      <Link href={`/chantiers/${id}/invitations`} className="text-label font-semibold text-primary">
-        Gérer les invitations
-      </Link>
+      {canInvite ? (
+        <>
+          {/* B015 : visible quel que soit le statut du chantier — aucune
+              source ne restreint la création d'invitation aux seuls
+              chantiers DRAFT (contrairement à create_draft_project/
+              update_draft_project, B014). Réservé à CONTRACTOR/OWNER-PRIMARY
+              (invitation_required_emitter, M006) : un SITE_MANAGER ou un
+              CO_OWNER n'est jamais un émetteur requis pour aucun rôle. */}
+          <Link href={`/chantiers/${id}/invitations/nouveau`} className="text-label font-semibold text-primary">
+            Inviter quelqu&apos;un sur ce chantier
+          </Link>
+          {/* B016 : même réserve — list_manageable_invitations filtre par le
+              même émetteur requis, jamais élargi à tout membre actif. */}
+          <Link href={`/chantiers/${id}/invitations`} className="text-label font-semibold text-primary">
+            Gérer les invitations
+          </Link>
+        </>
+      ) : null}
       {/* B017 : consultation de l'équipe, retrait des participants non
           principaux et gestion des délégations — accessible quel que soit
           le statut, comme les liens ci-dessus. */}
@@ -132,28 +166,32 @@ export default async function ModifierChantierPage({
       <Link href={`/chantiers/${id}/plans`} className="text-label font-semibold text-primary">
         Plans du chantier
       </Link>
-      {/* B065 : devis (estimation privée, proposition, décision du client) ;
-          les RPC M021 restent la seule autorité sur ce qui est affiché —
-          la page elle-même distingue déjà proposition (entreprise) et
-          décision (propriétaire), aucun changement nécessaire là. */}
-      <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
-        Devis
-      </Link>
-      {/* B066 : avenants — même distinction proposition/décision que les
-          devis, déjà gérée par cette page ; manquait seulement ici. */}
-      <Link href={`/chantiers/${id}/avenants`} className="text-label font-semibold text-primary">
-        Avenants
-      </Link>
-      {/* B033 : acomptes — déclaration (propriétaire) / confirmation
-          (entreprise) déjà distinguées par cette page ; manquait ici. */}
-      <Link href={`/chantiers/${id}/acomptes`} className="text-label font-semibold text-primary">
-        Acomptes
-      </Link>
-      {/* B068 : synthèse financière, lecture seule pour tous les rôles
-          autorisés (D140) ; manquait ici. */}
-      <Link href={`/chantiers/${id}/finances`} className="text-label font-semibold text-primary">
-        Synthèse financière
-      </Link>
+      {canSeeFinancials ? (
+        <>
+          {/* B065 : devis (estimation privée, proposition, décision du
+              client) ; quote_version_readable/get_quote_state (M021)
+              n'admettent que CONTRACTOR et OWNER (PRIMARY/CO_OWNER) —
+              jamais SITE_MANAGER. La page distingue déjà proposition
+              (entreprise) et décision (propriétaire). */}
+          <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
+            Devis
+          </Link>
+          {/* B066 : avenants — même garde de lecture (change_order_version_readable, M022). */}
+          <Link href={`/chantiers/${id}/avenants`} className="text-label font-semibold text-primary">
+            Avenants
+          </Link>
+          {/* B033 : acomptes — advance_require_reader (M014) exclut
+              explicitement SITE_MANAGER. */}
+          <Link href={`/chantiers/${id}/acomptes`} className="text-label font-semibold text-primary">
+            Acomptes
+          </Link>
+          {/* B068 : synthèse financière — get_project_financial_summary
+              réutilise le même advance_require_reader (D140). */}
+          <Link href={`/chantiers/${id}/finances`} className="text-label font-semibold text-primary">
+            Synthèse financière
+          </Link>
+        </>
+      ) : null}
 
       {project.status !== "DRAFT" ? (
         <AlertBanner
