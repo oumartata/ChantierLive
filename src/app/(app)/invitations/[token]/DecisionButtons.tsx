@@ -34,7 +34,17 @@ function ChangeAccountButton({ token }: { token: string }) {
 // la soumission) : chaque action a son propre contrôle serveur (M006a),
 // aucune décision automatique n'est jamais déclenchée par le simple
 // affichage de cette page — uniquement par un clic explicite ici.
-export function DecisionButtons({ token, identity }: { token: string; identity: string | null }) {
+export function DecisionButtons({
+  token,
+  identity,
+  proposedRoleLabel,
+  projectName,
+}: {
+  token: string;
+  identity: string | null;
+  proposedRoleLabel?: string;
+  projectName?: string;
+}) {
   const [acceptState, acceptAction, acceptPending] = useActionState<
     InvitationDecisionState,
     FormData
@@ -44,18 +54,27 @@ export function DecisionButtons({ token, identity }: { token: string; identity: 
     FormData
   >(refuseInvitationAction, null);
 
-  // 'already_member' : accept_invitation ne renvoie aucun project_id dans ce
-  // cas (exception, pas une ligne de succès) — get_invitation_preview n'en
-  // expose pas non plus (choix délibéré, hors périmètre ici). Faute de
+  // 'already_member' : accept_invitation refuse explicitement tout profil
+  // déjà membre actif, quel que soit son rôle actuel — le serveur ne
+  // transforme JAMAIS un rôle existant (voir le commentaire source de
+  // accept_invitation, M006a : "aucun changement de rôle implicite"). Ce cas
+  // se produit typiquement quand le lien est ouvert avec le compte qui a
+  // créé ou gère déjà ce chantier (ex. l'entreprise), pas avec le compte du
+  // nouveau participant visé — d'où le message explicite ci-dessous, plutôt
+  // qu'un texte générique. accept_invitation ne renvoie aucun project_id
+  // dans ce cas (exception, pas une ligne de succès) et get_invitation_preview
+  // n'en expose pas non plus (choix délibéré, hors périmètre ici) : faute de
   // pouvoir lier directement au chantier, on oriente vers le tableau de bord
-  // ("Mes chantiers" y est désormais mis en avant) plutôt qu'un message sec.
+  // ("Mes chantiers" y est désormais mis en avant).
   if (acceptState?.code === "already_member") {
     return (
       <div className="flex flex-col gap-3">
         <AlertBanner
           variant="information"
-          title="Déjà membre de ce chantier"
-          explanation="Ce compte fait déjà partie de ce chantier. Aucun changement n'a été effectué."
+          title="Ce compte est déjà membre de ce chantier"
+          explanation={
+            `Le compte connecté${identity ? ` (${identity})` : ""} fait déjà partie de ${projectName ? `« ${projectName} »` : "ce chantier"}, sous son rôle actuel — jamais celui proposé ici${proposedRoleLabel ? ` (${proposedRoleLabel})` : ""}. Aucun rôle n'a été modifié. Si cette invitation est destinée à quelqu'un d'autre, utilisez « Changer de compte » et connectez-vous avec le compte concerné.`
+          }
         />
         <Link href="/tableau-de-bord">
           <Button className="w-full">Ouvrir mes chantiers</Button>
