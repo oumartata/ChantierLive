@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cn } from "@/lib/cn";
 import { getVerifiedUser } from "@/lib/supabase/server";
 import { NavLink } from "./NavLink";
+import { SectionNavLink } from "./SectionNavLink";
 import { AccountMenuFooter } from "./AccountMenuFooter";
 
 export interface AppShellProps {
@@ -74,6 +75,14 @@ export async function AppShell({ children }: AppShellProps) {
           {items.map((item) => (
             <NavLink key={item.href} href={item.href} label={item.label} />
           ))}
+          {/* "Mes chantiers" : raccourci vers l'ancre #mes-chantiers de la
+              section déjà existante du tableau de bord (jamais une page
+              distincte) — visible hors chantier, ordinateur et mobile,
+              comme "Tableau de bord". Voir SectionNavLink pour le choix
+              délibéré de ne pas lui donner d'état actif propre. */}
+          {authenticated ? (
+            <SectionNavLink href="/tableau-de-bord#mes-chantiers" label="Mes chantiers" />
+          ) : null}
           {/* Identité du compte + déconnexion : toujours en dernière
               position de la navigation (bas de la colonne sur ordinateur,
               fin de la barre sur mobile), jamais mélangée aux destinations

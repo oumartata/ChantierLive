@@ -95,7 +95,10 @@ export default async function TableauDeBordPage() {
       <h1 className="text-h1 font-bold text-ink">Tableau de bord</h1>
       {banner}
 
-      <section className="flex flex-col gap-4">
+      {/* Ancre stable ciblée par le lien "Mes chantiers" du menu principal
+          (AppShell/SectionNavLink) — scroll-mt compense l'en-tête collant
+          (h-14) pour que le titre ne soit pas masqué après le saut. */}
+      <section id="mes-chantiers" className="flex scroll-mt-20 flex-col gap-4">
         <div className="flex items-center justify-between">
           <h2 className="text-h2 font-semibold text-ink">Mes chantiers</h2>
           <Link href="/chantiers/nouveau" className="text-label font-semibold text-primary">
