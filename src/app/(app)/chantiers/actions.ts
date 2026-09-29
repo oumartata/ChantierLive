@@ -344,5 +344,5 @@ export async function updateDraftProject(
     };
   }
 
-  redirect(`/chantiers/${projectId.value}/modifier?enregistre=1`);
+  redirect(`/chantiers/${projectId.value}?enregistre=1`);
 }

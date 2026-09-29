@@ -131,7 +131,7 @@ export default async function TableauDeBordPage() {
                       <span className="text-caption text-muted">{roleLabel(m.role, m.owner_profile)}</span>
                     </div>
                   </div>
-                  <Link href={`/chantiers/${project.id}/modifier`}>
+                  <Link href={`/chantiers/${project.id}`}>
                     <Button variant="secondary" size="compact">
                       Ouvrir
                     </Button>

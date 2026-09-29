@@ -208,6 +208,17 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
             <RequirementForm projectId={id} expectedRevision={revision} hasRequirement={status.has_requirement} initialOperationUuid={randomUUID()} />
           )
         ) : null}
+        {/* Constat fondateur : le propriétaire ne voyait aucune explication
+            tant que l'entreprise n'avait pas fixé l'avance — "Déclarer un
+            versement" restait invisible sans qu'on sache pourquoi. Message
+            informatif seulement, aucune action ni droit ajouté ici. */}
+        {!isContractor && canAct && !status.has_requirement ? (
+          <p className="text-caption text-muted">
+            {status.contract_amount_fcfa === null
+              ? "Un versement pourra être déclaré une fois le devis accepté, puis l'avance fixée par l'entreprise."
+              : "L'entreprise doit encore fixer le montant de l'avance exigée avant qu'un versement puisse être déclaré ici."}
+          </p>
+        ) : null}
       </Card>
 
       <Card className="flex flex-col gap-2" data-testid="work-start">

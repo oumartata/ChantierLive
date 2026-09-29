@@ -56,7 +56,7 @@ export async function acceptInvitationAction(
     return { error: "L'invitation a peut-être été acceptée, mais la réponse est invalide." };
   }
 
-  redirect(`/chantiers/${row.project_id}/modifier?invitation=acceptee`);
+  redirect(`/chantiers/${row.project_id}?invitation=acceptee`);
 }
 
 export async function refuseInvitationAction(

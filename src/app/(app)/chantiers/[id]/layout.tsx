@@ -69,7 +69,7 @@ export default async function ChantierLayout({
   const canSeeFinancials = isContractor || isOwnerPrimary || isCoOwner;
 
   const links: { href: string; label: string }[] = [
-    { href: `/chantiers/${id}/modifier`, label: "Chantier" },
+    { href: `/chantiers/${id}`, label: "Chantier" },
     ...(canInvite
       ? [
           { href: `/chantiers/${id}/invitations/nouveau`, label: "Inviter" },
