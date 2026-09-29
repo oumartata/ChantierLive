@@ -76,7 +76,7 @@ export default async function InvitationPreviewPage({
         </p>
       </Card>
       {user ? (
-        <DecisionButtons token={token} />
+        <DecisionButtons token={token} identity={user.email ?? user.phone ?? null} />
       ) : (
         <>
           <AlertBanner

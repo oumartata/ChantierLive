@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient, getVerifiedUser, requireVerifiedAccount } from "@/lib/supabase/server";
 
-export type InvitationDecisionState = { error: string } | null;
+export type InvitationDecisionState = { error: string; code?: string } | null;
 
 // Traduit les codes d'erreur bruts de accept_invitation/refuse_invitation
 // (M006a) en texte destiné à l'utilisateur. 'invitation_not_available'
@@ -48,7 +48,7 @@ export async function acceptInvitationAction(
   const { data, error } = await supabase.rpc("accept_invitation", { p_token: token });
 
   if (error) {
-    return { error: mapRpcError(error.message) };
+    return { error: mapRpcError(error.message), code: error.message };
   }
 
   const row = Array.isArray(data) ? data[0] : data;

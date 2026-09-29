@@ -14,6 +14,44 @@ function postAuthRedirectPath(formData: FormData, fallback: string): string {
   return token ? invitationResumePath(token) : fallback;
 }
 
+// Traduit les erreurs BRUTES du fournisseur (GoTrue/Twilio) en messages
+// français utiles. Diagnostic (lecture seule de supabase/config.toml, aucun
+// secret affiché ici) : [auth.sms.twilio] est activé avec des identifiants
+// FICTIFS en local (B012, essai volontaire) — seuls les deux numéros de
+// [auth.sms.test_otp] évitent un vrai appel à l'API Twilio. Tout autre
+// numéro déclenche un rejet réel de Twilio ("Authentication Error - invalid
+// username", l'identifiant Twilio étant fictif), renvoyé tel quel par GoTrue
+// aujourd'hui. Ne PAS activer un compte Twilio réel (service payant) ni
+// désactiver enable_confirmations : le message est seulement rendu clair,
+// avec une orientation vers le parcours e-mail (toujours fonctionnel en
+// local) ou les deux numéros de test.
+function mapAuthError(message: string | undefined): string {
+  if (!message) return "Une erreur est survenue. Réessayez.";
+  const lower = message.toLowerCase();
+  if (lower.includes("authentication error") || lower.includes("invalid username")) {
+    return "L'envoi de SMS n'est pas connecté sur cet environnement de démonstration. Utilisez un e-mail, ou l'un des deux numéros de test (+15550001111 / +15550001112, code 123456).";
+  }
+  if (lower.includes("user already registered") || lower.includes("already registered")) {
+    return "Un compte existe déjà avec cet identifiant. Connectez-vous plutôt.";
+  }
+  if (lower.includes("invalid login credentials")) {
+    return "Identifiant ou mot de passe incorrect.";
+  }
+  if (lower.includes("password should be at least")) {
+    return "Le mot de passe doit contenir au moins 6 caractères.";
+  }
+  if (lower.includes("invalid phone") || lower.includes("phone number")) {
+    return "Numéro de téléphone invalide. Utilisez le format international (ex. +223 70 00 00 00).";
+  }
+  if (lower.includes("token has expired") || lower.includes("otp expired")) {
+    return "Le code a expiré. Demandez-en un nouveau.";
+  }
+  if (lower.includes("invalid otp") || lower.includes("invalid token")) {
+    return "Code incorrect. Vérifiez le code reçu et réessayez.";
+  }
+  return "Une erreur est survenue. Réessayez.";
+}
+
 // FR001/FR002 : inscription. Ne fait que créer le compte (provisional) —
 // la confirmation et la connexion restent des étapes séparées.
 export async function signUp(
@@ -47,7 +85,7 @@ export async function signUp(
   );
 
   if (error) {
-    return { error: error.message };
+    return { error: mapAuthError(error.message) };
   }
 
   if (isEmail) {
@@ -79,7 +117,7 @@ export async function signIn(
   );
 
   if (error) {
-    return { error: error.message };
+    return { error: mapAuthError(error.message) };
   }
 
   redirect(postAuthRedirectPath(formData, "/tableau-de-bord"));
@@ -98,7 +136,7 @@ export async function verifyPhoneOtp(
   const { error } = await supabase.auth.verifyOtp({ phone, token, type: "sms" });
 
   if (error) {
-    return { error: error.message };
+    return { error: mapAuthError(error.message) };
   }
 
   redirect(postAuthRedirectPath(formData, "/tableau-de-bord"));
@@ -110,8 +148,17 @@ export async function verifyPhoneOtp(
 // TOUS les appareils), un comportement surprenant pour un simple bouton
 // "Se déconnecter" — écarté explicitement ici, pas le défaut du SDK.
 // L'erreur est retournée à l'appelant, jamais un succès affiché à tort.
+//
+// "Changer de compte" (page d'invitation) réutilise cette MÊME action —
+// jamais une seconde implémentation de déconnexion — avec un jeton
+// d'invitation optionnel dans le formulaire : /connexion redirigeant
+// immédiatement une session valide, il faut se déconnecter D'ABORD pour
+// réellement atteindre le formulaire de connexion, jeton d'invitation
+// préservé (même validation stricte que partout ailleurs, jamais un `next`
+// arbitraire).
 export async function signOut(
-  _prevState: AuthActionState
+  _prevState: AuthActionState,
+  formData?: FormData
 ): Promise<AuthActionState> {
   const supabase = await createClient();
   const { error } = await supabase.auth.signOut({ scope: "local" });
@@ -120,5 +167,6 @@ export async function signOut(
     return { error: error.message };
   }
 
-  redirect("/connexion");
+  const token = parseInvitationToken(formData?.get("invitation")?.toString() ?? null);
+  redirect(token ? `/connexion?invitation=${token}` : "/connexion");
 }

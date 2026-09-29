@@ -5,41 +5,60 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Button, TextField, AlertBanner, Card } from "@/components/ui";
 import { parseInvitationToken } from "@/lib/invitationResume";
-import { signUp, type AuthActionState } from "../actions";
+import { signIn, type AuthActionState } from "../actions";
 
-// FR033 : voir connexion/page.tsx — même mécanisme dédié, revalidé côté
-// serveur dans signUp.
+function SignupNotice() {
+  const searchParams = useSearchParams();
+  if (searchParams.get("inscription") !== "ok") {
+    return null;
+  }
+  return (
+    <AlertBanner
+      variant="information"
+      title="Compte créé"
+      explanation="Confirmez votre identifiant (e-mail ou code reçu) avant de vous connecter."
+    />
+  );
+}
+
+// FR033 : reprend l'invitation en cours (transmise via ?invitation=<jeton>)
+// à travers le formulaire — revalidée côté serveur dans signIn, jamais
+// utilisée telle quelle. Absente ou invalide -> champ vide, parcours normal.
 function InvitationHiddenField() {
   const searchParams = useSearchParams();
   const token = parseInvitationToken(searchParams.get("invitation"));
   return <input type="hidden" name="invitation" value={token ?? ""} />;
 }
 
-function SignInLink() {
+// Préserve la reprise en cours si l'utilisateur bascule vers l'inscription.
+function CreateAccountLink() {
   const searchParams = useSearchParams();
   const token = parseInvitationToken(searchParams.get("invitation"));
   return (
     <Link
-      href={token ? `/connexion?invitation=${token}` : "/connexion"}
+      href={token ? `/inscription?invitation=${token}` : "/inscription"}
       className="font-semibold text-primary"
     >
-      Se connecter
+      Créer un compte
     </Link>
   );
 }
 
-export default function InscriptionPage() {
+export function ConnexionForm() {
   const [state, formAction, pending] = useActionState<AuthActionState, FormData>(
-    signUp,
+    signIn,
     null
   );
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
-      <h1 className="text-h1 font-bold text-ink">Créer un compte</h1>
+      <h1 className="text-h1 font-bold text-ink">Se connecter</h1>
       <Card className="flex flex-col gap-4 p-6">
+        <Suspense fallback={null}>
+          <SignupNotice />
+        </Suspense>
         {state?.error ? (
-          <AlertBanner variant="error" title="Inscription impossible" explanation={state.error} />
+          <AlertBanner variant="error" title="Connexion impossible" explanation={state.error} />
         ) : null}
         <form action={formAction} className="flex flex-col gap-4">
           <TextField
@@ -53,22 +72,21 @@ export default function InscriptionPage() {
             label="Mot de passe"
             name="password"
             type="password"
-            autoComplete="new-password"
-            minLength={6}
+            autoComplete="current-password"
             required
           />
           <Suspense fallback={<input type="hidden" name="invitation" value="" />}>
             <InvitationHiddenField />
           </Suspense>
           <Button type="submit" loading={pending}>
-            Créer mon compte
+            Se connecter
           </Button>
         </form>
       </Card>
       <p className="text-body text-ink">
-        Déjà un compte ?{" "}
-        <Suspense fallback={<Link href="/connexion" className="font-semibold text-primary">Se connecter</Link>}>
-          <SignInLink />
+        Pas encore de compte ?{" "}
+        <Suspense fallback={<Link href="/inscription" className="font-semibold text-primary">Créer un compte</Link>}>
+          <CreateAccountLink />
         </Suspense>
       </p>
     </div>

@@ -13,8 +13,10 @@ import { Skeleton } from "@/components/ui/Skeleton";
 
 // Page technique de vérification des tokens et composants de base (lot
 // B003). Ce n'est pas un écran métier : aucune donnée réelle, aucune
-// logique de chantier.
-export default function Home() {
+// logique de chantier. Déplacée hors du parcours utilisateur (ancien "/")
+// vers cette route interne, non liée dans la navigation — composants
+// conservés, seul l'accès depuis "/" a changé.
+export default function ComponentsGallery() {
   const [standardOpen, setStandardOpen] = useState(false);
   const [doubleOpen, setDoubleOpen] = useState(false);
   const [fieldValue, setFieldValue] = useState("");

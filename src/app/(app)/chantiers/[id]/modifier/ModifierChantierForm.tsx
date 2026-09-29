@@ -12,6 +12,20 @@ interface LocationPreview {
 
 type LocationStatus = "idle" | "pending" | "preview" | "error";
 
+// Au-delà de ce seuil, coords.accuracy ne permet plus de distinguer une
+// parcelle d'une autre — repère pratique, pas une valeur documentée par une
+// source externe : à ajuster si l'expérience de terrain le justifie.
+const ACCURACY_WARNING_METERS = 500;
+
+// Mètres si < 1 km (lisibilité), kilomètres avec une décimale au-delà —
+// jamais une valeur brute en mètres à 5 chiffres.
+function formatAccuracy(meters: number): string {
+  if (meters >= 1000) {
+    return `${(meters / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} km`;
+  }
+  return `${Math.round(meters)} m`;
+}
+
 interface Project {
   id: string;
   name: string;
@@ -206,21 +220,30 @@ export function ModifierChantierForm({ project }: ModifierChantierFormProps) {
           </div>
 
           {locationStatus === "preview" && locationPreview ? (
-            <AlertBanner
-              variant="information"
-              title="Position reçue — à confirmer"
-              explanation={`Latitude ${locationPreview.latitude}, longitude ${locationPreview.longitude}. Précision affichée par l'appareil : environ ${Math.round(locationPreview.accuracy)} m.`}
-              action={
-                <div className="flex gap-2">
-                  <Button type="button" size="compact" onClick={handleConfirmLocation}>
-                    Cette position correspond au chantier
-                  </Button>
-                  <Button type="button" variant="ghost" size="compact" onClick={handleCancelLocation}>
-                    Annuler
-                  </Button>
-                </div>
-              }
-            />
+            <>
+              <AlertBanner
+                variant="information"
+                title="Position reçue — à confirmer"
+                explanation={`Latitude ${locationPreview.latitude}, longitude ${locationPreview.longitude}. Précision affichée par l'appareil : environ ${formatAccuracy(locationPreview.accuracy)}. Il s'agit de la position de votre appareil : utilisez cette fonction depuis le terrain pour un résultat utile.`}
+                action={
+                  <div className="flex gap-2">
+                    <Button type="button" size="compact" onClick={handleConfirmLocation}>
+                      Cette position correspond au chantier
+                    </Button>
+                    <Button type="button" variant="ghost" size="compact" onClick={handleCancelLocation}>
+                      Annuler
+                    </Button>
+                  </div>
+                }
+              />
+              {locationPreview.accuracy > ACCURACY_WARNING_METERS ? (
+                <AlertBanner
+                  variant="warning"
+                  title="Précision insuffisante pour repérer un terrain"
+                  explanation={`Une précision d'environ ${formatAccuracy(locationPreview.accuracy)} ne permet généralement pas de distinguer une parcelle précise. Vous pouvez tout de même confirmer, réessayer, ou saisir les coordonnées manuellement.`}
+                />
+              ) : null}
+            </>
           ) : null}
 
           {locationStatus === "error" && locationError ? (
