@@ -37,6 +37,12 @@ function mapRpcError(message: string | undefined): string {
       return "Ce chantier n'est plus en brouillon et ne peut plus être modifié depuis cette page.";
     case "revision_conflict":
       return "Ce chantier a été modifié depuis votre ouverture. Vos modifications n'ont pas été enregistrées. Rechargez les données avant de réessayer.";
+    case "latitude_out_of_range":
+      return "Latitude invalide (nombre entre -90 et 90 attendu).";
+    case "longitude_out_of_range":
+      return "Longitude invalide (nombre entre -180 et 180 attendu).";
+    case "location_pair_incomplete":
+      return "Latitude et longitude doivent être renseignées ensemble, ou toutes les deux laissées vides.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -289,6 +295,14 @@ export async function updateDraftProject(
   const longitude = parseOptionalLongitude(formData.get("longitude"));
   if (!longitude.ok) {
     return { error: "Longitude invalide (nombre entre -180 et 180 attendu)." };
+  }
+  // M029 — ne pas supposer que soumettre les deux champs empêche l'un
+  // d'être vide (formulaire modifié à la main, appel direct de l'action, ou
+  // futur appelant de cette même fonction). Même règle que la contrainte de
+  // base (projects_location_pair) et le garde RPC : les deux ensemble, ou
+  // aucun des deux — jamais un seul.
+  if ((latitude.value === null) !== (longitude.value === null)) {
+    return { error: "Latitude et longitude doivent être renseignées ensemble, ou toutes les deux laissées vides." };
   }
   const plannedStartDate = parseOptionalDate(formData.get("planned_start_date"));
   if (!plannedStartDate.ok) {

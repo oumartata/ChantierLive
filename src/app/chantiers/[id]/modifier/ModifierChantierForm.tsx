@@ -1,8 +1,16 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { Button, TextField, AlertBanner, Card } from "@/components/ui";
 import { updateDraftProject, type UpdateDraftState } from "../../actions";
+
+interface LocationPreview {
+  latitude: number;
+  longitude: number;
+  accuracy: number;
+}
+
+type LocationStatus = "idle" | "pending" | "preview" | "error";
 
 interface Project {
   id: string;
@@ -52,6 +60,86 @@ export function ModifierChantierForm({ project }: ModifierChantierFormProps) {
   // valeur potentiellement déjà tronquée par une lecture JSON antérieure.
   const [budget, setBudget] = useState(project.budget ?? "");
 
+  // Position sur demande (B014, tranche 1) — jamais de suivi continu
+  // (aucun watchPosition). La position reçue reste en PRÉVISUALISATION
+  // séparée : elle n'écrit jamais directement latitude/longitude tant que
+  // l'utilisateur n'a pas cliqué "Confirmer" — une erreur, une annulation ou
+  // une réponse tardive ne touche donc jamais la saisie manuelle en cours.
+  const [locationStatus, setLocationStatus] = useState<LocationStatus>("idle");
+  const [locationError, setLocationError] = useState<string | null>(null);
+  const [locationPreview, setLocationPreview] = useState<LocationPreview | null>(null);
+  // Identifiant croissant plutôt qu'un simple booléen "en cours" : si une
+  // demande est annulée puis qu'une nouvelle est lancée avant que l'ancienne
+  // réponse du navigateur n'arrive, un booléen ne distinguerait pas laquelle
+  // des deux réponses est la bonne. Chaque callback ne s'applique que s'il
+  // porte encore l'identifiant courant au moment où il arrive.
+  const locationRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    return () => {
+      // Démontage : invalide toute réponse encore en vol pour ce composant.
+      locationRequestIdRef.current += 1;
+    };
+  }, []);
+
+  function handleUseMyLocation() {
+    setLocationError(null);
+    setLocationPreview(null);
+
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      setLocationStatus("error");
+      setLocationError("La géolocalisation n'est pas disponible sur cet appareil.");
+      return;
+    }
+
+    const requestId = ++locationRequestIdRef.current;
+    setLocationStatus("pending");
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        if (locationRequestIdRef.current !== requestId) return; // réponse tardive : ignorée
+        setLocationPreview({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+        });
+        setLocationStatus("preview");
+      },
+      (err) => {
+        if (locationRequestIdRef.current !== requestId) return; // réponse tardive : ignorée
+        setLocationStatus("error");
+        if (err.code === err.PERMISSION_DENIED) {
+          setLocationError("Autorisation de localisation refusée. Saisissez les coordonnées manuellement.");
+        } else if (err.code === err.POSITION_UNAVAILABLE) {
+          setLocationError("Position indisponible. Réessayez ou saisissez les coordonnées manuellement.");
+        } else if (err.code === err.TIMEOUT) {
+          setLocationError("Délai dépassé. Réessayez ou saisissez les coordonnées manuellement.");
+        } else {
+          setLocationError("Impossible d'obtenir la position. Saisissez les coordonnées manuellement.");
+        }
+      },
+      { timeout: 10000 }
+    );
+  }
+
+  function handleCancelLocation() {
+    // Invalide aussi une réponse déjà en vol pour cette demande précise.
+    locationRequestIdRef.current += 1;
+    setLocationStatus("idle");
+    setLocationPreview(null);
+    setLocationError(null);
+  }
+
+  function handleConfirmLocation() {
+    if (!locationPreview) return;
+    // Seule action qui copie la prévisualisation dans le formulaire : la
+    // position n'est toujours pas enregistrée, seul "Enregistrer" persiste.
+    setLatitude(locationPreview.latitude.toString());
+    setLongitude(locationPreview.longitude.toString());
+    setLocationStatus("idle");
+    setLocationPreview(null);
+  }
+
   return (
     <Card className="flex flex-col gap-4 p-6">
       {state?.error ? (
@@ -98,6 +186,48 @@ export function ModifierChantierForm({ project }: ModifierChantierFormProps) {
           value={address}
           onChange={(e) => setAddress(e.target.value)}
         />
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              size="compact"
+              loading={locationStatus === "pending"}
+              disabled={locationStatus === "pending"}
+              onClick={handleUseMyLocation}
+            >
+              Utiliser ma position
+            </Button>
+            {locationStatus === "pending" ? (
+              <Button type="button" variant="ghost" size="compact" onClick={handleCancelLocation}>
+                Annuler
+              </Button>
+            ) : null}
+          </div>
+
+          {locationStatus === "preview" && locationPreview ? (
+            <AlertBanner
+              variant="information"
+              title="Position reçue — à confirmer"
+              explanation={`Latitude ${locationPreview.latitude}, longitude ${locationPreview.longitude}. Précision affichée par l'appareil : environ ${Math.round(locationPreview.accuracy)} m.`}
+              action={
+                <div className="flex gap-2">
+                  <Button type="button" size="compact" onClick={handleConfirmLocation}>
+                    Cette position correspond au chantier
+                  </Button>
+                  <Button type="button" variant="ghost" size="compact" onClick={handleCancelLocation}>
+                    Annuler
+                  </Button>
+                </div>
+              }
+            />
+          ) : null}
+
+          {locationStatus === "error" && locationError ? (
+            <AlertBanner variant="error" title="Position non obtenue" explanation={locationError} />
+          ) : null}
+        </div>
+
         <TextField
           label="Latitude"
           name="latitude"
