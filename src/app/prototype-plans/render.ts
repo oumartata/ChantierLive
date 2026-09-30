@@ -1,4 +1,4 @@
-import type { Layout, PlacedRoom, WallSide } from "./geometry";
+import type { Door, Layout, PlacedRoom, WallSide } from "./geometry";
 
 const MARGIN = 70; // px, pour cotes, orientation et libellés
 const STAMP = "Avant-projet — à faire vérifier par un professionnel";
@@ -37,6 +37,46 @@ function wallGapLine(x: number, y: number, wall: WallSide, halfWidthPx: number):
     return `x1="${x}" y1="${y - halfWidthPx}" x2="${x}" y2="${y + halfWidthPx}"`;
   }
   return `x1="${x - halfWidthPx}" y1="${y}" x2="${x + halfWidthPx}" y2="${y}"`;
+}
+
+// Arc du battant, en pixels déjà convertis — "flip" (sens d'ouverture)
+// choisit l'AUTRE diagonale du même carré balayé (doorSwingRect, inchangé) :
+// jamais un dépassement hors de la pièce, seul le battant visuel change de
+// côté.
+function doorArc(
+  door: Door,
+  doorX: number,
+  doorY: number,
+  doorHalfPx: number,
+  doorFullPx: number
+): { arcStart: { x: number; y: number }; arcEnd: { x: number; y: number }; sweepFlag: 0 | 1 } {
+  const f = door.flip ?? false;
+  switch (door.wall) {
+    case "right":
+      return {
+        arcStart: f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx },
+        arcEnd: f ? { x: doorX - doorFullPx, y: doorY - doorHalfPx } : { x: doorX - doorFullPx, y: doorY + doorHalfPx },
+        sweepFlag: f ? 0 : 1,
+      };
+    case "left":
+      return {
+        arcStart: f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx },
+        arcEnd: f ? { x: doorX + doorFullPx, y: doorY - doorHalfPx } : { x: doorX + doorFullPx, y: doorY + doorHalfPx },
+        sweepFlag: f ? 1 : 0,
+      };
+    case "top":
+      return {
+        arcStart: f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY },
+        arcEnd: f ? { x: doorX - doorHalfPx, y: doorY + doorFullPx } : { x: doorX + doorHalfPx, y: doorY + doorFullPx },
+        sweepFlag: f ? 0 : 1,
+      };
+    case "bottom":
+      return {
+        arcStart: f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY },
+        arcEnd: f ? { x: doorX - doorHalfPx, y: doorY - doorFullPx } : { x: doorX + doorHalfPx, y: doorY - doorFullPx },
+        sweepFlag: f ? 1 : 0,
+      };
+  }
 }
 
 export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter = 26): string {
@@ -83,8 +123,10 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
 
   // Une pièce mise de côté (zone de rangement) n'occupe aucune place réelle
   // sur le terrain tant qu'elle n'est pas replacée — jamais dessinée ici.
-  for (const r of layout.rooms) {
-    if (r.parked) continue;
+  layout.rooms.forEach((r, roomIndex) => {
+    if (r.parked) return;
+    const roomDoors = layout.doors.filter((d) => d.roomIndex === roomIndex);
+    const roomWindows = layout.windows.filter((wn) => wn.roomIndex === roomIndex);
     const rx = X(r.x), ry = Y(r.y), rw = r.w * scalePxPerMeter, rd = r.d * scalePxPerMeter;
     parts.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="${rd}" fill="#e2e8f0" stroke="#1e293b" stroke-width="2" />`);
 
@@ -98,56 +140,39 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
       parts.push(`<text x="${cx}" y="${cy + 9}" font-size="9" fill="#334155" text-anchor="middle">${r.w.toFixed(2)} × ${r.d.toFixed(2)} m — ${(r.w * r.d).toFixed(1)} m²</text>`);
     }
 
-    // Fenêtre : trait bleu double sur le mur extérieur réel de la pièce —
-    // sauf si une porte a été placée sur ce même mur (entrée extérieure) :
-    // les deux ne se superposent jamais visuellement.
-    const doorOnExteriorWall = r.door && r.connectsTo === "exterior" && r.door.wall === r.exteriorWall;
-    if (r.exteriorWall && !doorOnExteriorWall) {
-      const wallX = r.exteriorWall === "left" ? rx : rx + rw;
-      parts.push(`<line x1="${wallX}" y1="${ry + rd * 0.25}" x2="${wallX}" y2="${ry + rd * 0.75}" stroke="#0284c7" stroke-width="4" />`);
-    } else if (!r.exteriorWall) {
+    // Fenêtres INDÉPENDANTES : chacune son propre trait, sur son propre mur —
+    // sauf si une porte occupe déjà ce même mur (entrée extérieure) : les
+    // deux ne se superposent jamais visuellement.
+    if (roomWindows.length === 0 && !r.exteriorWall) {
       parts.push(`<text x="${cx}" y="${ry + rd - 6}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune ouverture extérieure</text>`);
     }
+    for (const win of roomWindows) {
+      const doorOnSameWall = roomDoors.some((d) => d.wall === win.wall && d.to.kind === "exterior");
+      if (doorOnSameWall) continue;
+      const wHalfPx = (win.width * scalePxPerMeter) / 2;
+      const wx = X(win.cx), wy = Y(win.cy);
+      const vertical = win.wall === "left" || win.wall === "right";
+      parts.push(
+        vertical
+          ? `<line x1="${wx}" y1="${wy - wHalfPx}" x2="${wx}" y2="${wy + wHalfPx}" stroke="#0284c7" stroke-width="4" />`
+          : `<line x1="${wx - wHalfPx}" y1="${wy}" x2="${wx + wHalfPx}" y2="${wy}" stroke="#0284c7" stroke-width="4" />`
+      );
+    }
 
-    // Porte : ouverture dans le mur intérieur (corridor) + arc de battant.
-    // Le carré balayé (M/fin/rayon ci-dessous) est le MÊME que doorSwingRect
-    // (geometry.ts), utilisé par la vérification indépendante — jamais un
-    // second calcul qui pourrait diverger du premier. Pas de porte (retirée
-    // par l'éditeur) : mur fermé, jamais une baie fantôme laissée dessinée.
-    if (r.door) {
-      const doorHalfPx = (r.door.width * scalePxPerMeter) / 2;
+    // Portes — plusieurs possibles par pièce. Ouverture dans le mur +
+    // arc de battant. Le carré balayé (voir doorArc ci-dessous) est le MÊME
+    // que doorSwingRect (geometry.ts), utilisé par la vérification
+    // indépendante — jamais un second calcul qui pourrait diverger du
+    // premier. Aucune porte : mur fermé, jamais une baie fantôme dessinée.
+    if (roomDoors.length === 0) {
+      parts.push(`<text x="${cx}" y="${ry + rd / 2 + 20}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune porte</text>`);
+    }
+    for (const d of roomDoors) {
+      const doorHalfPx = (d.width * scalePxPerMeter) / 2;
       const doorFullPx = doorHalfPx * 2;
-      const doorX = X(r.door.cx), doorY = Y(r.door.cy);
-      parts.push(`<line ${wallGapLine(doorX, doorY, r.door.wall, doorHalfPx)} stroke="#ffffff" stroke-width="3" />`);
-      // "flip" (sens d'ouverture) choisit l'AUTRE diagonale du même carré
-      // balayé (doorSwingRect, inchangé) : jamais un dépassement hors de la
-      // pièce, seul le battant visuel change de côté.
-      const f = r.door.flip ?? false;
-      let arcStart: { x: number; y: number };
-      let arcEnd: { x: number; y: number };
-      let sweepFlag: 0 | 1;
-      switch (r.door.wall) {
-        case "right":
-          arcStart = f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx };
-          arcEnd = f ? { x: doorX - doorFullPx, y: doorY - doorHalfPx } : { x: doorX - doorFullPx, y: doorY + doorHalfPx };
-          sweepFlag = f ? 0 : 1;
-          break;
-        case "left":
-          arcStart = f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx };
-          arcEnd = f ? { x: doorX + doorFullPx, y: doorY - doorHalfPx } : { x: doorX + doorFullPx, y: doorY + doorHalfPx };
-          sweepFlag = f ? 1 : 0;
-          break;
-        case "top":
-          arcStart = f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY };
-          arcEnd = f ? { x: doorX - doorHalfPx, y: doorY + doorFullPx } : { x: doorX + doorHalfPx, y: doorY + doorFullPx };
-          sweepFlag = f ? 0 : 1;
-          break;
-        case "bottom":
-          arcStart = f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY };
-          arcEnd = f ? { x: doorX - doorHalfPx, y: doorY - doorFullPx } : { x: doorX + doorHalfPx, y: doorY - doorFullPx };
-          sweepFlag = f ? 1 : 0;
-          break;
-      }
+      const doorX = X(d.cx), doorY = Y(d.cy);
+      parts.push(`<line ${wallGapLine(doorX, doorY, d.wall, doorHalfPx)} stroke="#ffffff" stroke-width="3" />`);
+      const { arcStart, arcEnd, sweepFlag } = doorArc(d, doorX, doorY, doorHalfPx, doorFullPx);
       parts.push(
         `<path d="M ${arcStart.x} ${arcStart.y} A ${doorFullPx} ${doorFullPx} 0 0 ${sweepFlag} ${arcEnd.x} ${arcEnd.y}" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2" />`
       );
@@ -155,14 +180,12 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
       // entre deux pièces, ou avec le mur extérieur, ne suffit pas à le
       // montrer ; la mention le rend sans ambiguïté. Jamais une porte
       // intérieure confondue avec une entrée extérieure.
-      const doorLabel = r.connectsTo === "salon" ? "accès direct" : r.connectsTo === "exterior" ? "entrée extérieure" : r.connectsTo === "room" ? "porte intérieure" : null;
+      const doorLabel = d.to.kind === "exterior" ? "entrée extérieure" : d.to.kind === "courtyard" ? "accès cour" : d.to.kind === "room" ? "porte intérieure" : null;
       if (doorLabel) {
-        const labelX = r.door.wall === "right" ? doorX - 6 : doorX + 6;
-        const labelColor = r.connectsTo === "exterior" ? "#16a34a" : "#7c3aed";
-        parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="${labelColor}" text-anchor="${r.door.wall === "right" ? "end" : "start"}">${doorLabel}</text>`);
+        const labelX = d.wall === "right" ? doorX - 6 : doorX + 6;
+        const labelColor = d.to.kind === "exterior" || d.to.kind === "courtyard" ? "#16a34a" : "#7c3aed";
+        parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="${labelColor}" text-anchor="${d.wall === "right" ? "end" : "start"}">${doorLabel}</text>`);
       }
-    } else {
-      parts.push(`<text x="${cx}" y="${ry + rd / 2 + 20}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune porte</text>`);
     }
 
     // Accès véhicule (garage) : ouverture large distincte, jamais confondue
@@ -175,7 +198,7 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
       const vLabelDy = r.vehicleDoor.wall === "top" ? -6 : r.vehicleDoor.wall === "bottom" ? 14 : 0;
       parts.push(`<text x="${vx}" y="${vy + vLabelDy}" font-size="8" fill="#7c2d12" text-anchor="middle">Accès véhicule — ${r.vehicleDoor.width.toFixed(2)} m dégagés</text>`);
     }
-  }
+  });
 
   // Entrée
   if (layout.entryDoor) {
