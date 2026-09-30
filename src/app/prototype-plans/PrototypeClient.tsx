@@ -371,12 +371,18 @@ export function PrototypeClient() {
                   <tbody>
                     <tr><td>Terrain</td><td>{selected.surfaces.terrain.toFixed(1)} m²</td></tr>
                     <tr><td>Emprise disponible</td><td>{selected.surfaces.emprise.toFixed(1)} m²</td></tr>
+                    {selected.surfaces.cour > 0 ? (
+                      <tr><td>Cour d&apos;entrée</td><td>{selected.surfaces.cour.toFixed(1)} m²</td></tr>
+                    ) : null}
                     <tr><td>Surface bâtie (murs compris)</td><td>{selected.surfaces.batie.toFixed(1)} m²</td></tr>
                     <tr><td>Surface utile habitable</td><td>{selected.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
                     <tr><td>Circulation</td><td>{selected.surfaces.circulation.toFixed(1)} m²</td></tr>
-                    <tr><td>Espaces extérieurs non bâtis</td><td>{selected.surfaces.exterieure.toFixed(1)} m²</td></tr>
+                    <tr><td>Espaces extérieurs non bâtis (hors cour)</td><td>{selected.surfaces.exterieure.toFixed(1)} m²</td></tr>
                   </tbody>
                 </table>
+                <p className="mt-1 text-xs text-slate-500">
+                  Cour, bâti et reste de l&apos;emprise sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible, jamais une surface comptée deux fois.
+                </p>
               </div>
 
               <div>

@@ -111,6 +111,13 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     parts.push(
       `<path d="M ${hinge.x} ${hinge.y} A ${doorHalfPx * 2} ${doorHalfPx * 2} 0 0 ${sweepFlag} ${hinge.x + (r.door.wall === "right" ? -doorHalfPx * 2 : doorHalfPx * 2)} ${hinge.y + doorHalfPx * 2}" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2" />`
     );
+    // Distingue explicitement un accès direct au salon d'un accès par le
+    // dégagement (corridor) — un simple contact visuel entre deux pièces ne
+    // suffit pas à le montrer, la mention le rend sans ambiguïté.
+    if (r.connectsTo === "salon") {
+      const labelX = r.door.wall === "right" ? doorX - 6 : doorX + 6;
+      parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="#7c3aed" text-anchor="${r.door.wall === "right" ? "end" : "start"}">accès direct</text>`);
+    }
 
     // Accès véhicule (garage) : ouverture large distincte, jamais confondue
     // avec une porte piétonne intérieure.

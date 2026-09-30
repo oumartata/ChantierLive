@@ -145,6 +145,10 @@ export interface Layout {
   surfaces: {
     terrain: number;
     emprise: number;
+    // Cour d'entrée, bâti et reste de l'emprise sont mutuellement exclusifs
+    // ici : leur somme (+ emprise non répartie éventuelle) vaut exactement
+    // `emprise`, jamais un recouvrement compté deux fois.
+    cour: number;
     batie: number;
     utileHabitable: number;
     circulation: number;
@@ -244,7 +248,7 @@ function buildDoubleLoadedLayout(
     entryDoor: null,
     rooms: [],
     exteriorSpaces: [],
-    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0 },
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0 },
   });
 
   if (empriseW <= 0 || empriseD <= 0) {
@@ -398,7 +402,7 @@ function buildDoubleLoadedLayout(
     entryDoor: entryDoorOut,
     rooms: roomsOut,
     exteriorSpaces: computeExteriorSpaces(terrainOut, empriseOut, footprintOut, input.accessSide),
-    surfaces: computeSurfaces(terrainOut, empriseOut, footprintOut, corridorOut, corridorFillersOut, roomsOut),
+    surfaces: computeSurfaces(terrainOut, empriseOut, footprintOut, corridorOut, corridorFillersOut, roomsOut, null),
   };
 }
 
@@ -439,7 +443,7 @@ function buildGuidedLayout(
     entryDoor: null,
     rooms: [],
     exteriorSpaces: [],
-    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0 },
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0 },
   });
 
   const needsGuidedLayout = input.entryMode === "courtyard" || (input.centralSalon && salonNeed);
@@ -571,17 +575,24 @@ function buildGuidedLayout(
     entryDoor,
     rooms,
     exteriorSpaces: computeExteriorSpaces(terrain, realEmprise, combinedFootprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, lower.corridorFillers, rooms),
+    surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, lower.corridorFillers, rooms, courtyard),
   };
 }
 
 function computeExteriorSpaces(terrain: Rect, emprise: Rect, footprint: Rect, accessSide: AccessSide): ExteriorSpace[] {
+  // Utilise les bords RÉELS du bâti (footprint.y/footprint.x), jamais ceux de
+  // l'emprise directement : avec une cour d'entrée, footprint.y est décalé
+  // de la profondeur de cour par rapport à emprise.y — les confondre plaçait
+  // ce rectangle "libre" par-dessus des pièces réelles (chevauchement visuel
+  // détecté à la revue, corrigé ici).
   const spaces: ExteriorSpace[] = [];
-  const remainingD = emprise.d - footprint.d;
+  const backEdge = footprint.y + footprint.d;
+  const empriseBackEdge = emprise.y + emprise.d;
+  const remainingD = empriseBackEdge - backEdge;
   if (remainingD > 0.5) {
     spaces.push({
       label: "Espace extérieur non bâti (reste de l'emprise, distinct de la cour d'entrée)",
-      rect: { x: emprise.x, y: emprise.y + footprint.d, w: emprise.w, d: remainingD },
+      rect: { x: emprise.x, y: backEdge, w: emprise.w, d: remainingD },
       accessFrom: accessSide === "back" ? "façade d'accès" : "arrière de la parcelle",
     });
   }
@@ -589,25 +600,29 @@ function computeExteriorSpaces(terrain: Rect, emprise: Rect, footprint: Rect, ac
   if (remainingW > 0.5) {
     spaces.push({
       label: "Espace extérieur non bâti (latéral)",
-      rect: { x: emprise.x + footprint.w, y: emprise.y, w: remainingW, d: footprint.d },
+      rect: { x: emprise.x + footprint.w, y: footprint.y, w: remainingW, d: footprint.d },
       accessFrom: "façade latérale",
     });
   }
   return spaces;
 }
 
-function computeSurfaces(terrain: Rect, emprise: Rect, footprint: Rect, corridor: Rect, fillers: Rect[], rooms: PlacedRoom[]) {
+function computeSurfaces(terrain: Rect, emprise: Rect, footprint: Rect, corridor: Rect, fillers: Rect[], rooms: PlacedRoom[], courtyard: Rect | null) {
   const habitable = rooms.reduce((s, r) => s + r.w * r.d, 0);
   const circulation = corridor.w * corridor.d + fillers.reduce((s, f) => s + f.w * f.d, 0);
   const batie = footprint.w * footprint.d;
   const empriseArea = emprise.w * emprise.d;
+  const courArea = courtyard ? courtyard.w * courtyard.d : 0;
   return {
     terrain: terrain.w * terrain.d,
     emprise: empriseArea,
+    cour: courArea,
     batie,
     utileHabitable: habitable,
+    // La cour est exclue d'ici (comptée une seule fois, séparément) — jamais
+    // dans le "reste" ET dans "cour" à la fois.
+    exterieure: Math.max(0, empriseArea - batie - courArea),
     circulation,
-    exterieure: Math.max(0, empriseArea - batie),
   };
 }
 
@@ -780,8 +795,20 @@ export function generateVariants(input: GenerationInput): GenerationResult {
   const seenKeys = new Set<string>();
   let variantN = 1;
 
-  function layoutKey(layout: Layout): string {
-    return JSON.stringify(layout.rooms.map((r) => [r.type, r.number, r.x.toFixed(2), r.y.toFixed(2), r.w.toFixed(2), r.d.toFixed(2)]));
+  // Clé de forme — SANS le numéro (dérivé, non significatif pour l'égalité)
+  // et triée (l'ordre des pièces d'un même type est interchangeable). Un
+  // second appel avec `mirror` calcule la MÊME clé pour le symétrique
+  // gauche-droite de la disposition : une simple symétrie n'est pas une
+  // organisation différente et ne doit pas compter comme une variante de
+  // plus, contrairement à un vrai changement de regroupement des pièces.
+  function layoutKey(layout: Layout, mirror: boolean): string {
+    const fp = layout.footprint;
+    const items = layout.rooms.map((r) => {
+      const x = mirror && fp ? fp.x * 2 + fp.w - (r.x + r.w) : r.x;
+      return `${r.type}|${x.toFixed(2)}|${r.y.toFixed(2)}|${r.w.toFixed(2)}|${r.d.toFixed(2)}`;
+    });
+    items.sort();
+    return items.join(";");
   }
 
   // Renumérote "Chambre 1/2/3" etc. sur l'ENSEMBLE de la disposition finale
@@ -804,9 +831,11 @@ export function generateVariants(input: GenerationInput): GenerationResult {
       return;
     }
     renumberRoomsGlobally(layout.rooms);
-    const key = layoutKey(layout);
-    if (seenKeys.has(key)) return;
+    const key = layoutKey(layout, false);
+    const mirrorKey = layoutKey(layout, true);
+    if (seenKeys.has(key) || seenKeys.has(mirrorKey)) return;
     seenKeys.add(key);
+    seenKeys.add(mirrorKey);
 
     const issues = independentVerify(layout);
     const errors = issues.filter((i) => i.severity === "error");
