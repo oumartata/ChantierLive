@@ -23,6 +23,7 @@ export interface LegendEntry {
 // jamais une liste ou un calcul séparé.
 export function legendFor(layout: Layout): LegendEntry[] {
   return layout.rooms
+    .filter((r) => !r.parked)
     .filter(isSmallRoom)
     .map((r) => ({ key: `${r.type}-${r.number}`, label: `${r.label} ${r.number}`, w: r.w, d: r.d, area: r.w * r.d }));
 }
@@ -80,7 +81,10 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     parts.push(`<rect x="${X(filler.x)}" y="${Y(filler.y)}" width="${filler.w * scalePxPerMeter}" height="${filler.d * scalePxPerMeter}" fill="#fef9c3" stroke="#eab308" stroke-width="0.5" />`);
   }
 
+  // Une pièce mise de côté (zone de rangement) n'occupe aucune place réelle
+  // sur le terrain tant qu'elle n'est pas replacée — jamais dessinée ici.
   for (const r of layout.rooms) {
+    if (r.parked) continue;
     const rx = X(r.x), ry = Y(r.y), rw = r.w * scalePxPerMeter, rd = r.d * scalePxPerMeter;
     parts.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="${rd}" fill="#e2e8f0" stroke="#1e293b" stroke-width="2" />`);
 
@@ -217,4 +221,4 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
-export { STAMP };
+export { escapeXml, STAMP };

@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   cloneLayout,
   flipDoorSwing,
   independentVerify,
+  parkRoom,
   placeDoor,
+  placeParkedRoom,
   removeDoor,
   tryMoveRoom,
   wallAdjacency,
@@ -14,7 +16,7 @@ import {
   type VerificationIssue,
   type WallSide,
 } from "./geometry";
-import { renderSvg, STAMP } from "./render";
+import { escapeXml, renderSvg, STAMP } from "./render";
 
 const SCALE = 26; // px/m — cohérent avec render.ts
 const MARGIN = 40;
@@ -49,6 +51,7 @@ export function PlanEditor({
   const [dragRoomIndex, setDragRoomIndex] = useState<number | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const parkZoneRef = useRef<HTMLDivElement>(null);
   // Détails de glissement lus uniquement dans les gestionnaires d'événements,
   // jamais pendant le rendu (dragRoomIndex, un state, sert au rendu).
   const dragRef = useRef<{ roomIndex: number; startX: number; startY: number; grabDx: number; grabDy: number } | null>(null);
@@ -56,19 +59,34 @@ export function PlanEditor({
   const current = history[history.length - 1];
   const issues: VerificationIssue[] = useMemo(() => independentVerify(current), [current]);
   const errorCount = issues.filter((i) => i.severity === "error").length;
+  // Pièces mises de côté — exclues des surfaces et du graphe de circulation
+  // (voir geometry.ts), suivies séparément ici : le plan reste explicitement
+  // "incomplet" tant que l'une d'elles n'est pas replacée.
+  const parked = current.rooms.map((r, i) => ({ r, i })).filter((x) => x.r.parked);
 
   // Export — dérivé du MÊME `current` que le dessin interactif ci-dessous et
   // que la vérification : jamais une copie qui pourrait diverger. Les
-  // problèmes non résolus sont gravés dans l'image exportée elle-même, pas
-  // seulement affichés à l'écran.
+  // problèmes non résolus et les pièces non placées sont gravés dans
+  // l'image exportée elle-même, pas seulement affichés à l'écran.
   const exportSvgMarkup = useMemo(() => {
     const base = renderSvg(current, orientation);
-    if (errorCount === 0) return base;
+    if (errorCount === 0 && parked.length === 0) return base;
     const heightMatch = base.match(/height="(\d+(?:\.\d+)?)"/);
     const svgHeight = heightMatch ? parseFloat(heightMatch[1]) : 700;
-    const warning = `<text x="50%" y="${svgHeight - 30}" font-size="11" fill="#b91c1c" text-anchor="middle" font-weight="700">Brouillon non vérifié — ${errorCount} problème(s) non résolu(s)</text>`;
+    const lines: string[] = [];
+    if (errorCount > 0) lines.push(`Brouillon non vérifié — ${errorCount} problème(s) non résolu(s)`);
+    if (parked.length > 0) {
+      const names = parked.map(({ r }) => `${r.label} ${r.number}`).join(", ");
+      lines.push(`Plan incomplet — ${parked.length} pièce(s) non placée(s) : ${names}`);
+    }
+    const warning = lines
+      .map(
+        (line, i) =>
+          `<text x="50%" y="${svgHeight - 30 - i * 14}" font-size="11" fill="#b91c1c" text-anchor="middle" font-weight="700">${escapeXml(line)}</text>`
+      )
+      .join("");
     return base.replace("</svg>", `${warning}</svg>`);
-  }, [current, orientation, errorCount]);
+  }, [current, orientation, errorCount, parked]);
 
   function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
@@ -169,17 +187,80 @@ export function PlanEditor({
 
   const [previewState, setPreviewState] = useState<{ x: number; y: number; valid: boolean } | null>(null);
 
-  function handlePointerUp() {
+  function handlePointerUp(e: ReactPointerEvent) {
     const drag = dragRef.current;
     dragRef.current = null;
     setDragRoomIndex(null);
-    if (!drag || !previewState) {
+    if (!drag) {
       setPreviewState(null);
       return;
     }
+    // Relâché au-dessus de la zone de rangement : mise de côté, jamais un
+    // déplacement classique — la position visée sur le terrain n'a alors
+    // aucun sens et n'est pas utilisée.
+    const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
+    if (parkZoneRef.current && dropTarget && parkZoneRef.current.contains(dropTarget)) {
+      setPreviewState(null);
+      commit(parkRoom(current, drag.roomIndex), "");
+      return;
+    }
+    if (!previewState) return;
     const next = tryMoveRoom(current, drag.roomIndex, previewState.x, previewState.y);
     setPreviewState(null);
     commit(next, "Emplacement refusé : hors de l'emprise constructible, chevauchement avec une autre pièce/le corridor, ou empiète sur la cour réservée.");
+  }
+
+  function handleParkSelected() {
+    if (selected === null) return;
+    const room = current.rooms[selected];
+    if (!room || room.parked) return;
+    commit(parkRoom(current, selected), "");
+  }
+
+  // Retour automatique simple (alternative au glisser-déposer) : tente
+  // l'ancienne position, puis un quadrillage grossier de l'emprise — un scan
+  // simple, pas une recherche exhaustive. En cas d'échec, le glisser-déposer
+  // reste le moyen de choisir un emplacement précis.
+  function handleReplace(roomIndex: number) {
+    const room = current.rooms[roomIndex];
+    if (!room || !current.emprise) return;
+    const step = GRID_STEP * 5;
+    const attempts: Array<[number, number]> = [[room.x, room.y]];
+    for (let y = current.emprise.y; y <= current.emprise.y + current.emprise.d - room.d + 1e-6; y += step) {
+      for (let x = current.emprise.x; x <= current.emprise.x + current.emprise.w - room.w + 1e-6; x += step) {
+        attempts.push([x, y]);
+      }
+    }
+    for (const [x, y] of attempts) {
+      const next = placeParkedRoom(current, roomIndex, x, y);
+      if (next) {
+        commit(next, "");
+        return;
+      }
+    }
+    setFlash(`Aucun emplacement libre trouvé automatiquement pour « ${room.label} ${room.number} » — utilisez le glisser-déposer pour choisir un emplacement précis.`);
+    window.setTimeout(() => setFlash(null), 3500);
+  }
+
+  function handleParkedDragStart(e: ReactDragEvent<HTMLDivElement>, roomIndex: number) {
+    e.dataTransfer.setData("text/plain", String(roomIndex));
+    e.dataTransfer.effectAllowed = "move";
+  }
+
+  function handleSvgDragOver(e: ReactDragEvent<SVGSVGElement>) {
+    e.preventDefault();
+  }
+
+  function handleSvgDrop(e: ReactDragEvent<SVGSVGElement>) {
+    e.preventDefault();
+    const idStr = e.dataTransfer.getData("text/plain");
+    if (!idStr) return;
+    const roomIndex = Number(idStr);
+    const room = current.rooms[roomIndex];
+    if (!room || !room.parked) return;
+    const world = clientToWorld(e.clientX, e.clientY);
+    const next = placeParkedRoom(current, roomIndex, world.x, world.y);
+    commit(next, `Emplacement refusé pour « ${room.label} ${room.number} » : hors de l'emprise constructible ou chevauchement.`);
   }
 
   function handleWallClick(e: ReactPointerEvent, roomIndex: number, wall: WallSide) {
@@ -211,6 +292,11 @@ export function PlanEditor({
     else if ((e.key === "y" || e.key === "Y") && (e.ctrlKey || e.metaKey)) { e.preventDefault(); redo(); return; }
     else return;
     e.preventDefault();
+    if (room.parked) {
+      setFlash(`« ${room.label} ${room.number} » est de côté — glissez-la sur le plan ou utilisez « Replacer ».`);
+      window.setTimeout(() => setFlash(null), 2500);
+      return;
+    }
     const next = tryMoveRoom(current, selected, room.x + dx, room.y + dy);
     commit(next, "Déplacement clavier refusé : hors de l'emprise constructible ou chevauchement (pièce, corridor, cour).");
   }
@@ -264,21 +350,35 @@ export function PlanEditor({
 
       <p className="text-xs text-slate-600">
         {tool === "select" && "Cliquez une pièce pour la sélectionner."}
-        {tool === "move" && "Glissez une pièce pour la déplacer (souris ou doigt). Flèches clavier pour la pièce sélectionnée."}
+        {tool === "move" &&
+          "Glissez une pièce pour la déplacer (souris ou doigt), ou jusqu'à « Pièces à replacer » pour la mettre de côté. Flèches clavier pour la pièce sélectionnée."}
         {tool === "add-door" && "Cliquez un des 4 murs en pointillés : vert = entrée extérieure, violet = porte intérieure vers un espace réel, gris = aucun espace de ce côté."}
         {tool === "remove-door" && "Cliquez une pièce pour refermer sa porte."}
         {selected !== null ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number}.` : " Aucune sélection."}
       </p>
-      {selected !== null && current.rooms[selected].door ? (
-        <button
-          onClick={() => commit(flipDoorSwing(current, selected), "")}
-          className="w-fit rounded border border-slate-400 px-3 py-1 text-sm"
-        >
-          Changer le sens d&apos;ouverture de la porte
-        </button>
+      <div className="flex flex-wrap items-center gap-2">
+        {selected !== null && current.rooms[selected].door ? (
+          <button
+            onClick={() => commit(flipDoorSwing(current, selected), "")}
+            className="w-fit rounded border border-slate-400 px-3 py-1 text-sm"
+          >
+            Changer le sens d&apos;ouverture de la porte
+          </button>
+        ) : null}
+        {selected !== null && !current.rooms[selected].parked ? (
+          <button onClick={handleParkSelected} className="w-fit rounded border border-slate-400 px-3 py-1 text-sm">
+            Mettre de côté
+          </button>
+        ) : null}
+      </div>
+      {parked.length > 0 ? (
+        <p className="rounded bg-orange-50 p-2 text-xs font-semibold text-orange-800">
+          Plan incomplet — {parked.length} pièce(s) restant à placer : {parked.map(({ r }) => `${r.label} ${r.number}`).join(", ")}.
+        </p>
       ) : null}
       {flash ? <p className="rounded bg-red-50 p-2 text-xs text-red-700">{flash}</p> : null}
 
+      <div className="flex flex-col gap-3 md:flex-row">
       <div className="overflow-auto rounded border border-slate-300 bg-white" style={{ maxHeight: "70vh" }}>
         <svg
           ref={svgRef}
@@ -288,6 +388,8 @@ export function PlanEditor({
           style={{ touchAction: "none", display: "block" }}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
+          onDragOver={handleSvgDragOver}
+          onDrop={handleSvgDrop}
         >
           <rect x={0} y={0} width={w} height={h} fill="#ffffff" />
           <rect x={X(0)} y={Y(0)} width={current.terrain.w * SCALE} height={current.terrain.d * SCALE} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 3" />
@@ -306,6 +408,7 @@ export function PlanEditor({
           ))}
 
           {current.rooms.map((r, i) => {
+            if (r.parked) return null;
             const isPreview = dragRoomIndex === i && previewState;
             const rx = X(isPreview ? previewState!.x : r.x);
             const ry = Y(isPreview ? previewState!.y : r.y);
@@ -349,6 +452,37 @@ export function PlanEditor({
             );
           })}
         </svg>
+      </div>
+
+      <div
+        ref={parkZoneRef}
+        className="flex min-h-[120px] w-full flex-col gap-2 rounded border-2 border-dashed border-slate-300 bg-slate-50 p-3 md:w-64"
+      >
+        <h3 className="text-sm font-semibold">Pièces à replacer ({parked.length})</h3>
+        <p className="text-xs text-slate-600">
+          Glissez une pièce du plan ici pour la mettre de côté temporairement, ou utilisez « Mettre de côté ». Glissez une
+          carte ci-dessous sur le plan, ou cliquez « Replacer », pour la reposer (contraintes de placement toujours actives).
+        </p>
+        {parked.length === 0 ? (
+          <p className="text-xs italic text-slate-400">Aucune pièce de côté.</p>
+        ) : (
+          parked.map(({ r, i }) => (
+            <div
+              key={i}
+              draggable
+              onDragStart={(e) => handleParkedDragStart(e, i)}
+              className="flex cursor-grab items-center justify-between rounded border border-slate-300 bg-white p-2 text-xs"
+            >
+              <span>
+                {r.label} {r.number} — {r.w.toFixed(2)} × {r.d.toFixed(2)} m
+              </span>
+              <button onClick={() => handleReplace(i)} className="rounded border border-slate-400 px-2 py-0.5">
+                Replacer
+              </button>
+            </div>
+          ))
+        )}
+      </div>
       </div>
 
       <div className="flex gap-2">
