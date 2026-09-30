@@ -1099,12 +1099,27 @@ export function wallAdjacency(layout: Layout, roomIndex: number, wall: WallSide)
   else if (wall === "top") probe = { x: rect.x, y: rect.y - probeDepth, w: rect.w, d: probeDepth };
   else probe = { x: rect.x, y: rect.y + rect.d, w: rect.w, d: probeDepth };
 
-  if (layout.corridor && rectsOverlap(probe, layout.corridor)) return { kind: "corridor" };
-  if (layout.corridorFillers.some((f) => rectsOverlap(probe, f))) return { kind: "corridor" };
-  if (layout.courtyard && rectsOverlap(probe, layout.courtyard)) return { kind: "courtyard" };
+  // Un simple chevauchement de boîtes ne suffit pas : le raccord d'une
+  // pièce voisine (fillerX/w = gap + WALL_INT, voir placeColumn) déborde de
+  // l'épaisseur d'une cloison (WALL_INT) au-delà de sa propre ligne, ce qui
+  // peut effleurer la sonde d'une pièce adjacente sur le mur du bas/haut
+  // sans que cet espace soit réellement accessible depuis ce mur. On exige
+  // un contact continu d'au moins une largeur de porte le long du mur.
+  const touches = (target: Rect): boolean => {
+    if (!rectsOverlap(probe, target)) return false;
+    const along =
+      wall === "left" || wall === "right"
+        ? Math.min(probe.y + probe.d, target.y + target.d) - Math.max(probe.y, target.y)
+        : Math.min(probe.x + probe.w, target.x + target.w) - Math.max(probe.x, target.x);
+    return along >= DOOR_WIDTH - 1e-6;
+  };
+
+  if (layout.corridor && touches(layout.corridor)) return { kind: "corridor" };
+  if (layout.corridorFillers.some(touches)) return { kind: "corridor" };
+  if (layout.courtyard && touches(layout.courtyard)) return { kind: "courtyard" };
   for (let i = 0; i < layout.rooms.length; i++) {
     if (i === roomIndex) continue;
-    if (rectsOverlap(probe, roomRect(layout.rooms[i]))) {
+    if (touches(roomRect(layout.rooms[i]))) {
       return layout.rooms[i].type === "salon" ? { kind: "salon" } : { kind: "room", roomIndex: i };
     }
   }
