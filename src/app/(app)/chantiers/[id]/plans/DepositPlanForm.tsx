@@ -2,7 +2,7 @@
 
 import { useRef, useState, useTransition, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button, AlertBanner } from "@/components/ui";
+import { Button, AlertBanner, buttonClassName } from "@/components/ui";
 import { depositProjectPlanAction } from "./actions";
 
 // Plafond RÉEL du flux : storage.buckets.file_size_limit pour "project-plans"
@@ -80,17 +80,29 @@ export function DepositPlanForm({ projectId }: { projectId: string }) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-2">
       {error ? <AlertBanner variant="error" title="Dépôt impossible" explanation={error} /> : null}
-      <label className="flex flex-col gap-1 text-caption text-ink">
-        Fichier du plan (PDF, JPEG ou PNG)
+      <div className="flex flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {/* Le champ natif reste réel et accessible au clavier (sr-only,
+              jamais display:none) : ce label stylé n'en est qu'une façade
+              visuelle, associée par htmlFor/id comme un label ordinaire. */}
+          <label htmlFor="plan-file-input" className={buttonClassName("secondary", "compact", "cursor-pointer shrink-0")}>
+            Choisir un fichier
+          </label>
+          <span className="max-w-full truncate text-caption text-ink">
+            {selectedFile ? selectedFile.name : "Aucun fichier sélectionné"}
+          </span>
+        </div>
         <input
           ref={fileInputRef}
+          id="plan-file-input"
           type="file"
           accept="application/pdf,image/jpeg,image/png"
           onChange={handleFileChange}
-          className="text-caption text-ink"
+          className="sr-only"
         />
-      </label>
-      <Button type="submit" size="compact" loading={pending}>
+        <p className="text-caption text-muted">Formats acceptés : PDF, JPEG, PNG. Taille maximale : 20 Mo.</p>
+      </div>
+      <Button type="submit" size="compact" loading={pending} disabled={!selectedFile}>
         Déposer ce plan
       </Button>
     </form>

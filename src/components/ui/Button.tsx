@@ -36,6 +36,13 @@ const VARIANT: Record<ButtonVariant, string> = {
   danger: "bg-danger text-surface hover:opacity-90 active:opacity-90",
 };
 
+// Réutilisable pour un élément non-<button> qui doit avoir l'apparence d'un
+// bouton (ex. <label> associé à un champ fichier natif) sans dupliquer les
+// classes ailleurs.
+export function buttonClassName(variant: ButtonVariant = "primary", size: ButtonSize = "regular", className?: string): string {
+  return cn(BASE, SIZE[size], VARIANT[variant], className);
+}
+
 export function Button({
   variant = "primary",
   size = "regular",

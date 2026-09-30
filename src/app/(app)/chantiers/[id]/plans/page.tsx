@@ -1,7 +1,8 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { AlertBanner, Card, StatusChip, EmptyState } from "@/components/ui";
+import { AlertBanner, Button, Card, StatusChip, EmptyState } from "@/components/ui";
 import { DepositPlanForm } from "./DepositPlanForm";
 import { AttachCatalogForm } from "./AttachCatalogForm";
 import { PlanVersionActionButton } from "./PlanVersionActionButton";
@@ -254,14 +255,31 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
 
       <PublishedPlanCard projectId={project.id} isSiteManager={false} />
 
-      <Card className="flex flex-col gap-4">
-        <h2 className="text-h2 font-semibold text-ink">Déposer un plan</h2>
-        <p className="text-caption text-muted">
-          {isContractor
-            ? "Le plan reste visible par vous seul jusqu'à ce que vous le partagiez avec le propriétaire."
-            : "Le plan est visible par vous et par l'entrepreneur du chantier."}
-        </p>
-        <DepositPlanForm projectId={project.id} />
+      <Card className="flex flex-col gap-5">
+        <div className="flex flex-col gap-3">
+          <h2 className="text-h2 font-semibold text-ink">Importer un plan existant</h2>
+          <p className="text-caption text-muted">
+            {isContractor
+              ? "Le plan reste visible par vous seul jusqu'à ce que vous le partagiez avec le propriétaire."
+              : "Le plan est visible par vous et par l'entrepreneur du chantier."}
+          </p>
+          <DepositPlanForm projectId={project.id} />
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-sand pt-4">
+          <h2 className="text-h2 font-semibold text-ink">Essayer le générateur 2D</h2>
+          <p className="text-caption text-muted">
+            Prototype d&apos;avant-projet. Le résultat n&apos;est pas enregistré automatiquement dans ce chantier.
+          </p>
+          {/* Amélioration de navigation uniquement — aucune intégration T1/T2.
+              Seul l'identifiant du chantier est transmis (destination interne
+              reconstruite et validée côté /prototype-plans), rien d'autre. */}
+          <Link href={`/prototype-plans?retour=${project.id}`} className="w-fit">
+            <Button variant="secondary" size="compact">
+              Essayer le générateur 2D
+            </Button>
+          </Link>
+        </div>
       </Card>
 
       {publishedItems.length > 0 ? (
