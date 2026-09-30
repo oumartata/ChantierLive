@@ -14,6 +14,7 @@ import {
   type VerificationIssue,
 } from "./geometry";
 import { renderSvg, legendFor, STAMP } from "./render";
+import { PlanEditor } from "./PlanEditor";
 
 interface RoomRow extends RoomNeed {
   count: number;
@@ -62,6 +63,7 @@ export function PrototypeClient() {
   const [failureReasons, setFailureReasons] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
+  const [draft, setDraft] = useState<Layout | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -75,6 +77,10 @@ export function PrototypeClient() {
   }
 
   function handleGenerate() {
+    if (draft && !window.confirm("Générer de nouvelles variantes ? Le brouillon en cours d'édition sera perdu.")) {
+      return;
+    }
+    setDraft(null);
     const input: GenerationInput = {
       terrainWidth,
       terrainDepth,
@@ -334,13 +340,18 @@ export function PrototypeClient() {
             </details>
           ) : null}
 
-          {selected ? (
+          {draft ? (
+            <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} />
+          ) : selected ? (
             <>
               <div className="flex items-center gap-2">
                 <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} className="rounded border border-slate-400 px-2 py-1 text-sm">−</button>
                 <span className="text-sm">{Math.round(zoom * 100)}%</span>
                 <button onClick={() => setZoom((z) => Math.min(3, z + 0.25))} className="rounded border border-slate-400 px-2 py-1 text-sm">+</button>
                 <button onClick={() => setZoom(1)} className="rounded border border-slate-400 px-2 py-1 text-sm">Réinitialiser</button>
+                <button onClick={() => setDraft(selected)} className="ml-auto rounded bg-slate-900 px-3 py-1 text-sm font-semibold text-white">
+                  Modifier ce plan
+                </button>
               </div>
               <div className="overflow-auto rounded border border-slate-300 bg-white p-2" style={{ maxHeight: "70vh" }}>
                 <div style={{ width: `${zoom * 100}%` }} dangerouslySetInnerHTML={{ __html: svgMarkup }} />

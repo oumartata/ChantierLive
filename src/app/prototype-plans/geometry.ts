@@ -86,6 +86,9 @@ export interface Door {
   cx: number;
   cy: number;
   width: number;
+  // Sens d'ouverture — purement visuel (miroir du battant), ne change
+  // jamais la connectivité ni les contrôles d'accès.
+  flip?: boolean;
 }
 
 // Source UNIQUE du rectangle balayé par le battant — utilisée à la fois par
@@ -116,9 +119,17 @@ export interface PlacedRoom {
   w: number;
   d: number;
   exteriorWall: WallSide | null;
-  door: Door;
-  // À quelle infrastructure la porte ci-dessus relie réellement la pièce —
-  // jamais déduit d'un simple contact de rectangles (proximité ≠ connexion).
+  // Mur porteur de la porte de circulation — conservé même quand `door` est
+  // null (porte retirée), pour que l'éditeur sache où une porte peut être
+  // recréée sans redeviner une géométrie perdue.
+  doorWall: WallSide;
+  // Une seule porte intérieure par pièce dans cette tranche (pas de
+  // multi-portes) — null = porte supprimée par l'éditeur, une pièce dans cet
+  // état est réellement inaccessible tant qu'aucune porte n'est recréée,
+  // jamais masqué.
+  door: Door | null;
+  // À quelle infrastructure la porte ci-dessus (si présente) relie
+  // réellement la pièce — jamais déduit d'un simple contact de rectangles.
   connectsTo: "corridor" | "salon";
   // Porte véhicule directe vers la façade d'accès (garage uniquement) — un
   // couloir intérieur ne peut jamais la remplacer.
@@ -332,6 +343,7 @@ function buildDoubleLoadedLayout(
         w: cr.width,
         d: cr.depth,
         exteriorWall,
+        doorWall: door.wall,
         door,
         connectsTo: "corridor",
         vehicleDoor: null,
@@ -394,7 +406,7 @@ function buildDoubleLoadedLayout(
         ...r,
         x: mirrored.x,
         y: mirrored.y,
-        door: { ...r.door, cy: mirrorCy(r.door.cy) },
+        door: r.door ? { ...r.door, cy: mirrorCy(r.door.cy) } : null,
         vehicleDoor: r.vehicleDoor ? { ...r.vehicleDoor, wall: "bottom" as WallSide, cy: mirrorCy(r.vehicleDoor.cy) } : null,
       };
     });
@@ -523,6 +535,7 @@ function buildGuidedLayout(
         w,
         d,
         exteriorWall: "left",
+        doorWall: "right",
         door: { wall: "right", cx: realEmprise.x + WALL_EXT + w, cy: salonY + d / 2, width: Math.min(DOOR_WIDTH, d) },
         connectsTo: "salon",
         vehicleDoor: null,
@@ -544,6 +557,7 @@ function buildGuidedLayout(
         w,
         d,
         exteriorWall: "right",
+        doorWall: "left",
         door: { wall: "left", cx: x, cy: salonY + d / 2, width: Math.min(DOOR_WIDTH, d) },
         connectsTo: "salon",
         vehicleDoor: null,
@@ -558,6 +572,7 @@ function buildGuidedLayout(
       w: salonWidth,
       d: salonDepth,
       exteriorWall: "top",
+      doorWall: "top",
       door: { wall: "top", cx: salonX + salonWidth / 2, cy: salonY, width: DOOR_WIDTH },
       connectsTo: "salon",
       vehicleDoor: null,
@@ -699,8 +714,14 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
       issues.push({ severity: "warning", message: `« ${r.label} ${r.number} » n'a aucune ouverture extérieure possible (pièce entièrement intérieure).` });
     }
   }
-  // 4) Porte : largeur réelle revérifiée.
+  // 4) Porte : présence et largeur réelle revérifiées. Une pièce sans porte
+  // (supprimée par l'éditeur, jamais recréée) est signalée ici — jamais
+  // masquée ni implicitement refermée sans avertissement.
   for (const r of layout.rooms) {
+    if (!r.door) {
+      issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'a aucune porte : pièce inaccessible.` });
+      continue;
+    }
     if (r.door.width < DOOR_WIDTH - 1e-6) {
       issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : porte de ${r.door.width.toFixed(2)} m insuffisante (${DOOR_WIDTH} m requis).` });
     }
@@ -710,15 +731,16 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   // pièce qu'il dessert) NI un autre battant — pas seulement ne pas déborder
   // dans une pièce voisine : deux battants pourraient se croiser dans un
   // renfoncement sans qu'aucun ne "déborde" dans la pièce de l'autre.
-  for (const r of layout.rooms) {
+  const roomsWithDoors = layout.rooms.filter((r): r is PlacedRoom & { door: Door } => r.door !== null);
+  for (const r of roomsWithDoors) {
     const swing = doorSwingRect(r.door);
     if (!rectWithin(swing, roomRect(r), 1e-2)) {
       issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : le battant de la porte rencontre un mur (balayage hors de la pièce).` });
     }
   }
-  for (let i = 0; i < layout.rooms.length; i++) {
-    for (let j = i + 1; j < layout.rooms.length; j++) {
-      const a = layout.rooms[i], b = layout.rooms[j];
+  for (let i = 0; i < roomsWithDoors.length; i++) {
+    for (let j = i + 1; j < roomsWithDoors.length; j++) {
+      const a = roomsWithDoors[i], b = roomsWithDoors[j];
       if (rectsOverlap(doorSwingRect(a.door), doorSwingRect(b.door))) {
         issues.push({ severity: "error", message: `Les battants de « ${a.label} ${a.number} » et « ${b.label} ${b.number} » se croisent.` });
       }
@@ -767,6 +789,7 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
 
   for (const r of layout.rooms) {
     if (r === salonRoom) continue;
+    if (!r.door) continue; // déjà signalé par le contrôle 4 ("aucune porte")
     const rect = roomRect(r);
     if (r.connectsTo === "salon") {
       if (!salonRect) {
@@ -814,6 +837,104 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
     }
   }
   return issues;
+}
+
+// ---- Éditeur — fonctions pures sur une copie de travail (Layout) ----
+// Aucune ne modifie son argument ; chacune renvoie soit une NOUVELLE copie
+// (succès), soit `null` (geste refusé — jamais un résultat partiel ou une
+// correction silencieuse d'une autre pièce pour "faire rentrer" le geste).
+
+export function cloneLayout(layout: Layout): Layout {
+  return JSON.parse(JSON.stringify(layout)) as Layout;
+}
+
+// Déplace une pièce en conservant EXACTEMENT ses dimensions (w, d inchangés)
+// et sa porte/fenêtre attachées (translatées avec elle — si la pièce quitte
+// son mur d'origine, la vérification indépendante le détectera ensuite,
+// jamais corrigé ici). Refuse hors de l'emprise bâtie ou tout chevauchement
+// (pièce, corridor, raccord, cour) — jamais un déplacement partiel des
+// autres éléments pour forcer le résultat.
+export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, newY: number): Layout | null {
+  const room = layout.rooms[roomIndex];
+  if (!room || !layout.footprint) return null;
+  const candidate: Rect = { x: newX, y: newY, w: room.w, d: room.d };
+  if (!rectWithin(candidate, layout.footprint)) return null;
+  const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers].filter((r): r is Rect => r !== null);
+  for (const b of blockers) {
+    if (rectsOverlap(candidate, b)) return null;
+  }
+  for (let i = 0; i < layout.rooms.length; i++) {
+    if (i === roomIndex) continue;
+    if (rectsOverlap(candidate, roomRect(layout.rooms[i]))) return null;
+  }
+  const dx = newX - room.x;
+  const dy = newY - room.y;
+  const next = cloneLayout(layout);
+  const r = next.rooms[roomIndex];
+  r.x = newX;
+  r.y = newY;
+  if (r.door) {
+    r.door.cx += dx;
+    r.door.cy += dy;
+  }
+  if (r.vehicleDoor) {
+    r.vehicleDoor.cx += dx;
+    r.vehicleDoor.cy += dy;
+  }
+  return next;
+}
+
+// Referme réellement l'ouverture (door -> null) : la pièce redevient
+// inaccessible tant qu'aucune porte n'est recréée — signalé par le contrôle
+// 4 de independentVerify, jamais masqué.
+export function removeDoor(layout: Layout, roomIndex: number): Layout {
+  const next = cloneLayout(layout);
+  next.rooms[roomIndex].door = null;
+  return next;
+}
+
+export function flipDoorSwing(layout: Layout, roomIndex: number): Layout {
+  const next = cloneLayout(layout);
+  const d = next.rooms[roomIndex].door;
+  if (d) d.flip = !d.flip;
+  return next;
+}
+
+// Pose (création ou déplacement, même geste) une porte sur le mur PORTEUR
+// de la pièce (`doorWall`, fixé à la construction — le seul mur "compatible"
+// dans cette tranche puisque c'est le seul dont on connaît l'adjacence
+// réelle) à la position demandée le long de ce mur, en la resserrant dans
+// les limites du segment. Refuse si le battant qui en résulterait
+// rencontrerait un mur ou un autre battant (mêmes contrôles que la
+// vérification indépendante, jamais un second calcul séparé).
+export function placeDoor(layout: Layout, roomIndex: number, alongWallPosition: number): Layout | null {
+  const room = layout.rooms[roomIndex];
+  if (!room) return null;
+  const wall = room.doorWall;
+  const vertical = wall === "left" || wall === "right";
+  const span = vertical ? room.d : room.w;
+  const width = Math.min(DOOR_WIDTH, span);
+  if (width < 1e-6) return null;
+  const axisMin = (vertical ? room.y : room.x) + width / 2;
+  const axisMax = (vertical ? room.y + room.d : room.x + room.w) - width / 2;
+  if (axisMax < axisMin) return null;
+  const clamped = Math.min(Math.max(alongWallPosition, axisMin), axisMax);
+  const fixedCoord = wall === "right" ? room.x + room.w : wall === "left" ? room.x : wall === "bottom" ? room.y + room.d : room.y;
+  const candidateDoor: Door = vertical
+    ? { wall, cx: fixedCoord, cy: clamped, width, flip: room.door?.flip ?? false }
+    : { wall, cx: clamped, cy: fixedCoord, width, flip: room.door?.flip ?? false };
+
+  const swing = doorSwingRect(candidateDoor);
+  if (!rectWithin(swing, roomRect(room), 1e-2)) return null;
+  for (let i = 0; i < layout.rooms.length; i++) {
+    if (i === roomIndex) continue;
+    const other = layout.rooms[i];
+    if (other.door && rectsOverlap(swing, doorSwingRect(other.door))) return null;
+  }
+
+  const next = cloneLayout(layout);
+  next.rooms[roomIndex].door = candidateDoor;
+  return next;
 }
 
 export interface GenerationResult {

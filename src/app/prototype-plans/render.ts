@@ -105,45 +105,54 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     // Porte : ouverture dans le mur intérieur (corridor) + arc de battant.
     // Le carré balayé (M/fin/rayon ci-dessous) est le MÊME que doorSwingRect
     // (geometry.ts), utilisé par la vérification indépendante — jamais un
-    // second calcul qui pourrait diverger du premier.
-    const doorHalfPx = (r.door.width * scalePxPerMeter) / 2;
-    const doorFullPx = doorHalfPx * 2;
-    const doorX = X(r.door.cx), doorY = Y(r.door.cy);
-    parts.push(`<line ${wallGapLine(doorX, doorY, r.door.wall, doorHalfPx)} stroke="#ffffff" stroke-width="3" />`);
-    let arcStart: { x: number; y: number };
-    let arcEnd: { x: number; y: number };
-    let sweepFlag: 0 | 1;
-    switch (r.door.wall) {
-      case "right":
-        arcStart = { x: doorX, y: doorY - doorHalfPx };
-        arcEnd = { x: doorX - doorFullPx, y: doorY + doorHalfPx };
-        sweepFlag = 1;
-        break;
-      case "left":
-        arcStart = { x: doorX, y: doorY - doorHalfPx };
-        arcEnd = { x: doorX + doorFullPx, y: doorY + doorHalfPx };
-        sweepFlag = 0;
-        break;
-      case "top":
-        arcStart = { x: doorX - doorHalfPx, y: doorY };
-        arcEnd = { x: doorX + doorHalfPx, y: doorY + doorFullPx };
-        sweepFlag = 1;
-        break;
-      case "bottom":
-        arcStart = { x: doorX - doorHalfPx, y: doorY };
-        arcEnd = { x: doorX + doorHalfPx, y: doorY - doorFullPx };
-        sweepFlag = 0;
-        break;
-    }
-    parts.push(
-      `<path d="M ${arcStart.x} ${arcStart.y} A ${doorFullPx} ${doorFullPx} 0 0 ${sweepFlag} ${arcEnd.x} ${arcEnd.y}" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2" />`
-    );
-    // Distingue explicitement un accès direct au salon d'un accès par le
-    // dégagement (corridor) — un simple contact visuel entre deux pièces ne
-    // suffit pas à le montrer, la mention le rend sans ambiguïté.
-    if (r.connectsTo === "salon") {
-      const labelX = r.door.wall === "right" ? doorX - 6 : doorX + 6;
-      parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="#7c3aed" text-anchor="${r.door.wall === "right" ? "end" : "start"}">accès direct</text>`);
+    // second calcul qui pourrait diverger du premier. Pas de porte (retirée
+    // par l'éditeur) : mur fermé, jamais une baie fantôme laissée dessinée.
+    if (r.door) {
+      const doorHalfPx = (r.door.width * scalePxPerMeter) / 2;
+      const doorFullPx = doorHalfPx * 2;
+      const doorX = X(r.door.cx), doorY = Y(r.door.cy);
+      parts.push(`<line ${wallGapLine(doorX, doorY, r.door.wall, doorHalfPx)} stroke="#ffffff" stroke-width="3" />`);
+      // "flip" (sens d'ouverture) choisit l'AUTRE diagonale du même carré
+      // balayé (doorSwingRect, inchangé) : jamais un dépassement hors de la
+      // pièce, seul le battant visuel change de côté.
+      const f = r.door.flip ?? false;
+      let arcStart: { x: number; y: number };
+      let arcEnd: { x: number; y: number };
+      let sweepFlag: 0 | 1;
+      switch (r.door.wall) {
+        case "right":
+          arcStart = f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx };
+          arcEnd = f ? { x: doorX - doorFullPx, y: doorY - doorHalfPx } : { x: doorX - doorFullPx, y: doorY + doorHalfPx };
+          sweepFlag = f ? 0 : 1;
+          break;
+        case "left":
+          arcStart = f ? { x: doorX, y: doorY + doorHalfPx } : { x: doorX, y: doorY - doorHalfPx };
+          arcEnd = f ? { x: doorX + doorFullPx, y: doorY - doorHalfPx } : { x: doorX + doorFullPx, y: doorY + doorHalfPx };
+          sweepFlag = f ? 1 : 0;
+          break;
+        case "top":
+          arcStart = f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY };
+          arcEnd = f ? { x: doorX - doorHalfPx, y: doorY + doorFullPx } : { x: doorX + doorHalfPx, y: doorY + doorFullPx };
+          sweepFlag = f ? 0 : 1;
+          break;
+        case "bottom":
+          arcStart = f ? { x: doorX + doorHalfPx, y: doorY } : { x: doorX - doorHalfPx, y: doorY };
+          arcEnd = f ? { x: doorX - doorHalfPx, y: doorY - doorFullPx } : { x: doorX + doorHalfPx, y: doorY - doorFullPx };
+          sweepFlag = f ? 1 : 0;
+          break;
+      }
+      parts.push(
+        `<path d="M ${arcStart.x} ${arcStart.y} A ${doorFullPx} ${doorFullPx} 0 0 ${sweepFlag} ${arcEnd.x} ${arcEnd.y}" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2" />`
+      );
+      // Distingue explicitement un accès direct au salon d'un accès par le
+      // dégagement (corridor) — un simple contact visuel entre deux pièces ne
+      // suffit pas à le montrer, la mention le rend sans ambiguïté.
+      if (r.connectsTo === "salon") {
+        const labelX = r.door.wall === "right" ? doorX - 6 : doorX + 6;
+        parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="#7c3aed" text-anchor="${r.door.wall === "right" ? "end" : "start"}">accès direct</text>`);
+      }
+    } else {
+      parts.push(`<text x="${cx}" y="${ry + rd / 2 + 20}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune porte</text>`);
     }
 
     // Accès véhicule (garage) : ouverture large distincte, jamais confondue
