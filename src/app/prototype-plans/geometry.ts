@@ -88,6 +88,25 @@ export interface Door {
   width: number;
 }
 
+// Source UNIQUE du rectangle balayé par le battant — utilisée à la fois par
+// le rendu (render.ts) et par la vérification indépendante ci-dessous :
+// jamais deux calculs séparés qui pourraient diverger. Le battant balaie un
+// carré de côté `door.width`, depuis la baie jusqu'à cette distance À
+// L'INTÉRIEUR de la pièce qu'il dessert (jamais vers le dégagement).
+export function doorSwingRect(door: Door): Rect {
+  const half = door.width / 2;
+  switch (door.wall) {
+    case "right":
+      return { x: door.cx - door.width, y: door.cy - half, w: door.width, d: door.width };
+    case "left":
+      return { x: door.cx, y: door.cy - half, w: door.width, d: door.width };
+    case "top":
+      return { x: door.cx - half, y: door.cy, w: door.width, d: door.width };
+    case "bottom":
+      return { x: door.cx - half, y: door.cy - door.width, w: door.width, d: door.width };
+  }
+}
+
 export interface PlacedRoom {
   type: string;
   label: string;
@@ -686,6 +705,25 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
       issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : porte de ${r.door.width.toFixed(2)} m insuffisante (${DOOR_WIDTH} m requis).` });
     }
   }
+  // 4bis) Battant : le carré balayé (même géométrie que le rendu, voir
+  // doorSwingRect) ne doit rencontrer NI un mur (rester entièrement dans la
+  // pièce qu'il dessert) NI un autre battant — pas seulement ne pas déborder
+  // dans une pièce voisine : deux battants pourraient se croiser dans un
+  // renfoncement sans qu'aucun ne "déborde" dans la pièce de l'autre.
+  for (const r of layout.rooms) {
+    const swing = doorSwingRect(r.door);
+    if (!rectWithin(swing, roomRect(r), 1e-2)) {
+      issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : le battant de la porte rencontre un mur (balayage hors de la pièce).` });
+    }
+  }
+  for (let i = 0; i < layout.rooms.length; i++) {
+    for (let j = i + 1; j < layout.rooms.length; j++) {
+      const a = layout.rooms[i], b = layout.rooms[j];
+      if (rectsOverlap(doorSwingRect(a.door), doorSwingRect(b.door))) {
+        issues.push({ severity: "error", message: `Les battants de « ${a.label} ${a.number} » et « ${b.label} ${b.number} » se croisent.` });
+      }
+    }
+  }
   // 5) Accessibilité RÉELLE depuis l'entrée — graphe construit à partir des
   // adjacences géométriques effectives (porte + contact réel), pas d'un
   // simple contact de boîtes englobantes ni d'une hypothèse de construction.
@@ -747,9 +785,16 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
     }
   }
   // 6) Accès véhicule pour un garage — un couloir intérieur, même relié,
-  // n'est jamais accepté comme substitut. Recalculé indépendamment : la
-  // porte véhicule existe-t-elle réellement et débouche-t-elle sur le mur
-  // extérieur de la façade d'accès (pas un mur intérieur) ?
+  // n'est jamais accepté comme substitut. PORTÉE EXACTE de ce contrôle :
+  // vérifie qu'un trajet en LIGNE DROITE, dégagé de tout obstacle modélisé
+  // (aucune pièce, aucun mur), relie la limite d'accès de l'emprise à la
+  // porte du garage, et rapporte la largeur réellement disponible pour ce
+  // trajet (r.vehicleDoor.width, plafonnée à la largeur de la pièce). Le
+  // dégagement découle de la construction (aucune autre pièce ne peut
+  // occuper ce même segment de mur, déjà revérifié par l'absence de
+  // chevauchement du contrôle 2) — CE N'EST PAS une simulation de manœuvre
+  // automobile (rayon de braquage, pente, obstacles hors du modèle comme un
+  // arbre ou un poteau ne sont jamais pris en compte).
   for (const r of layout.rooms) {
     if (!REQUIRE_VEHICLE_ACCESS_TYPES.has(r.type)) continue;
     if (!r.vehicleDoor || !layout.footprint) {
