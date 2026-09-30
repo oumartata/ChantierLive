@@ -94,11 +94,14 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
       parts.push(`<text x="${cx}" y="${cy + 9}" font-size="9" fill="#334155" text-anchor="middle">${r.w.toFixed(2)} × ${r.d.toFixed(2)} m — ${(r.w * r.d).toFixed(1)} m²</text>`);
     }
 
-    // Fenêtre : trait bleu double sur le mur extérieur réel de la pièce.
-    if (r.exteriorWall) {
+    // Fenêtre : trait bleu double sur le mur extérieur réel de la pièce —
+    // sauf si une porte a été placée sur ce même mur (entrée extérieure) :
+    // les deux ne se superposent jamais visuellement.
+    const doorOnExteriorWall = r.door && r.connectsTo === "exterior" && r.door.wall === r.exteriorWall;
+    if (r.exteriorWall && !doorOnExteriorWall) {
       const wallX = r.exteriorWall === "left" ? rx : rx + rw;
       parts.push(`<line x1="${wallX}" y1="${ry + rd * 0.25}" x2="${wallX}" y2="${ry + rd * 0.75}" stroke="#0284c7" stroke-width="4" />`);
-    } else {
+    } else if (!r.exteriorWall) {
       parts.push(`<text x="${cx}" y="${ry + rd - 6}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune ouverture extérieure</text>`);
     }
 
@@ -144,12 +147,15 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
       parts.push(
         `<path d="M ${arcStart.x} ${arcStart.y} A ${doorFullPx} ${doorFullPx} 0 0 ${sweepFlag} ${arcEnd.x} ${arcEnd.y}" fill="none" stroke="#94a3b8" stroke-width="1" stroke-dasharray="2 2" />`
       );
-      // Distingue explicitement un accès direct au salon d'un accès par le
-      // dégagement (corridor) — un simple contact visuel entre deux pièces ne
-      // suffit pas à le montrer, la mention le rend sans ambiguïté.
-      if (r.connectsTo === "salon") {
+      // Distingue explicitement le type de porte — un simple contact visuel
+      // entre deux pièces, ou avec le mur extérieur, ne suffit pas à le
+      // montrer ; la mention le rend sans ambiguïté. Jamais une porte
+      // intérieure confondue avec une entrée extérieure.
+      const doorLabel = r.connectsTo === "salon" ? "accès direct" : r.connectsTo === "exterior" ? "entrée extérieure" : r.connectsTo === "room" ? "porte intérieure" : null;
+      if (doorLabel) {
         const labelX = r.door.wall === "right" ? doorX - 6 : doorX + 6;
-        parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="#7c3aed" text-anchor="${r.door.wall === "right" ? "end" : "start"}">accès direct</text>`);
+        const labelColor = r.connectsTo === "exterior" ? "#16a34a" : "#7c3aed";
+        parts.push(`<text x="${labelX}" y="${doorY}" font-size="7" fill="${labelColor}" text-anchor="${r.door.wall === "right" ? "end" : "start"}">${doorLabel}</text>`);
       }
     } else {
       parts.push(`<text x="${cx}" y="${ry + rd / 2 + 20}" font-size="8" fill="#b91c1c" text-anchor="middle">⚠ aucune porte</text>`);

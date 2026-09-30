@@ -110,6 +110,28 @@ export function doorSwingRect(door: Door): Rect {
   }
 }
 
+// Contrepartie EXTÉRIEURE de doorSwingRect : sonde juste au-delà de la baie,
+// large de door.width seulement (pas tout le mur) — sert à vérifier que
+// l'ouverture RÉELLE (pas seulement la pièce dans son ensemble) débouche sur
+// l'espace annoncé par connectsTo. Nécessaire après un déplacement de pièce :
+// une porte translatée avec sa pièce peut sortir de la portion de mur qui
+// touche réellement le dégagement/la pièce voisine, même si le reste du mur
+// continue de chevaucher cet espace.
+function doorOutsideProbe(door: Door): Rect {
+  const half = door.width / 2;
+  const depth = ADJACENCY_TOLERANCE;
+  switch (door.wall) {
+    case "right":
+      return { x: door.cx, y: door.cy - half, w: depth, d: door.width };
+    case "left":
+      return { x: door.cx - depth, y: door.cy - half, w: depth, d: door.width };
+    case "top":
+      return { x: door.cx - half, y: door.cy - depth, w: door.width, d: depth };
+    case "bottom":
+      return { x: door.cx - half, y: door.cy, w: door.width, d: depth };
+  }
+}
+
 export interface PlacedRoom {
   type: string;
   label: string;
@@ -119,18 +141,25 @@ export interface PlacedRoom {
   w: number;
   d: number;
   exteriorWall: WallSide | null;
-  // Mur porteur de la porte de circulation — conservé même quand `door` est
-  // null (porte retirée), pour que l'éditeur sache où une porte peut être
-  // recréée sans redeviner une géométrie perdue.
+  // Mur de RATTACHEMENT GÉOMÉTRIQUE de la porte — un repère pour savoir où
+  // elle se trouve (ou se trouvait), jamais un mur "porteur" au sens
+  // structurel : aucune étude de structure n'est faite dans ce prototype.
+  // Conservé même quand `door` est null (porte retirée), pour que l'éditeur
+  // sache où une porte peut être recréée sans redeviner une géométrie perdue.
   doorWall: WallSide;
-  // Une seule porte intérieure par pièce dans cette tranche (pas de
-  // multi-portes) — null = porte supprimée par l'éditeur, une pièce dans cet
-  // état est réellement inaccessible tant qu'aucune porte n'est recréée,
-  // jamais masqué.
+  // Une seule porte par pièce dans cette tranche (pas de multi-portes) —
+  // null = porte supprimée par l'éditeur, une pièce dans cet état est
+  // réellement inaccessible tant qu'aucune porte n'est recréée, jamais
+  // masqué.
   door: Door | null;
-  // À quelle infrastructure la porte ci-dessus (si présente) relie
-  // réellement la pièce — jamais déduit d'un simple contact de rectangles.
-  connectsTo: "corridor" | "salon";
+  // À quoi la porte ci-dessus (si présente) relie réellement la pièce —
+  // jamais déduit d'un simple contact de rectangles. "room" = une AUTRE
+  // pièce précise (voir doorTargetRoom) ; "exterior" = une entrée
+  // extérieure directe, distincte d'une porte intérieure de circulation.
+  connectsTo: "corridor" | "salon" | "room" | "exterior";
+  // Index (dans layout.rooms) de la pièce voisine, seulement si
+  // connectsTo === "room".
+  doorTargetRoom?: number;
   // Porte véhicule directe vers la façade d'accès (garage uniquement) — un
   // couloir intérieur ne peut jamais la remplacer.
   vehicleDoor: Door | null;
@@ -157,6 +186,10 @@ export interface Layout {
   // ou accès réel non prouvé) même si géométriquement constructible.
   rejected: boolean;
   rejectionReasons: string[];
+  // Conservée pour recalculer le contour bâti (footprint) après un
+  // déplacement de pièce en édition — sans elle, computeExteriorSpaces ne
+  // saurait plus quel côté est la façade d'accès.
+  accessSide: AccessSide;
   terrain: Rect;
   emprise: Rect | null;
   footprint: Rect | null;
@@ -268,6 +301,7 @@ function buildDoubleLoadedLayout(
     failureReasons: reasons,
     rejected: false,
     rejectionReasons: [],
+    accessSide: input.accessSide,
     terrain,
     emprise: null,
     footprint: null,
@@ -423,6 +457,7 @@ function buildDoubleLoadedLayout(
     failureReasons: [],
     rejected: false,
     rejectionReasons: [],
+    accessSide: input.accessSide,
     terrain: terrainOut,
     emprise: empriseOut,
     footprint: footprintOut,
@@ -464,6 +499,7 @@ function buildGuidedLayout(
     failureReasons: reasons,
     rejected: false,
     rejectionReasons: [],
+    accessSide: input.accessSide,
     terrain,
     emprise: null,
     footprint: null,
@@ -599,6 +635,7 @@ function buildGuidedLayout(
     failureReasons: [],
     rejected: false,
     rejectionReasons: [],
+    accessSide: input.accessSide,
     terrain,
     emprise: realEmprise,
     footprint: combinedFootprint,
@@ -674,12 +711,91 @@ function roomRect(r: PlacedRoom): Rect {
 // Contact réel avec le périmètre du bâti, sur n'importe lequel des 4 murs, à
 // l'épaisseur du mur extérieur près — jamais lu depuis un champ posé à la
 // construction, jamais déduit d'un simple voisinage entre pièces.
+function wallTouchesExterior(rect: Rect, footprint: Rect, wall: WallSide): boolean {
+  switch (wall) {
+    case "left":
+      return Math.abs(rect.x - footprint.x - WALL_EXT) < 1e-3;
+    case "right":
+      return Math.abs(footprint.x + footprint.w - (rect.x + rect.w) - WALL_EXT) < 1e-3;
+    case "top":
+      return Math.abs(rect.y - footprint.y - WALL_EXT) < 1e-3;
+    case "bottom":
+      return Math.abs(footprint.y + footprint.d - (rect.y + rect.d) - WALL_EXT) < 1e-3;
+  }
+}
+
+// Un mur quelconque de la pièce touche l'extérieur (sert à la règle "pas de
+// chambre/salon sans ouverture extérieure représentée" — une fenêtre peut
+// être sur un mur différent de la porte, donc on regarde les 4 murs ici).
 function hasExteriorTouch(r: PlacedRoom, footprint: Rect): boolean {
-  const onLeft = Math.abs(r.x - footprint.x - WALL_EXT) < 1e-3;
-  const onRight = Math.abs(footprint.x + footprint.w - (r.x + r.w) - WALL_EXT) < 1e-3;
-  const onTop = Math.abs(r.y - footprint.y - WALL_EXT) < 1e-3;
-  const onBottom = Math.abs(footprint.y + footprint.d - (r.y + r.d) - WALL_EXT) < 1e-3;
-  return onLeft || onRight || onTop || onBottom;
+  return (["left", "right", "top", "bottom"] as WallSide[]).some((w) => wallTouchesExterior(r, footprint, w));
+}
+
+// La porte ELLE-MÊME (son propre mur, pas un autre mur de la pièce) débouche
+// sur l'extérieur — condition différente et plus stricte que hasExteriorTouch,
+// nécessaire pour valider qu'une porte étiquetée "entrée extérieure" en est
+// vraiment une après un déplacement de pièce ou de porte.
+function doorLeadsOutside(r: PlacedRoom, footprint: Rect): boolean {
+  return r.door !== null && wallTouchesExterior(roomRect(r), footprint, r.door.wall);
+}
+
+// Graphe d'accessibilité RÉEL depuis l'entrée : nœuds = corridor, salon
+// (s'il existe) et chaque pièce ; arêtes = portes réellement adjacentes
+// (jamais une hypothèse de topologie). Une pièce reliée uniquement à une
+// AUTRE pièce (connectsTo "room") n'est atteinte que si cette autre pièce
+// l'est elle-même — sinon deux pièces isolées ensemble du reste du
+// logement se déclareraient accessibles l'une l'autre à tort.
+export function computeReachableRooms(layout: Layout, salonRoomIndex: number): Set<number> {
+  const reached = new Set<number>();
+  if (!layout.corridor) return reached;
+  const infraReached = new Set<"corridor" | "salon">();
+  const salonRect = salonRoomIndex >= 0 ? roomRect(layout.rooms[salonRoomIndex]) : null;
+  const salonTouchesCorridor = salonRect ? rectsAdjacent(salonRect, layout.corridor) : false;
+
+  const infraQueue: ("corridor" | "salon")[] = [];
+  if (layout.entryDoor) infraQueue.push(salonRect ? "salon" : "corridor");
+
+  const roomQueue: number[] = [];
+  const pushRoomsConnectedTo = (node: "corridor" | "salon") => {
+    for (let i = 0; i < layout.rooms.length; i++) {
+      if (i === salonRoomIndex) continue;
+      const r = layout.rooms[i];
+      if (r.door && r.connectsTo === node) roomQueue.push(i);
+      if (r.door && r.connectsTo === "exterior" && doorLeadsOutside(r, layout.footprint!)) roomQueue.push(i);
+    }
+  };
+
+  while (infraQueue.length || roomQueue.length) {
+    while (infraQueue.length) {
+      const node = infraQueue.shift()!;
+      if (infraReached.has(node)) continue;
+      infraReached.add(node);
+      if (node === "salon" && salonRoomIndex >= 0) {
+        reached.add(salonRoomIndex);
+        if (salonTouchesCorridor) infraQueue.push("corridor");
+      }
+      if (node === "corridor" && salonTouchesCorridor) infraQueue.push("salon");
+      pushRoomsConnectedTo(node);
+    }
+    while (roomQueue.length) {
+      const i = roomQueue.shift()!;
+      if (reached.has(i)) continue;
+      reached.add(i);
+      const r = layout.rooms[i];
+      if (r.door && r.connectsTo === "room" && r.doorTargetRoom !== undefined) roomQueue.push(r.doorTargetRoom);
+      for (let j = 0; j < layout.rooms.length; j++) {
+        const other = layout.rooms[j];
+        if (other.door && other.connectsTo === "room" && other.doorTargetRoom === i) roomQueue.push(j);
+      }
+    }
+  }
+  // Toute pièce avec une entrée extérieure propre est atteignable même sans
+  // chemin par le corridor/salon (accès direct depuis dehors).
+  for (let i = 0; i < layout.rooms.length; i++) {
+    const r = layout.rooms[i];
+    if (r.door && r.connectsTo === "exterior" && layout.footprint && doorLeadsOutside(r, layout.footprint)) reached.add(i);
+  }
+  return reached;
 }
 
 export function independentVerify(layout: Layout): VerificationIssue[] {
@@ -787,24 +903,50 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
     issues.push({ severity: "error", message: "Le salon central ne débouche sur le corridor par aucune ouverture réelle : les pièces reliées au dégagement resteraient inaccessibles." });
   }
 
+  // Vérification immédiate (contact réel, jamais supposé) de chaque porte
+  // avec l'infrastructure ou la pièce qu'elle prétend rejoindre. Sonde la
+  // baie ELLE-MÊME (doorOutsideProbe), pas seulement le contour englobant de
+  // la pièce : après un déplacement de pièce, la pièce peut encore chevaucher
+  // légèrement l'espace visé sans que la porte s'y trouve réellement — un
+  // simple contact de boîtes ne suffit pas à garantir une ouverture réelle.
   for (const r of layout.rooms) {
-    if (r === salonRoom) continue;
-    if (!r.door) continue; // déjà signalé par le contrôle 4 ("aucune porte")
-    const rect = roomRect(r);
+    if (r === salonRoom || !r.door) continue;
+    const probe = doorOutsideProbe(r.door);
     if (r.connectsTo === "salon") {
       if (!salonRect) {
         issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : accès par le salon demandé, mais aucun salon central dans cette disposition.` });
-        continue;
+      } else if (!rectsOverlap(probe, salonRect)) {
+        issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est reliée au salon par aucune ouverture réelle : accès non garanti.` });
       }
-      if (!rectsAdjacent(rect, salonRect)) {
-        issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est reliée au salon par aucune ouverture réelle (accès direct demandé) : accès non garanti depuis l'entrée.` });
+    } else if (r.connectsTo === "room") {
+      const target = r.doorTargetRoom !== undefined ? layout.rooms[r.doorTargetRoom] : undefined;
+      if (!target || !rectsOverlap(probe, roomRect(target))) {
+        issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : la porte vers une pièce voisine ne débouche sur aucun espace réellement adjacent.` });
       }
-      continue;
+    } else if (r.connectsTo === "exterior") {
+      if (!doorLeadsOutside(r, layout.footprint)) {
+        issues.push({ severity: "error", message: `« ${r.label} ${r.number} » : l'entrée extérieure déclarée ne débouche pas sur un mur extérieur réel.` });
+      }
+    } else {
+      const directlyTouchesCorridor = layout.corridor ? rectsOverlap(probe, layout.corridor) : false;
+      const viaFiller = layout.corridorFillers.some((f) => rectsOverlap(probe, f) && rectsAdjacent(f, layout.corridor!));
+      if (!directlyTouchesCorridor && !viaFiller) {
+        issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est reliée au dégagement par aucune ouverture réelle : accès non garanti.` });
+      }
     }
-    const directlyTouchesCorridor = rectsAdjacent(rect, layout.corridor);
-    const viaFiller = layout.corridorFillers.some((f) => rectsAdjacent(rect, f) && rectsAdjacent(f, layout.corridor!));
-    if (!directlyTouchesCorridor && !viaFiller) {
-      issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est reliée au dégagement par aucune ouverture réelle : accès non garanti depuis l'entrée.` });
+  }
+
+  // Accessibilité TRANSITIVE réelle : une pièce reliée à une AUTRE pièce
+  // (connectsTo "room") n'est réellement accessible que si cette autre pièce
+  // l'est elle-même depuis l'entrée — un graphe, pas une simple vérification
+  // pièce par pièce (sinon deux pièces reliées entre elles mais coupées du
+  // reste du logement se déclareraient mutuellement accessibles à tort).
+  const reachable = computeReachableRooms(layout, salonRoom ? layout.rooms.indexOf(salonRoom) : -1);
+  for (let i = 0; i < layout.rooms.length; i++) {
+    const r = layout.rooms[i];
+    if (r === salonRoom || !r.door) continue;
+    if (!reachable.has(i)) {
+      issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est pas réellement accessible depuis l'entrée (chaîne de portes incomplète).` });
     }
   }
   // 6) Accès véhicule pour un garage — un couloir intérieur, même relié,
@@ -848,17 +990,42 @@ export function cloneLayout(layout: Layout): Layout {
   return JSON.parse(JSON.stringify(layout)) as Layout;
 }
 
+// Recalcule le contour bâti (footprint), les espaces extérieurs et les
+// surfaces à partir des positions RÉELLES actuelles des pièces — jamais un
+// rectangle figé depuis la génération. Utilisé après un déplacement pour
+// que la pièce puisse aller au-delà de l'ancien contour, dans le reste de
+// l'emprise constructible.
+function recomputeDerivedGeometry(layout: Layout): Layout {
+  const next = cloneLayout(layout);
+  if (!next.corridor) return next;
+  const rects: Rect[] = [next.corridor, ...next.corridorFillers, ...next.rooms.map(roomRect)];
+  const minX = Math.min(...rects.map((r) => r.x)) - WALL_EXT;
+  const minY = Math.min(...rects.map((r) => r.y)) - WALL_EXT;
+  const maxX = Math.max(...rects.map((r) => r.x + r.w)) + WALL_EXT;
+  const maxY = Math.max(...rects.map((r) => r.y + r.d)) + WALL_EXT;
+  const footprint: Rect = { x: minX, y: minY, w: maxX - minX, d: maxY - minY };
+  next.footprint = footprint;
+  if (next.emprise) {
+    next.exteriorSpaces = computeExteriorSpaces(next.terrain, next.emprise, footprint, next.accessSide);
+    next.surfaces = computeSurfaces(next.terrain, next.emprise, footprint, next.corridor, next.corridorFillers, next.rooms, next.courtyard);
+  }
+  return next;
+}
+
 // Déplace une pièce en conservant EXACTEMENT ses dimensions (w, d inchangés)
 // et sa porte/fenêtre attachées (translatées avec elle — si la pièce quitte
 // son mur d'origine, la vérification indépendante le détectera ensuite,
-// jamais corrigé ici). Refuse hors de l'emprise bâtie ou tout chevauchement
-// (pièce, corridor, raccord, cour) — jamais un déplacement partiel des
-// autres éléments pour forcer le résultat.
+// jamais corrigé ici). Contrainte à l'EMPRISE constructible entière (pas
+// seulement l'ancien contour bâti) : les reculs et la cour, exclus de
+// l'emprise ou explicitement réservés, restent protégés. Refuse tout
+// chevauchement (pièce, corridor, raccord, cour) — jamais un déplacement
+// partiel des autres éléments pour forcer le résultat. Le contour et les
+// surfaces sont recalculés après un déplacement réussi.
 export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, newY: number): Layout | null {
   const room = layout.rooms[roomIndex];
-  if (!room || !layout.footprint) return null;
+  if (!room || !layout.emprise) return null;
   const candidate: Rect = { x: newX, y: newY, w: room.w, d: room.d };
-  if (!rectWithin(candidate, layout.footprint)) return null;
+  if (!rectWithin(candidate, layout.emprise)) return null;
   const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers].filter((r): r is Rect => r !== null);
   for (const b of blockers) {
     if (rectsOverlap(candidate, b)) return null;
@@ -869,7 +1036,7 @@ export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, new
   }
   const dx = newX - room.x;
   const dy = newY - room.y;
-  const next = cloneLayout(layout);
+  let next = cloneLayout(layout);
   const r = next.rooms[roomIndex];
   r.x = newX;
   r.y = newY;
@@ -881,6 +1048,7 @@ export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, new
     r.vehicleDoor.cx += dx;
     r.vehicleDoor.cy += dy;
   }
+  next = recomputeDerivedGeometry(next);
   return next;
 }
 
@@ -900,17 +1068,62 @@ export function flipDoorSwing(layout: Layout, roomIndex: number): Layout {
   return next;
 }
 
-// Pose (création ou déplacement, même geste) une porte sur le mur PORTEUR
-// de la pièce (`doorWall`, fixé à la construction — le seul mur "compatible"
-// dans cette tranche puisque c'est le seul dont on connaît l'adjacence
-// réelle) à la position demandée le long de ce mur, en la resserrant dans
-// les limites du segment. Refuse si le battant qui en résulterait
-// rencontrerait un mur ou un autre battant (mêmes contrôles que la
-// vérification indépendante, jamais un second calcul séparé).
-export function placeDoor(layout: Layout, roomIndex: number, alongWallPosition: number): Layout | null {
+export type WallAdjacency =
+  | { kind: "exterior" }
+  | { kind: "corridor" }
+  | { kind: "salon" }
+  | { kind: "courtyard" }
+  | { kind: "room"; roomIndex: number }
+  | { kind: "none" };
+
+// Ce qu'il y a RÉELLEMENT de l'autre côté d'un mur donné d'une pièce — jamais
+// une hypothèse de topologie. Sonde un petit rectangle juste au-delà du mur
+// et regarde ce qu'il touche effectivement (mur extérieur du bâti en
+// premier, sinon corridor/raccord, cour, salon, ou une autre pièce précise).
+export function wallAdjacency(layout: Layout, roomIndex: number, wall: WallSide): WallAdjacency {
+  const room = layout.rooms[roomIndex];
+  if (!room || !layout.footprint) return { kind: "none" };
+  const rect = roomRect(room);
+  const fp = layout.footprint;
+  const onExterior =
+    (wall === "left" && Math.abs(rect.x - fp.x - WALL_EXT) < 1e-2) ||
+    (wall === "right" && Math.abs(fp.x + fp.w - (rect.x + rect.w) - WALL_EXT) < 1e-2) ||
+    (wall === "top" && Math.abs(rect.y - fp.y - WALL_EXT) < 1e-2) ||
+    (wall === "bottom" && Math.abs(fp.y + fp.d - (rect.y + rect.d) - WALL_EXT) < 1e-2);
+  if (onExterior) return { kind: "exterior" };
+
+  const probeDepth = ADJACENCY_TOLERANCE;
+  let probe: Rect;
+  if (wall === "left") probe = { x: rect.x - probeDepth, y: rect.y, w: probeDepth, d: rect.d };
+  else if (wall === "right") probe = { x: rect.x + rect.w, y: rect.y, w: probeDepth, d: rect.d };
+  else if (wall === "top") probe = { x: rect.x, y: rect.y - probeDepth, w: rect.w, d: probeDepth };
+  else probe = { x: rect.x, y: rect.y + rect.d, w: rect.w, d: probeDepth };
+
+  if (layout.corridor && rectsOverlap(probe, layout.corridor)) return { kind: "corridor" };
+  if (layout.corridorFillers.some((f) => rectsOverlap(probe, f))) return { kind: "corridor" };
+  if (layout.courtyard && rectsOverlap(probe, layout.courtyard)) return { kind: "courtyard" };
+  for (let i = 0; i < layout.rooms.length; i++) {
+    if (i === roomIndex) continue;
+    if (rectsOverlap(probe, roomRect(layout.rooms[i]))) {
+      return layout.rooms[i].type === "salon" ? { kind: "salon" } : { kind: "room", roomIndex: i };
+    }
+  }
+  return { kind: "none" };
+}
+
+// Pose (création ou déplacement, même geste) une porte sur le mur CHOISI de
+// la pièce, à la position demandée le long de ce mur, resserrée dans ses
+// limites. Refuse si ce mur ne mène nulle part de réel (wallAdjacency
+// "none"), ou si le battant qui en résulterait rencontrerait un mur ou un
+// autre battant (mêmes contrôles que la vérification indépendante, jamais un
+// second calcul séparé). Une porte vers l'extérieur (mur du bâti) est
+// distinguée explicitement d'une porte intérieure — jamais confondues.
+export function placeDoor(layout: Layout, roomIndex: number, wall: WallSide, alongWallPosition: number): Layout | null {
   const room = layout.rooms[roomIndex];
   if (!room) return null;
-  const wall = room.doorWall;
+  const adjacency = wallAdjacency(layout, roomIndex, wall);
+  if (adjacency.kind === "none") return null;
+
   const vertical = wall === "left" || wall === "right";
   const span = vertical ? room.d : room.w;
   const width = Math.min(DOOR_WIDTH, span);
@@ -933,7 +1146,22 @@ export function placeDoor(layout: Layout, roomIndex: number, alongWallPosition: 
   }
 
   const next = cloneLayout(layout);
-  next.rooms[roomIndex].door = candidateDoor;
+  const r = next.rooms[roomIndex];
+  r.door = candidateDoor;
+  r.doorWall = wall;
+  if (adjacency.kind === "room") {
+    r.connectsTo = "room";
+    r.doorTargetRoom = adjacency.roomIndex;
+  } else if (adjacency.kind === "salon") {
+    r.connectsTo = "salon";
+    r.doorTargetRoom = undefined;
+  } else if (adjacency.kind === "exterior" || adjacency.kind === "courtyard") {
+    r.connectsTo = "exterior";
+    r.doorTargetRoom = undefined;
+  } else {
+    r.connectsTo = "corridor";
+    r.doorTargetRoom = undefined;
+  }
   return next;
 }
 

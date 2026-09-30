@@ -8,9 +8,11 @@ import {
   placeDoor,
   removeDoor,
   tryMoveRoom,
+  wallAdjacency,
   type Layout,
   type PlacedRoom,
   type VerificationIssue,
+  type WallSide,
 } from "./geometry";
 import { renderSvg, STAMP } from "./render";
 
@@ -177,16 +179,21 @@ export function PlanEditor({
     }
     const next = tryMoveRoom(current, drag.roomIndex, previewState.x, previewState.y);
     setPreviewState(null);
-    commit(next, "Emplacement refusé : hors de l'emprise bâtie ou chevauchement avec une autre pièce/le corridor.");
+    commit(next, "Emplacement refusé : hors de l'emprise constructible, chevauchement avec une autre pièce/le corridor, ou empiète sur la cour réservée.");
   }
 
-  function handleWallClick(e: ReactPointerEvent, roomIndex: number) {
+  function handleWallClick(e: ReactPointerEvent, roomIndex: number, wall: WallSide) {
     if (tool !== "add-door") return;
     e.stopPropagation();
-    const room = current.rooms[roomIndex];
+    const adjacency = wallAdjacency(current, roomIndex, wall);
+    if (adjacency.kind === "none") {
+      setFlash("Ce mur ne mène à aucun espace réel : aucune porte possible ici.");
+      window.setTimeout(() => setFlash(null), 2000);
+      return;
+    }
     const world = clientToWorld(e.clientX, e.clientY);
-    const along = room.doorWall === "left" || room.doorWall === "right" ? world.y : world.x;
-    const next = placeDoor(current, roomIndex, along);
+    const along = wall === "left" || wall === "right" ? world.y : world.x;
+    const next = placeDoor(current, roomIndex, wall, along);
     commit(next, "Porte impossible ici : espace insuffisant ou battant qui rencontrerait un mur ou une autre porte.");
   }
 
@@ -205,7 +212,7 @@ export function PlanEditor({
     else return;
     e.preventDefault();
     const next = tryMoveRoom(current, selected, room.x + dx, room.y + dy);
-    commit(next, "Déplacement clavier refusé : hors de l'emprise bâtie ou chevauchement.");
+    commit(next, "Déplacement clavier refusé : hors de l'emprise constructible ou chevauchement (pièce, corridor, cour).");
   }
 
   function handleExit() {
@@ -258,7 +265,7 @@ export function PlanEditor({
       <p className="text-xs text-slate-600">
         {tool === "select" && "Cliquez une pièce pour la sélectionner."}
         {tool === "move" && "Glissez une pièce pour la déplacer (souris ou doigt). Flèches clavier pour la pièce sélectionnée."}
-        {tool === "add-door" && "Cliquez le mur intérieur en pointillés de la pièce sélectionnée pour y placer ou déplacer sa porte."}
+        {tool === "add-door" && "Cliquez un des 4 murs en pointillés : vert = entrée extérieure, violet = porte intérieure vers un espace réel, gris = aucun espace de ce côté."}
         {tool === "remove-door" && "Cliquez une pièce pour refermer sa porte."}
         {selected !== null ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number}.` : " Aucune sélection."}
       </p>
@@ -331,9 +338,11 @@ export function PlanEditor({
                     ⚠ aucune porte
                   </text>
                 ) : null}
-                {/* Mur porteur de la porte, cliquable en mode "ajouter/déplacer" */}
+                {/* Les 4 murs, cliquables en mode "ajouter/déplacer" — colorés
+                    selon ce qu'ils touchent réellement (wallAdjacency),
+                    jamais une supposition de topologie. */}
                 {tool === "add-door" && isSelected ? (
-                  <DoorWallHandle room={r} X={X} Y={Y} onClick={(e) => handleWallClick(e, i)} />
+                  <WallHandles layout={current} room={r} roomIndex={i} X={X} Y={Y} onPick={(wall, e) => handleWallClick(e, i, wall)} />
                 ) : null}
                 {r.door ? <DoorGlyph door={r.door} X={X} Y={Y} /> : null}
               </g>
@@ -381,32 +390,50 @@ function DoorGlyph({ door, X, Y }: { door: NonNullable<PlacedRoom["door"]>; X: (
   );
 }
 
-function DoorWallHandle({
+const WALLS: WallSide[] = ["left", "right", "top", "bottom"];
+// Vert = deviendrait une entrée EXTÉRIEURE (mur du bâti) ; violet = porte
+// intérieure vers un espace adjacent réel (corridor, salon, cour, une autre
+// pièce) ; gris = aucun espace réel de ce côté, non cliquable.
+const ADJACENCY_COLOR: Record<string, string> = { exterior: "#16a34a", corridor: "#7c3aed", salon: "#7c3aed", room: "#7c3aed", courtyard: "#7c3aed", none: "#cbd5e1" };
+
+function WallHandles({
+  layout,
   room,
+  roomIndex,
   X,
   Y,
-  onClick,
+  onPick,
 }: {
+  layout: Layout;
   room: PlacedRoom;
+  roomIndex: number;
   X: (m: number) => number;
   Y: (m: number) => number;
-  onClick: (e: ReactPointerEvent) => void;
+  onPick: (wall: WallSide, e: ReactPointerEvent) => void;
 }) {
-  const wall = room.doorWall;
-  let x1: number, y1: number, x2: number, y2: number;
-  if (wall === "right") { x1 = x2 = X(room.x + room.w); y1 = Y(room.y); y2 = Y(room.y + room.d); }
-  else if (wall === "left") { x1 = x2 = X(room.x); y1 = Y(room.y); y2 = Y(room.y + room.d); }
-  else if (wall === "top") { y1 = y2 = Y(room.y); x1 = X(room.x); x2 = X(room.x + room.w); }
-  else { y1 = y2 = Y(room.y + room.d); x1 = X(room.x); x2 = X(room.x + room.w); }
   return (
-    <line
-      x1={x1} y1={y1} x2={x2} y2={y2}
-      stroke="#7c3aed"
-      strokeWidth={6}
-      strokeDasharray="2 4"
-      style={{ cursor: "pointer" }}
-      onPointerDown={onClick}
-    />
+    <>
+      {WALLS.map((wall) => {
+        const adjacency = wallAdjacency(layout, roomIndex, wall);
+        let x1: number, y1: number, x2: number, y2: number;
+        if (wall === "right") { x1 = x2 = X(room.x + room.w); y1 = Y(room.y); y2 = Y(room.y + room.d); }
+        else if (wall === "left") { x1 = x2 = X(room.x); y1 = Y(room.y); y2 = Y(room.y + room.d); }
+        else if (wall === "top") { y1 = y2 = Y(room.y); x1 = X(room.x); x2 = X(room.x + room.w); }
+        else { y1 = y2 = Y(room.y + room.d); x1 = X(room.x); x2 = X(room.x + room.w); }
+        const clickable = adjacency.kind !== "none";
+        return (
+          <line
+            key={wall}
+            x1={x1} y1={y1} x2={x2} y2={y2}
+            stroke={ADJACENCY_COLOR[adjacency.kind]}
+            strokeWidth={6}
+            strokeDasharray="2 4"
+            style={{ cursor: clickable ? "pointer" : "not-allowed" }}
+            onPointerDown={(e) => onPick(wall, e)}
+          />
+        );
+      })}
+    </>
   );
 }
 
