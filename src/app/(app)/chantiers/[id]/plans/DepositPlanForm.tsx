@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { Button, AlertBanner } from "@/components/ui";
 import { depositProjectPlanAction } from "./actions";
 
+// Plafond RÉEL du flux : storage.buckets.file_size_limit pour "project-plans"
+// (M020) = 20971520 octets exactement — vérifié dans la migration, pas
+// supposé. Un contrôle ICI, avant tout envoi réseau, donne un message clair
+// immédiatement plutôt que de laisser Storage refuser après coup ; il ne
+// remplace pas cette limite serveur, qui reste seule décisionnaire.
+const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+
 // Même flux que UploadVersionForm (B061) : l'operation_uuid est généré ICI
 // et persisté tant que le fichier sélectionné ne change pas, pour qu'un
 // nouveau clic après une réponse perdue reprenne la même opération.
@@ -30,6 +37,14 @@ export function DepositPlanForm({ projectId }: { projectId: string }) {
     }
     const file = selectedFile;
     setError(null);
+    // Vérifié AVANT tout envoi réseau, aucun opération_uuid consommé pour
+    // rien : Storage refuserait de toute façon au-delà de cette taille
+    // (bucket "project-plans", M020) — message clair immédiat plutôt qu'un
+    // échec réseau brut.
+    if (file.size > MAX_FILE_SIZE_BYTES) {
+      setError("Ce fichier dépasse la taille maximale autorisée (20 Mo). Choisissez un fichier plus léger.");
+      return;
+    }
     if (!pendingOperationUuidRef.current) {
       pendingOperationUuidRef.current = crypto.randomUUID();
     }
@@ -39,7 +54,18 @@ export function DepositPlanForm({ projectId }: { projectId: string }) {
       formData.set("project_id", projectId);
       formData.set("operation_uuid", operationUuid);
       formData.set("file", file);
-      const result = await depositProjectPlanAction(formData);
+      // Filet de sécurité : un rejet de transport (limite de taille, réseau)
+      // survient AVANT l'exécution de l'action serveur et rejette cette
+      // promesse plutôt que de renvoyer { ok: false } — jamais un plan
+      // finalisé dans ce cas, seulement un message français au lieu d'une
+      // erreur brute du framework.
+      let result: Awaited<ReturnType<typeof depositProjectPlanAction>>;
+      try {
+        result = await depositProjectPlanAction(formData);
+      } catch {
+        setError("L'envoi a échoué (fichier trop volumineux ou connexion interrompue). Réessayez avec un fichier plus léger.");
+        return;
+      }
       if (!result.ok) {
         setError(result.message);
         return;
