@@ -791,6 +791,32 @@ export function PlanEditor({
       <canvas ref={canvasRef} className="hidden" />
 
       <div>
+        <h3 className="font-semibold">Surfaces (mêmes données que le dessin et l&apos;export)</h3>
+        <table className="mt-1 w-full text-sm">
+          <tbody>
+            <tr><td>Terrain</td><td>{current.surfaces.terrain.toFixed(1)} m²</td></tr>
+            <tr><td>Emprise disponible</td><td>{current.surfaces.emprise.toFixed(1)} m²</td></tr>
+            {current.surfaces.cour > 0 ? (
+              <tr><td>Cour d&apos;entrée</td><td>{current.surfaces.cour.toFixed(1)} m²</td></tr>
+            ) : null}
+            <tr><td>Surface bâtie (pièces + circulation réelles)</td><td>{current.surfaces.batie.toFixed(1)} m²</td></tr>
+            <tr><td>Surface utile habitable</td><td>{current.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
+            <tr><td>Circulation</td><td>{current.surfaces.circulation.toFixed(1)} m²</td></tr>
+            {current.surfaces.nonAffectee > 0.05 ? (
+              <tr><td>Résiduel non affecté (dans le contour bâti)</td><td>{current.surfaces.nonAffectee.toFixed(1)} m²</td></tr>
+            ) : null}
+            <tr><td>Espaces extérieurs non bâtis (hors cour)</td><td>{current.surfaces.exterieure.toFixed(1)} m²</td></tr>
+          </tbody>
+        </table>
+        <p className="mt-1 text-xs text-slate-500">
+          Cour, bâti (union réelle des pièces et circulations, jamais le rectangle englobant), résiduel non affecté et
+          reste de l&apos;emprise sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible, jamais une
+          surface comptée deux fois. Recalculées après chaque déplacement, redimensionnement ou régénération — jamais
+          figées depuis la génération initiale.
+        </p>
+      </div>
+
+      <div>
         <h3 className="font-semibold">Anomalies géométriques (pièces placées)</h3>
         {issues.length === 0 ? (
           <p className="text-sm text-green-700">

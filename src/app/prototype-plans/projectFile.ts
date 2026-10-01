@@ -7,13 +7,18 @@ import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, WallSide, 
 
 // Historique : v1 (pièces/portes/fenêtres indépendantes, zone de rangement,
 // redimensionnement) ; v2 ajoute le verrouillage (PlacedRoom.locked) et les
-// circulations multiples identifiées (Layout.circulations) — les DEUX de
-// façon additive (champs optionnels ou absents par défaut côté v1), donc un
-// fichier/brouillon v1 reste chargeable tel quel (voir migrateLayoutV1ToV2)
-// : faire évoluer ce format ne doit jamais rendre une sauvegarde existante
-// illisible.
-export const PROJECT_FILE_VERSION = 2;
-const SUPPORTED_VERSIONS = [1, 2];
+// circulations multiples identifiées (Layout.circulations) ; v3 ajoute
+// surfaces.nonAffectee (résiduel non affecté à l'intérieur du contour bâti,
+// voir geometry.ts/computeSurfaces) — TOUJOURS de façon additive (champs
+// optionnels ou absents par défaut côté version antérieure), donc un
+// fichier/brouillon plus ancien reste chargeable tel quel (voir les
+// fonctions migrateLayoutV*To V* ci-dessous) : faire évoluer ce format ne
+// doit jamais rendre une sauvegarde existante illisible. Une valeur migrée
+// à 0 pour nonAffectee est un placeholder honnête (jamais recalculée a
+// posteriori sans rouvrir le plan) — rouvrir puis ré-enregistrer le
+// brouillon la met à jour avec la vraie valeur.
+export const PROJECT_FILE_VERSION = 3;
+const SUPPORTED_VERSIONS = [1, 2, 3];
 
 export interface ProjectFile {
   version: number;
@@ -183,7 +188,7 @@ function validateLayout(v: unknown): { ok: true; value: Layout } | { ok: false; 
   if (!Array.isArray(l.exteriorSpaces)) return { ok: false, error: "Espaces extérieurs invalides." };
   if (!l.surfaces || typeof l.surfaces !== "object") return { ok: false, error: "Surfaces invalides." };
   const s = l.surfaces as Record<string, unknown>;
-  for (const key of ["terrain", "emprise", "cour", "batie", "utileHabitable", "circulation", "exterieure"]) {
+  for (const key of ["terrain", "emprise", "cour", "batie", "utileHabitable", "circulation", "exterieure", "nonAffectee"]) {
     if (!isFiniteNumber(s[key])) return { ok: false, error: `Surface « ${key} » invalide.` };
   }
   if (typeof l.accessSide !== "string" || !ACCESS_SIDES.includes(l.accessSide)) return { ok: false, error: "Façade d'accès invalide." };
@@ -202,6 +207,15 @@ function migrateLayoutV1ToV2(layout: Record<string, unknown>): Record<string, un
   return { ...layout, circulations: [] };
 }
 
+// Placeholder honnête (0), jamais recalculé a posteriori sans rouvrir le
+// plan — rouvrir puis ré-enregistrer met cette valeur à jour avec le vrai
+// résiduel (voir le commentaire sur PROJECT_FILE_VERSION ci-dessus).
+function migrateLayoutV2ToV3(layout: Record<string, unknown>): Record<string, unknown> {
+  const surfaces = layout.surfaces as Record<string, unknown> | undefined;
+  if (surfaces && typeof surfaces.nonAffectee === "number") return layout;
+  return { ...layout, surfaces: { ...(surfaces ?? {}), nonAffectee: 0 } };
+}
+
 export function validateProjectFile(data: unknown): { ok: true; value: ProjectFile } | { ok: false; error: string } {
   if (!data || typeof data !== "object") return { ok: false, error: "Fichier invalide : structure JSON attendue." };
   const f = data as Record<string, unknown>;
@@ -215,7 +229,9 @@ export function validateProjectFile(data: unknown): { ok: true; value: ProjectFi
   if (typeof f.savedAt !== "string") return { ok: false, error: "Fichier invalide : date d'enregistrement manquante." };
   if (typeof f.orientation !== "string") return { ok: false, error: "Fichier invalide : orientation manquante." };
   if (!f.layout || typeof f.layout !== "object") return { ok: false, error: "Géométrie absente ou invalide." };
-  const migratedLayout = f.version === 1 ? migrateLayoutV1ToV2(f.layout as Record<string, unknown>) : f.layout;
+  let migratedLayout = f.layout as Record<string, unknown>;
+  if (f.version === 1) migratedLayout = migrateLayoutV1ToV2(migratedLayout);
+  if (f.version === 1 || f.version === 2) migratedLayout = migrateLayoutV2ToV3(migratedLayout);
   const layoutResult = validateLayout(migratedLayout);
   if (!layoutResult.ok) return { ok: false, error: `Géométrie invalide : ${layoutResult.error}` };
   return { ok: true, value: { version: PROJECT_FILE_VERSION, savedAt: f.savedAt, orientation: f.orientation, layout: layoutResult.value } };
