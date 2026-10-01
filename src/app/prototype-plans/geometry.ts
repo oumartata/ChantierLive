@@ -34,6 +34,7 @@ export const WALL_EXT = 0.2; // épaisseur mur extérieur (m), hypothèse fixe e
 export const WALL_INT = 0.1; // épaisseur mur intérieur (m), hypothèse fixe en T0
 export const CORRIDOR_WIDTH = 1.2; // largeur du corridor central (m), hypothèse
 export const DOOR_WIDTH = 0.9; // largeur mini d'une porte (m)
+export const MIN_WINDOW_WIDTH = 0.6; // largeur mini utilisable d'une fenêtre (m), hypothèse fixe en T0
 // Élongation maximale d'une pièce par rapport à sa dimension cible — un
 // garde-fou documenté, pas un mécanisme de remplissage : à taille cible
 // normale (>= minimum), il ne se déclenche jamais (voir sizeFor()).
@@ -1155,6 +1156,49 @@ function hasExteriorTouch(r: PlacedRoom, footprint: Rect): boolean {
 function openingLeadsOutside(layout: Layout, roomIndex: number, wall: WallSide): boolean {
   const room = layout.rooms[roomIndex];
   return !!room && !!layout.footprint && wallTouchesExterior(roomRect(room), layout.footprint, wall);
+}
+
+// Choisit un mur et une position de fenêtre à partir de la géométrie FINALE
+// (contour bâti recalculé, APRÈS placement des pièces ET de la circulation) —
+// jamais depuis les bords de l'emprise de RECHERCHE utilisés pendant le
+// placement (voir pickOrientation, qui ne connaît que cette emprise, pas le
+// contour bâti qui en résultera réellement). Un mur n'est retenu QUE s'il :
+// 1) touche RÉELLEMENT le contour bâti final (wallTouchesExterior : rien de
+//    bâti au-delà, par construction du contour englobant) — un espace non
+//    affecté à l'intérieur de l'emprise (nonAffectee), bien que "libre",
+//    n'est jamais compté comme extérieur par ce seul vide local ;
+// 2) assez large pour une fenêtre réellement utilisable (MIN_WINDOW_WIDTH) ;
+// 3) sans obstruction : la sonde extérieure de la fenêtre elle-même (même
+//    géométrie que pour une porte, voir doorOutsideProbe) ne rencontre aucun
+//    autre élément bâti (pièce, mur, circulation intérieure) passé dans
+//    `otherBuilt` — jamais supposé exempt de collision sans ce contrôle
+//    explicite, même si le modèle actuel (contour toujours rectangulaire)
+//    rend ce cas rare : une évolution future (bâtiment non rectangulaire) ne
+//    doit jamais redevenir silencieusement acceptée par erreur.
+// `preferredWall`, si fourni et valide, est essayé EN PREMIER (stabilité :
+// ne change le mur retenu que si l'ancien choix ne tient plus réellement).
+export function chooseExteriorWindow(
+  rect: Rect,
+  footprint: Rect,
+  otherBuilt: Rect[],
+  preferredWall?: WallSide | null
+): { wall: WallSide; cx: number; cy: number; width: number } | null {
+  const allWalls: WallSide[] = ["top", "bottom", "left", "right"];
+  const order = preferredWall ? [preferredWall, ...allWalls.filter((w) => w !== preferredWall)] : allWalls;
+  for (const wall of order) {
+    if (!wallTouchesExterior(rect, footprint, wall)) continue;
+    const vertical = wall === "left" || wall === "right";
+    const span = vertical ? rect.d : rect.w;
+    const width = Math.min(span * 0.5, span - 0.6);
+    if (width < MIN_WINDOW_WIDTH) continue;
+    const fixedCoord = wall === "right" ? rect.x + rect.w : wall === "left" ? rect.x : wall === "bottom" ? rect.y + rect.d : rect.y;
+    const centerAlong = vertical ? rect.y + rect.d / 2 : rect.x + rect.w / 2;
+    const candidate = { wall, cx: vertical ? fixedCoord : centerAlong, cy: vertical ? centerAlong : fixedCoord, width };
+    const probe = doorOutsideProbe(candidate);
+    if (otherBuilt.some((b) => rectsOverlap(probe, b))) continue;
+    return candidate;
+  }
+  return null;
 }
 
 export function doorsOf(layout: Layout, roomIndex: number): Door[] {
@@ -2837,6 +2881,11 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       room.d = p.d;
       room.minW = p.need.minW;
       room.minD = p.need.minD;
+      // `room.exteriorWall` posé ici n'est qu'une PRÉFÉRENCE provisoire,
+      // issue de pickOrientation sur l'emprise de RECHERCHE — jamais la
+      // décision définitive pour la fenêtre, voir chooseExteriorWindow
+      // plus bas (une fois la circulation posée ET élaguée, sur le contour
+      // bâti RÉEL qui en résulte).
       room.exteriorWall = p.exteriorWall;
       const innerCoord = p.doorWall === "right" || p.doorWall === "bottom" ? (p.doorWall === "right" ? p.x + p.w : p.y + p.d) : p.doorWall === "left" ? p.x : p.y;
       const vertical = p.doorWall === "left" || p.doorWall === "right";
@@ -2847,15 +2896,6 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         cy: vertical ? p.y + p.d / 2 : innerCoord,
         width: Math.min(DOOR_WIDTH, vertical ? p.d : p.w),
         to: { kind: "circulation" },
-      });
-      const outerVertical = p.exteriorWall === "left" || p.exteriorWall === "right";
-      const outerCoord = p.exteriorWall === "right" ? p.x + p.w : p.exteriorWall === "bottom" ? p.y + p.d : p.exteriorWall === "left" ? p.x : p.y;
-      next.windows.push({
-        roomIndex: p.need.idx,
-        wall: p.exteriorWall,
-        cx: outerVertical ? outerCoord : p.x + p.w / 2,
-        cy: outerVertical ? p.y + p.d / 2 : outerCoord,
-        width: (outerVertical ? p.d : p.w) * 0.5,
       });
     }
     // Mode "reconstruire" : rien de l'ancien réseau n'est recopié ici
@@ -2884,9 +2924,48 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     }
     const built = recomputeDerivedGeometry(next);
     const pruned = pruneUnneededCirculation(built);
+
+    // Fenêtres choisies ICI, sur le contour bâti VRAIMENT final (placement
+    // ET élagage de la circulation déjà faits) — jamais depuis l'emprise de
+    // RECHERCHE (voir chooseExteriorWindow). Une pièce régénérée qui exige
+    // une ouverture extérieure (REQUIRE_EXTERIOR_TYPES) et n'en trouve
+    // AUCUNE sur son contour réel fait rejeter tout le candidat ici, avec un
+    // motif précis — jamais une fenêtre fictive posée pour faire passer le
+    // candidat. Une pièce qui n'exige pas d'ouverture (ex. sanitaire) reste
+    // simplement sans fenêtre si aucun mur réel ne convient, comme pour une
+    // disposition de base.
+    const finalLayout = cloneLayout(pruned);
+    const rejectedWindows: string[] = [];
+    if (finalLayout.footprint) {
+      const footprint = finalLayout.footprint;
+      for (const p of placements) {
+        const room = finalLayout.rooms[p.need.idx];
+        if (room.parked) continue;
+        const rect = roomRect(room);
+        const otherBuilt: Rect[] = [
+          ...(finalLayout.corridor ? [finalLayout.corridor] : []),
+          ...finalLayout.corridorFillers,
+          ...finalLayout.circulations,
+          ...(finalLayout.exteriorPaths ?? []),
+          ...finalLayout.rooms.filter((r, i) => i !== p.need.idx && !r.parked).map(roomRect),
+        ];
+        const chosen = chooseExteriorWindow(rect, footprint, otherBuilt, room.exteriorWall);
+        if (chosen) {
+          room.exteriorWall = chosen.wall;
+          finalLayout.windows.push({ roomIndex: p.need.idx, wall: chosen.wall, cx: chosen.cx, cy: chosen.cy, width: chosen.width });
+        } else if (REQUIRE_EXTERIOR_TYPES.has(room.type)) {
+          rejectedWindows.push(`« ${room.label} ${room.number} » (${room.type})`);
+        }
+      }
+    }
+    if (rejectedWindows.length > 0) {
+      return {
+        error: `${label} : aucune ouverture extérieure réellement exposée et non obstruée n'a été trouvée, une fois la circulation posée et élaguée, pour ${rejectedWindows.join(", ")} — rejeté plutôt que proposé avec une fenêtre fictive.`,
+      };
+    }
     return {
-      layout: pruned,
-      note: `${label} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés. Circulation totale : ${pruned.surfaces.circulation.toFixed(2)} m², résiduel non affecté : ${pruned.surfaces.nonAffectee.toFixed(2)} m².`,
+      layout: finalLayout,
+      note: `${label} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés. Circulation totale : ${finalLayout.surfaces.circulation.toFixed(2)} m², résiduel non affecté : ${finalLayout.surfaces.nonAffectee.toFixed(2)} m².`,
     };
   }
 

@@ -279,6 +279,56 @@ try {
       record("Circulation réservée d'abord — aucun chevauchement entre spine/pièces/corridors du résultat", !spineOverlap);
     }
 
+    // 7ter) FENÊTRES CHOISIES SUR LA GÉOMÉTRIE FINALE (chooseExteriorWindow)
+    // — pickOrientation (utilisé PENDANT le placement) ne connaît que
+    // l'emprise de RECHERCHE, jamais le contour bâti qui en résultera
+    // réellement une fois la circulation posée et élaguée. chooseExteriorWindow
+    // sépare les deux : il choisit le mur de la fenêtre APRÈS coup, sur le
+    // contour bâti final, et vérifie en plus qu'aucun autre élément bâti
+    // n'obstrue la fenêtre elle-même (sa propre sonde, comme pour une porte)
+    // — jamais un simple vide non affecté de l'emprise compté comme extérieur.
+    {
+      // Mur supposé à tort (preferredWall="left", hérité de l'emprise de
+      // recherche) alors que seul "top" touche réellement le contour bâti
+      // final : doit retenir "top", jamais "left" ni aucun autre mur.
+      const wrongWallFootprint = { x: 0, y: 0, w: 10, d: 5 };
+      const wrongWallRoom = { x: 3, y: 0.2, w: 3, d: 3 };
+      const wrongWallChoice = g.chooseExteriorWindow(wrongWallRoom, wrongWallFootprint, [], "left");
+      record(
+        "Fenêtres finales — un mur supposé à tort depuis l'emprise de recherche est écarté au profit du mur réellement exposé",
+        !!wrongWallChoice && wrongWallChoice.wall === "top",
+        JSON.stringify(wrongWallChoice)
+      );
+
+      // Un seul mur touche réellement le contour ("left"), mais sa propre
+      // sonde extérieure est obstruée par un autre élément bâti (ici placé
+      // hors du contour, cas qui ne peut pas survenir avec le contour
+      // toujours rectangulaire actuel, mais que la fonction doit refuser
+      // sans jamais le supposer exempt de collision) : aucune fenêtre ne
+      // doit être retenue.
+      const obstructedFootprint = { x: 0, y: 0, w: 10, d: 5 };
+      const obstructedRoom = { x: 0.2, y: 1, w: 3, d: 3 };
+      const obstruction = { x: -0.3, y: 1.5, w: 0.6, d: 2 };
+      const obstructedChoice = g.chooseExteriorWindow(obstructedRoom, obstructedFootprint, [obstruction]);
+      record("Fenêtres finales — une fenêtre obstruée par un autre élément bâti est refusée", obstructedChoice === null);
+      // Préalable du test ci-dessus : sans l'obstruction, ce même mur "left"
+      // est bien retenu (sinon le refus ne prouverait rien sur l'obstruction
+      // elle-même).
+      const unobstructedChoice = g.chooseExteriorWindow(obstructedRoom, obstructedFootprint, []);
+      record(
+        "Fenêtres finales — préalable : sans l'obstruction, le même mur est bien retenu",
+        !!unobstructedChoice && unobstructedChoice.wall === "left"
+      );
+
+      // Pièce entièrement intérieure : aucun des 4 murs ne touche le contour
+      // bâti final, quel que soit otherBuilt — aucune exposition possible,
+      // refusée avec le même mécanisme (jamais un mur accepté par défaut).
+      const noExposureFootprint = { x: 0, y: 0, w: 10, d: 5 };
+      const noExposureRoom = { x: 3, y: 1, w: 2, d: 2 };
+      const noExposureChoice = g.chooseExteriorWindow(noExposureRoom, noExposureFootprint, []);
+      record("Fenêtres finales — une pièce sans exposition extérieure possible est refusée", noExposureChoice === null);
+    }
+
     // 8) COMPACITÉ — RÉVISÉ (lot sur l'entrée non reliée, après
     // scenario2.projet(4).json) : la revendication précédente de ce test
     // ("212,5 -> 103,0 m², trouvé par le moteur") reposait sur le MÊME bug
@@ -311,6 +361,17 @@ try {
       record(
         "Compacité — la pièce verrouillée garde exactement sa position et ses dimensions",
         lockedBefore.x === lockedAfter.x && lockedBefore.y === lockedAfter.y && lockedBefore.w === lockedAfter.w && lockedBefore.d === lockedAfter.d
+      );
+      // Le nouveau choix de fenêtre (chooseExteriorWindow, posé APRÈS
+      // circulation+élagage) ne s'applique qu'aux pièces RÉGÉNÉRÉES — une
+      // pièce verrouillée garde sa ou ses fenêtre(s) EXACTEMENT telle(s)
+      // quelle(s) (même mur, même position, même largeur), jamais recalculée
+      // ni "corrigée" au passage.
+      const windowsBefore = pathBase.windows.filter((w) => w.roomIndex === lockedIdx);
+      const windowsAfter = best.windows.filter((w) => w.roomIndex === lockedIdx);
+      record(
+        "Compacité — la ou les fenêtre(s) de la pièce verrouillée restent exactement inchangées",
+        JSON.stringify(windowsBefore) === JSON.stringify(windowsAfter)
       );
     }
 
