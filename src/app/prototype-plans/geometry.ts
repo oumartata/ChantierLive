@@ -703,10 +703,31 @@ function buildGuidedLayout(
     }
     const salonRoomIndex = rooms.length;
     rooms.push({ type: salonNeed.type, label: salonNeed.label, number: 1, x: salonX, y: salonY, w: salonWidth, d: salonDepth, minW: salonNeed.minWidth, minD: salonNeed.minDepth, exteriorWall: "top", vehicleDoor: null });
-    // Le salon n'a pas de porte propre dans Layout.doors : son entrée EST
-    // l'entrée du bâti (entryDoor ci-dessous), jamais une seconde porte
-    // dupliquant la même baie sous un autre nom.
     windows.push({ roomIndex: salonRoomIndex, wall: "top", cx: salonX + salonWidth / 2, cy: salonY, width: salonWidth * 0.5 });
+    // Le salon n'a pas de SECONDE porte dupliquant la baie de l'entrée du
+    // bâti (entryDoor, mur haut) — mais sa liaison vers le corridor (mur
+    // bas, qui le touche réellement à l'épaisseur d'un mur intérieur près)
+    // a besoin d'une ouverture RÉELLEMENT modélisée comme toute autre
+    // pièce, jamais déduite d'une simple proximité de rectangles : même
+    // modèle de Door que partout ailleurs dans ce fichier (to.kind, largeur
+    // réelle, mur réel). Centrée sur le corridor RÉEL (lower.corridor),
+    // pas sur le salon : le corridor (largeur CORRIDOR_WIDTH) est bien plus
+    // étroit que le salon et n'en occupe qu'une tranche — une porte centrée
+    // sur le salon pouvait tomber hors du corridor lui-même, un
+    // chevauchement de boîtes qui ne touchait en réalité aucune circulation.
+    const salonDoorWidth = Math.min(DOOR_WIDTH, salonWidth);
+    const salonDoorCx = Math.min(
+      salonX + salonWidth - salonDoorWidth / 2,
+      Math.max(salonX + salonDoorWidth / 2, lower.corridor.x + lower.corridor.w / 2)
+    );
+    doors.push({
+      roomIndex: salonRoomIndex,
+      wall: "bottom",
+      cx: salonDoorCx,
+      cy: salonY + salonDepth,
+      width: salonDoorWidth,
+      to: { kind: "circulation" },
+    });
   }
 
   const courtyard: Rect | null = courtyardDepth > 0 ? { x: realEmprise.x, y: F, w: footprintW, d: courtyardDepth } : null;
@@ -1163,16 +1184,14 @@ export function computeReachableRooms(layout: Layout): Set<number> {
   if (segments.length === 0 && !salonRect) return reached;
   const usableDoors = layout.doors.filter((d) => d.width >= DOOR_WIDTH - 1e-6);
   const genuinelyTouches = (d: DoorGeometry, target: Rect) => rectsOverlap(doorOutsideProbe(d), target);
-  // Un salon CENTRAL conçu sans aucune Door propre (son unique ouverture EST
-  // layout.entryDoor — voir buildGuidedLayout) compte un simple contact
-  // géométrique avec la circulation comme un passage réel, par construction
-  // (aucune baie séparée à vérifier, il n'y en a pas). Mais un salon qui
-  // POSSÈDE une ou plusieurs Door propres (ex. posé par regenerateUnlocked,
-  // avec une vraie porte vers une circulation) doit prouver son accès PAR
-  // CETTE porte, exactement comme toute autre pièce — un simple voisinage
-  // d'un autre mur de ce même salon ne compte alors plus, sous peine de
-  // masquer la perte réelle du segment que sa porte désignait.
-  const salonOwnsAnyDoor = salonIndex >= 0 && layout.doors.some((d) => d.roomIndex === salonIndex);
+  // Le salon n'est plus un cas particulier : buildGuidedLayout lui pose
+  // désormais une vraie Door vers la circulation (même modèle que toute
+  // autre pièce), donc sa liaison onward ne passe plus JAMAIS par une
+  // simple proximité de rectangles — seule la boucle usableDoors ci-dessous
+  // (générique, sans exception de type) le relie au reste du réseau. Seule
+  // son arrivée depuis l'entrée reste un cas réellement différent, puisque
+  // layout.entryDoor n'est pas un élément de Layout.doors : sondée plus bas
+  // avec sa géométrie RÉELLE (largeur et position), jamais une tolérance.
 
   const segReached: boolean[] = segments.map(() => false);
   let salonReached = false;
@@ -1223,18 +1242,12 @@ export function computeReachableRooms(layout: Layout): Set<number> {
         // ouverts l'un sur l'autre.
         if (!segReached[j] && rectsAdjacent(segments[i], s, CIRCULATION_TOUCH_EPS)) markSeg(j);
       });
-      if (salonRect && !salonReached && !salonOwnsAnyDoor && rectsAdjacent(salonRect, segments[i])) markSalon();
       for (const d of usableDoors) {
         if (d.to.kind === "circulation" && genuinelyTouches(d, segments[i])) markRoom(d.roomIndex);
       }
     }
     while (roomFrontier.length) {
       const i = roomFrontier.pop()!;
-      if (i === salonIndex && !salonOwnsAnyDoor) {
-        segments.forEach((s, j) => {
-          if (!segReached[j] && rectsAdjacent(roomRect(layout.rooms[i]), s)) markSeg(j);
-        });
-      }
       for (const d of usableDoors) {
         if (d.roomIndex === i) {
           if (d.to.kind === "room" && genuinelyTouches(d, roomRect(layout.rooms[d.to.index]))) markRoom(d.to.index);
@@ -1398,30 +1411,30 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
     issues.push({ severity: "error", message: "Aucune porte d'entrée définie." });
   }
 
-  // Un salon qui possède au moins une Door propre (ex. posée par
-  // regenerateUnlocked, avec une vraie porte vers une circulation) doit
-  // prouver sa liaison PAR CETTE porte — un simple voisinage géométrique
-  // d'un autre mur du salon ne compte plus, sous peine de masquer la perte
-  // réelle du segment que sa porte désignait (repéré : la porte du salon
-  // visait un segment supprimé par l'élagage, tandis qu'un autre mur du
-  // salon restait par coïncidence à portée de tolérance d'un couloir sans
-  // aucune baie). Un salon CENTRAL sans aucune Door propre (son unique
-  // ouverture EST layout.entryDoor, voir buildGuidedLayout) garde, lui, le
-  // contrôle de proximité historique : il n'y a structurellement aucune
-  // porte séparée à vérifier dans ce cas.
+  // Le salon n'est plus un cas particulier (buildGuidedLayout lui pose
+  // désormais une vraie Door vers la circulation, même modèle que toute
+  // autre pièce) : sa liaison onward doit prouver une ouverture RÉELLE par
+  // CETTE porte — jamais un simple voisinage géométrique d'un autre mur du
+  // salon, qui masquait la perte réelle du segment que sa porte désignait
+  // (repéré : la porte du salon visait un segment supprimé par l'élagage,
+  // tandis qu'un autre mur du salon restait par coïncidence à portée de
+  // tolérance d'un couloir sans aucune baie).
   const salonIdxForCheck = salonRoom ? layout.rooms.indexOf(salonRoom) : -1;
-  const salonOwnsAnyDoorForCheck = salonRoom ? activeDoors.some((d) => d.roomIndex === salonIdxForCheck) : false;
   const salonCirculationDoors = salonRoom ? activeDoors.filter((d) => d.roomIndex === salonIdxForCheck && d.to.kind === "circulation") : [];
   const salonHasRealCirculationDoor = salonCirculationDoors.some(
     (d) => d.width >= DOOR_WIDTH - 1e-6 && circulationSpaces(layout).some((c) => rectsOverlap(doorOutsideProbe(d), c))
   );
-  const salonConnectedToCorridor = !salonRect
-    ? true
-    : salonOwnsAnyDoorForCheck
-    ? touchesCirculationFromEntry || salonHasRealCirculationDoor
-    : circulationSpaces(layout).some((c) => rectsAdjacent(salonRect, c));
+  const salonConnectedToCorridor = !salonRect ? true : salonHasRealCirculationDoor;
   if (salonRect && !salonConnectedToCorridor) {
     issues.push({ severity: "error", message: "Le salon ne débouche sur aucune circulation par une ouverture réelle : les pièces reliées au dégagement resteraient inaccessibles." });
+  }
+
+  // Largeur de l'entrée du bâti elle-même : jamais vérifiée jusqu'ici alors
+  // que toute autre porte l'est (contrôle 4). Une entrée trop étroite ne
+  // serait pas un passage réellement utilisable, quelle que soit la
+  // justesse de sa position géométrique.
+  if (layout.entryDoor && layout.entryDoor.width < DOOR_WIDTH - 1e-6) {
+    issues.push({ severity: "error", message: `L'entrée a une largeur de ${layout.entryDoor.width.toFixed(2)} m insuffisante (${DOOR_WIDTH} m requis).` });
   }
 
   // Vérification immédiate (contact réel, jamais supposé) de CHAQUE porte

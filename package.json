@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test:sw": "node scripts/sw.test.mjs",
-    "test": "npm run test:sw",
+    "test:plans": "node scripts/test-plans-geometry.mjs",
+    "test": "npm run test:sw && npm run test:plans",
     "verify": "node scripts/quality-gate.mjs"
   },
   "dependencies": {
