@@ -11,6 +11,31 @@ export function isSmallRoom(r: PlacedRoom): boolean {
   return r.w < SMALL_ROOM_THRESHOLD || r.d < SMALL_ROOM_THRESHOLD;
 }
 
+// Estimation de largeur de texte (sans mesure DOM réelle, impossible dans un
+// générateur de chaîne SVG pur) : approximation par nombre de caractères,
+// volontairement PESSIMISTE (facteur large) — mieux vaut basculer une pièce
+// vers le renvoi numéroté un peu plus tôt que laisser un texte réellement
+// coupé. Jamais utilisée pour réduire la police : seulement pour décider
+// d'un renvoi vers la légende (voir roomTextFits ci-dessous).
+function estimateTextWidth(text: string, fontSizePx: number, bold = false): number {
+  return text.length * fontSizePx * (bold ? 0.64 : 0.56);
+}
+
+// Une pièce affiche son libellé et ses dimensions EN CLAIR seulement si les
+// trois lignes (libellé, dimensions, surface) tiennent réellement dans sa
+// largeur au tracé — jamais en réduisant la police pour "faire rentrer"
+// un texte qui ne tient pas. Sinon, un simple numéro renvoie à la légende
+// (mêmes entrées que legendFor, pour que la légende affichée corresponde
+// toujours exactement à ce qui est numéroté sur le dessin).
+function roomTextFits(r: PlacedRoom, rwPx: number, rdPx: number): boolean {
+  const pad = 10;
+  const line1 = estimateTextWidth(`${r.label} ${r.number}`, 11, true);
+  const line2 = estimateTextWidth(`${r.w.toFixed(2)} × ${r.d.toFixed(2)} m`, 9);
+  const line3 = estimateTextWidth(`${(r.w * r.d).toFixed(1)} m²`, 9);
+  const neededHeight = 11 + 9 + 9 + 14; // trois lignes + interlignes approximatifs
+  return Math.max(line1, line2, line3) <= rwPx - pad && neededHeight <= rdPx - pad;
+}
+
 export interface LegendEntry {
   key: string;
   label: string;
@@ -80,8 +105,28 @@ function doorArc(
 }
 
 export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter = 26): string {
+  const activeRooms = layout.rooms.filter((r) => !r.parked);
+  // Légendes BAKED-IN (dans le fichier exporté lui-même, jamais seulement
+  // dans la page web autour) : une pièce numérotée sur le dessin ou un
+  // espace extérieur au libellé trop long pour tenir en clair reçoivent une
+  // entrée ici — mêmes données que le dessin, jamais une liste séparée qui
+  // pourrait diverger.
+  const roomLegend: { ref: number; text: string }[] = [];
+  const extLegend: { ref: string; text: string }[] = [];
+  const EXT_REFS = ["A", "B", "C", "D", "E", "F"];
+
+  const legendLineHeight = 13;
+  const legendBlockHeight = (entries: number) => (entries > 0 ? 26 + entries * legendLineHeight : 0);
+  // Hauteur réservée calculée AVANT le tracé (nécessaire pour la hauteur du
+  // canevas) : le nombre d'entrées de chaque légende est connu dès ici,
+  // puisqu'il dérive directement de layout.rooms / layout.exteriorSpaces —
+  // jamais un texte ajouté après coup qui déborderait du document.
+  const roomLegendCount = activeRooms.filter((r) => isSmallRoom(r) || !roomTextFits(r, r.w * scalePxPerMeter, r.d * scalePxPerMeter)).length;
+  const extLegendCount = layout.exteriorSpaces.length;
+  const legendsHeight = legendBlockHeight(roomLegendCount) + legendBlockHeight(extLegendCount);
+
   const w = layout.terrain.w * scalePxPerMeter + MARGIN * 2;
-  const h = layout.terrain.d * scalePxPerMeter + MARGIN * 2 + 40;
+  const h = layout.terrain.d * scalePxPerMeter + MARGIN * 2 + 40 + legendsHeight;
 
   const X = (m: number) => MARGIN + m * scalePxPerMeter;
   const Y = (m: number) => MARGIN + m * scalePxPerMeter;
@@ -97,10 +142,16 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     parts.push(`<rect x="${X(layout.emprise.x)}" y="${Y(layout.emprise.y)}" width="${layout.emprise.w * scalePxPerMeter}" height="${layout.emprise.d * scalePxPerMeter}" fill="none" stroke="#0ea5e9" stroke-width="1.5" stroke-dasharray="6 3" />`);
   }
 
-  for (const ext of layout.exteriorSpaces) {
+  // Libellé COURT sur le plan (lettre de renvoi + surface seulement) — le
+  // texte complet, parfois long ("Espace extérieur non bâti (latéral
+  // gauche)"), ne tient pas toujours dans le rectangle qu'il décrit et
+  // risquait de déborder hors du document ; renvoyé en légende ci-dessous.
+  layout.exteriorSpaces.forEach((ext, i) => {
+    const ref = EXT_REFS[i] ?? `#${i + 1}`;
+    extLegend.push({ ref, text: `${ext.label} — ${(ext.rect.w * ext.rect.d).toFixed(1)} m²` });
     parts.push(`<rect x="${X(ext.rect.x)}" y="${Y(ext.rect.y)}" width="${ext.rect.w * scalePxPerMeter}" height="${ext.rect.d * scalePxPerMeter}" fill="#ecfccb" stroke="#84cc16" stroke-width="1" />`);
-    parts.push(`<text x="${X(ext.rect.x) + 4}" y="${Y(ext.rect.y) + 14}" font-size="9" fill="#3f6212">${escapeXml(ext.label)} (${(ext.rect.w * ext.rect.d).toFixed(1)} m²)</text>`);
-  }
+    parts.push(`<text x="${X(ext.rect.x) + 4}" y="${Y(ext.rect.y) + 14}" font-size="9" fill="#3f6212">${escapeXml(ref)} — ${(ext.rect.w * ext.rect.d).toFixed(1)} m²</text>`);
+  });
 
   if (layout.courtyard) {
     parts.push(`<rect x="${X(layout.courtyard.x)}" y="${Y(layout.courtyard.y)}" width="${layout.courtyard.w * scalePxPerMeter}" height="${layout.courtyard.d * scalePxPerMeter}" fill="#fef3c7" stroke="#d97706" stroke-width="1.5" stroke-dasharray="3 2" />`);
@@ -137,14 +188,24 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     const rx = X(r.x), ry = Y(r.y), rw = r.w * scalePxPerMeter, rd = r.d * scalePxPerMeter;
     parts.push(`<rect x="${rx}" y="${ry}" width="${rw}" height="${rd}" fill="#e2e8f0" stroke="#1e293b" stroke-width="2" />`);
 
-    const small = r.w < SMALL_ROOM_THRESHOLD || r.d < SMALL_ROOM_THRESHOLD;
+    // Renvoi numéroté (jamais une police réduite pour forcer le texte en
+    // clair à tenir) dès que la pièce est petite OU que les trois lignes
+    // (libellé, dimensions, surface) ne tiennent pas réellement à l'échelle
+    // actuelle — même critère que roomLegendCount ci-dessus, pour que la
+    // légende corresponde toujours exactement à ce qui est numéroté ici.
+    const useBadge = isSmallRoom(r) || !roomTextFits(r, rw, rd);
     const cx = rx + rw / 2, cy = ry + rd / 2;
-    if (small) {
+    if (useBadge) {
+      roomLegend.push({ ref: r.number, text: `${r.label} ${r.number} : ${r.w.toFixed(2)} × ${r.d.toFixed(2)} m (${(r.w * r.d).toFixed(1)} m²)` });
       parts.push(`<circle cx="${cx}" cy="${cy}" r="11" fill="#ffffff" stroke="#1e293b" stroke-width="1.5" />`);
       parts.push(`<text x="${cx}" y="${cy + 4}" font-size="11" font-weight="700" fill="#0f172a" text-anchor="middle">${r.number}</text>`);
     } else {
-      parts.push(`<text x="${cx}" y="${cy - 6}" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">${escapeXml(r.label)} ${r.number}</text>`);
-      parts.push(`<text x="${cx}" y="${cy + 9}" font-size="9" fill="#334155" text-anchor="middle">${r.w.toFixed(2)} × ${r.d.toFixed(2)} m — ${(r.w * r.d).toFixed(1)} m²</text>`);
+      // Trois lignes distinctes (jamais "W × D m — surface m²" sur une seule
+      // ligne, trop large pour une pièce étroite) : libellé, dimensions,
+      // surface — chacune revérifiée tenir par roomTextFits ci-dessus.
+      parts.push(`<text x="${cx}" y="${cy - 12}" font-size="11" font-weight="600" fill="#0f172a" text-anchor="middle">${escapeXml(r.label)} ${r.number}</text>`);
+      parts.push(`<text x="${cx}" y="${cy + 2}" font-size="9" fill="#334155" text-anchor="middle">${r.w.toFixed(2)} × ${r.d.toFixed(2)} m</text>`);
+      parts.push(`<text x="${cx}" y="${cy + 14}" font-size="9" fill="#334155" text-anchor="middle">${(r.w * r.d).toFixed(1)} m²</text>`);
     }
 
     // Fenêtres INDÉPENDANTES : chacune son propre trait, sur son propre mur —
@@ -221,6 +282,30 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
   // Cotes terrain
   parts.push(dimensionLine(X(0), Y(0) - 24, X(layout.terrain.w), Y(0) - 24, `${layout.terrain.w.toFixed(2)} m`));
   parts.push(dimensionLine(X(0) - 24, Y(0), X(0) - 24, Y(layout.terrain.d), `${layout.terrain.d.toFixed(2)} m`, true));
+
+  // Légendes bâties dans le document exporté lui-même (jamais seulement dans
+  // la page web autour, un export SVG/PNG doit rester lisible isolément) —
+  // dérivées des mêmes `roomLegend`/`extLegend` remplis pendant le tracé
+  // ci-dessus, jamais une liste recalculée séparément qui pourrait diverger
+  // de ce qui est réellement numéroté/référencé sur le plan.
+  let legendY = Y(layout.terrain.d) + 24;
+  if (roomLegend.length > 0) {
+    parts.push(`<text x="${X(0)}" y="${legendY}" font-size="10" font-weight="700" fill="#334155">Légende — pièces numérotées</text>`);
+    legendY += legendLineHeight;
+    for (const entry of roomLegend) {
+      parts.push(`<text x="${X(0)}" y="${legendY}" font-size="9" fill="#334155">${entry.ref} — ${escapeXml(entry.text)}</text>`);
+      legendY += legendLineHeight;
+    }
+    legendY += 6;
+  }
+  if (extLegend.length > 0) {
+    parts.push(`<text x="${X(0)}" y="${legendY}" font-size="10" font-weight="700" fill="#3f6212">Légende — espaces extérieurs</text>`);
+    legendY += legendLineHeight;
+    for (const entry of extLegend) {
+      parts.push(`<text x="${X(0)}" y="${legendY}" font-size="9" fill="#3f6212">${entry.ref} — ${escapeXml(entry.text)}</text>`);
+      legendY += legendLineHeight;
+    }
+  }
 
   // Orientation (indicative, saisie par l'utilisateur — pas une boussole réelle)
   const oCx = w - 36, oCy = 30;
