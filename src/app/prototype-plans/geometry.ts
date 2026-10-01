@@ -183,6 +183,12 @@ export interface PlacedRoom {
   y: number;
   w: number;
   d: number;
+  // Dimensions MINIMALES telles que saisies pour cette pièce à la
+  // génération — conservées sur la pièce elle-même (pas redéduites d'un
+  // préréglage par type, l'utilisateur a pu les personnaliser) pour que le
+  // redimensionnement en édition respecte la même limite.
+  minW: number;
+  minD: number;
   exteriorWall: WallSide | null;
   // Porte véhicule directe vers la façade d'accès (garage uniquement) — un
   // couloir intérieur ne peut jamais la remplacer. Toujours vers l'extérieur
@@ -418,6 +424,8 @@ function buildDoubleLoadedLayout(
         y: cursorY,
         w: cr.width,
         d: cr.depth,
+        minW: need.minWidth,
+        minD: need.minDepth,
         exteriorWall,
         vehicleDoor: null,
       });
@@ -630,7 +638,7 @@ function buildGuidedLayout(
       const w = leftSlotWidth;
       const x = realEmprise.x + WALL_EXT;
       const roomIndex = rooms.length;
-      rooms.push({ type: leftSlot.type, label: leftSlot.label, number: 1, x, y: salonY, w, d, exteriorWall: "left", vehicleDoor: null });
+      rooms.push({ type: leftSlot.type, label: leftSlot.label, number: 1, x, y: salonY, w, d, minW: leftSlot.minWidth, minD: leftSlot.minDepth, exteriorWall: "left", vehicleDoor: null });
       doors.push({ roomIndex, wall: "right", cx: x + w, cy: salonY + d / 2, width: Math.min(DOOR_WIDTH, d), to: { kind: "room", index: salonIndex } });
       windows.push({ roomIndex, wall: "left", cx: x, cy: salonY + d / 2, width: d * 0.5 });
     }
@@ -642,12 +650,12 @@ function buildGuidedLayout(
       const w = rightSlotWidth;
       const x = realEmprise.x + footprintW - WALL_EXT - w;
       const roomIndex = rooms.length;
-      rooms.push({ type: rightSlot.type, label: rightSlot.label, number: leftSlot?.type === rightSlot.type ? 2 : 1, x, y: salonY, w, d, exteriorWall: "right", vehicleDoor: null });
+      rooms.push({ type: rightSlot.type, label: rightSlot.label, number: leftSlot?.type === rightSlot.type ? 2 : 1, x, y: salonY, w, d, minW: rightSlot.minWidth, minD: rightSlot.minDepth, exteriorWall: "right", vehicleDoor: null });
       doors.push({ roomIndex, wall: "left", cx: x, cy: salonY + d / 2, width: Math.min(DOOR_WIDTH, d), to: { kind: "room", index: salonIndex } });
       windows.push({ roomIndex, wall: "right", cx: x + w, cy: salonY + d / 2, width: d * 0.5 });
     }
     const salonRoomIndex = rooms.length;
-    rooms.push({ type: salonNeed.type, label: salonNeed.label, number: 1, x: salonX, y: salonY, w: salonWidth, d: salonDepth, exteriorWall: "top", vehicleDoor: null });
+    rooms.push({ type: salonNeed.type, label: salonNeed.label, number: 1, x: salonX, y: salonY, w: salonWidth, d: salonDepth, minW: salonNeed.minWidth, minD: salonNeed.minDepth, exteriorWall: "top", vehicleDoor: null });
     // Le salon n'a pas de porte propre dans Layout.doors : son entrée EST
     // l'entrée du bâti (entryDoor ci-dessous), jamais une seconde porte
     // dupliquant la même baie sous un autre nom.
@@ -1194,6 +1202,56 @@ export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, new
   }
   next = recomputeDerivedGeometry(next);
   return next;
+}
+
+// Recalcule la position d'une ouverture (porte/fenêtre) de CETTE pièce
+// après un redimensionnement : son mur reste le même repère relatif (son
+// coordonnée fixe suit le bord concerné), sa position le long du mur est
+// resserrée dans les nouvelles limites, sa largeur est réduite si le mur
+// est devenu trop court pour la contenir telle quelle — jamais supprimée
+// silencieusement : une largeur résultante insuffisante reste un défaut
+// signalé (contrôle existant), pas masqué ici.
+function recalcOpeningForResize<T extends { wall: WallSide; cx: number; cy: number; width: number }>(o: T, room: Rect): T {
+  const vertical = o.wall === "left" || o.wall === "right";
+  const span = vertical ? room.d : room.w;
+  const width = Math.max(0, Math.min(o.width, span));
+  const fixedCoord = o.wall === "right" ? room.x + room.w : o.wall === "left" ? room.x : o.wall === "bottom" ? room.y + room.d : room.y;
+  const axisMin = (vertical ? room.y : room.x) + width / 2;
+  const axisMax = (vertical ? room.y + room.d : room.x + room.w) - width / 2;
+  const along = vertical ? o.cy : o.cx;
+  const clamped = axisMax < axisMin ? (axisMin + axisMax) / 2 : Math.min(Math.max(along, axisMin), axisMax);
+  return { ...o, width, cx: vertical ? fixedCoord : clamped, cy: vertical ? clamped : fixedCoord };
+}
+
+// Redimensionne une pièce — même esprit que tryMoveRoom : refuse tout
+// (minimums définis à la génération, emprise, chevauchement) ou rien,
+// jamais un résultat partiel. Les portes/fenêtres de CETTE pièce sont
+// recalculées sur sa nouvelle géométrie (jamais translatées comme pour un
+// déplacement, puisque la forme change, pas seulement la position). Les
+// portes d'AUTRES pièces qui la visent ne sont jamais touchées ici : leur
+// adjacence réelle est revérifiée depuis la nouvelle géométrie par
+// independentVerify, qui signale sans jamais corriger silencieusement.
+export function resizeRoom(layout: Layout, roomIndex: number, newX: number, newY: number, newW: number, newD: number): Layout | null {
+  const room = layout.rooms[roomIndex];
+  if (!room || !layout.emprise || room.parked) return null;
+  if (newW < room.minW - 1e-6 || newD < room.minD - 1e-6) return null;
+  if (newW <= 0 || newD <= 0) return null;
+  const candidate: Rect = { x: newX, y: newY, w: newW, d: newD };
+  if (!rectWithin(candidate, layout.emprise)) return null;
+  if (roomBlocksAt(layout, roomIndex, candidate)) return null;
+
+  const next = cloneLayout(layout);
+  const r = next.rooms[roomIndex];
+  r.x = newX;
+  r.y = newY;
+  r.w = newW;
+  r.d = newD;
+  next.doors = next.doors.map((d) => (d.roomIndex === roomIndex ? recalcOpeningForResize(d, candidate) : d));
+  next.windows = next.windows.map((w) => (w.roomIndex === roomIndex ? recalcOpeningForResize(w, candidate) : w));
+  if (r.vehicleDoor) {
+    r.vehicleDoor = recalcOpeningForResize(r.vehicleDoor, candidate);
+  }
+  return recomputeDerivedGeometry(next);
 }
 
 // Met une pièce de côté (zone de rangement temporaire) : identité, type,

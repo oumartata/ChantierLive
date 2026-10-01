@@ -15,6 +15,7 @@ import {
 } from "./geometry";
 import { renderSvg, legendFor, STAMP } from "./render";
 import { PlanEditor } from "./PlanEditor";
+import { clearDraftLocally, loadDraftLocally, type ProjectFile } from "./projectFile";
 
 interface RoomRow extends RoomNeed {
   count: number;
@@ -64,6 +65,16 @@ export function PrototypeClient() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [draft, setDraft] = useState<Layout | null>(null);
+  // Brouillon enregistré localement (navigateur/appareil courant) lors d'une
+  // session précédente — proposé explicitement, jamais rouvert sans action
+  // de l'utilisateur. null = aucun, undefined-like "corrupted" géré via le
+  // champ error.
+  const [resumable, setResumable] = useState<{ file: ProjectFile } | { error: string } | null>(() => {
+    if (typeof window === "undefined") return null;
+    const result = loadDraftLocally();
+    if (!result) return null;
+    return result.ok ? { file: result.value } : { error: result.error };
+  });
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -149,6 +160,39 @@ export function PrototypeClient() {
           façade d&apos;accès aussi (un couloir intérieur ne suffit pas).
         </p>
       </div>
+
+      {resumable && "file" in resumable && !draft ? (
+        <section className="flex flex-wrap items-center gap-3 rounded border border-sky-300 bg-sky-50 p-3 text-sm">
+          <span>
+            Brouillon enregistré localement trouvé (le {new Date(resumable.file.savedAt).toLocaleString("fr-FR")}, sur cet
+            appareil/navigateur).
+          </span>
+          <button
+            onClick={() => {
+              setOrientation(resumable.file.orientation as "N" | "S" | "E" | "O");
+              setDraft(resumable.file.layout);
+            }}
+            className="rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white"
+          >
+            Reprendre ce brouillon
+          </button>
+          <button
+            onClick={() => {
+              clearDraftLocally();
+              setResumable(null);
+            }}
+            className="rounded border border-sky-400 px-3 py-1 text-xs"
+          >
+            Ignorer et effacer
+          </button>
+        </section>
+      ) : null}
+      {resumable && "error" in resumable ? (
+        <section className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
+          Un brouillon local existait mais n&apos;a pas pu être relu ({resumable.error}). Il n&apos;a pas été modifié ;
+          vous pouvez <button onClick={() => { clearDraftLocally(); setResumable(null); }} className="underline">l&apos;effacer</button>.
+        </section>
+      ) : null}
 
       <section className="flex flex-col gap-3 rounded border border-slate-300 p-4">
         <h2 className="font-semibold">Terrain</h2>
@@ -291,6 +335,10 @@ export function PrototypeClient() {
         Générer les variantes
       </button>
 
+      {draft ? (
+        <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} />
+      ) : (
+      <>
       {variants && variants.length === 0 ? (
         <section className="rounded border border-red-300 bg-red-50 p-4 text-sm text-red-900">
           <p className="font-semibold">Aucune solution trouvée par ce moteur avec ces paramètres.</p>
@@ -340,9 +388,7 @@ export function PrototypeClient() {
             </details>
           ) : null}
 
-          {draft ? (
-            <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} />
-          ) : selected ? (
+          {selected ? (
             <>
               <div className="flex items-center gap-2">
                 <button onClick={() => setZoom((z) => Math.max(0.5, z - 0.25))} className="rounded border border-slate-400 px-2 py-1 text-sm">−</button>
@@ -414,6 +460,8 @@ export function PrototypeClient() {
           ) : null}
         </section>
       ) : null}
+      </>
+      )}
     </div>
   );
 }

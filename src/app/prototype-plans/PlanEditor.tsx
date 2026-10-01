@@ -10,6 +10,7 @@ import {
   placeDoor,
   placeParkedRoom,
   removeDoor,
+  resizeRoom,
   tryMoveRoom,
   wallAdjacency,
   type Door,
@@ -19,13 +20,16 @@ import {
   type WallSide,
 } from "./geometry";
 import { escapeXml, renderSvg, STAMP } from "./render";
+import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
 
 const SCALE = 26; // px/m — cohérent avec render.ts
 const MARGIN = 40;
 const GRID_STEP = 0.1; // m — accrochage grille
 const ALIGN_THRESHOLD = 0.12; // m — accrochage aux bords d'autres pièces
 
-type Tool = "select" | "move" | "add-door" | "remove-door";
+type Tool = "select" | "move" | "resize" | "add-door" | "remove-door";
+type Corner = "nw" | "ne" | "sw" | "se";
+const OPPOSITE_CORNER: Record<Corner, Corner> = { nw: "se", ne: "sw", sw: "ne", se: "nw" };
 
 const WALL_LABEL: Record<WallSide, string> = { left: "gauche", right: "droite", top: "haut", bottom: "bas" };
 function wallLabel(wall: WallSide): string {
@@ -51,21 +55,47 @@ export function PlanEditor({
 }) {
   const [history, setHistory] = useState<Layout[]>([cloneLayout(initialLayout)]);
   const [future, setFuture] = useState<Layout[]>([]);
+  // Copie locale, modifiable par un import de fichier de projet (qui peut
+  // porter une orientation différente de celle transmise par le parent) —
+  // le parent reste la source pour l'ouverture initiale uniquement.
+  const [currentOrientation, setCurrentOrientation] = useState(orientation);
   const [tool, setTool] = useState<Tool>("select");
   const [selected, setSelected] = useState<number | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [dragRoomIndex, setDragRoomIndex] = useState<number | null>(null);
+  const [resizingRoomIndex, setResizingRoomIndex] = useState<number | null>(null);
+  const [resizePreview, setResizePreview] = useState<{ x: number; y: number; w: number; d: number; valid: boolean } | null>(null);
+  // Sauvegarde locale automatique initiale (à l'ouverture) puis après chaque
+  // modification validée (voir saveNow, appelé par commit/undo/redo/import) —
+  // jamais un geste séparé à retenir. Un échec (stockage plein, navigation
+  // privée) reste affiché tel quel, jamais masqué derrière un "enregistré"
+  // trompeur.
+  const [saveStatus, setSaveStatus] = useState<"saved" | "error">(() => {
+    const result = saveDraftLocally(serializeProject(initialLayout, orientation));
+    return result.ok ? "saved" : "error";
+  });
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const parkZoneRef = useRef<HTMLDivElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   // Détails de glissement lus uniquement dans les gestionnaires d'événements,
   // jamais pendant le rendu (dragRoomIndex, un state, sert au rendu).
   const dragRef = useRef<{ roomIndex: number; startX: number; startY: number; grabDx: number; grabDy: number } | null>(null);
+  const resizeRef = useRef<{ roomIndex: number; corner: Corner; anchorX: number; anchorY: number } | null>(null);
 
   const current = history[history.length - 1];
   const issues: VerificationIssue[] = useMemo(() => independentVerify(current), [current]);
   const errorCount = issues.filter((i) => i.severity === "error").length;
+
+  function saveNow(layout: Layout, orient: string) {
+    const result = saveDraftLocally(serializeProject(layout, orient));
+    setSaveStatus(result.ok ? "saved" : "error");
+    setSaveError(result.ok ? null : result.error);
+  }
+
   // Pièces mises de côté — exclues des surfaces et du graphe de circulation
   // (voir geometry.ts), suivies séparément ici : le plan reste explicitement
   // "incomplet" tant que l'une d'elles n'est pas replacée.
@@ -76,7 +106,7 @@ export function PlanEditor({
   // problèmes non résolus et les pièces non placées sont gravés dans
   // l'image exportée elle-même, pas seulement affichés à l'écran.
   const exportSvgMarkup = useMemo(() => {
-    const base = renderSvg(current, orientation);
+    const base = renderSvg(current, currentOrientation);
     if (errorCount === 0 && parked.length === 0) return base;
     const heightMatch = base.match(/height="(\d+(?:\.\d+)?)"/);
     const svgHeight = heightMatch ? parseFloat(heightMatch[1]) : 700;
@@ -93,7 +123,7 @@ export function PlanEditor({
       )
       .join("");
     return base.replace("</svg>", `${warning}</svg>`);
-  }, [current, orientation, errorCount, parked]);
+  }, [current, currentOrientation, errorCount, parked]);
 
   function downloadBlob(blob: Blob, filename: string) {
     const url = URL.createObjectURL(blob);
@@ -126,6 +156,61 @@ export function PlanEditor({
     img.src = url;
   }
 
+  // Fichier de projet — document géométrique COMPLET et modifiable, distinct
+  // des images SVG/PNG ci-dessus : seul ce format peut être rouvert pour
+  // continuer l'édition.
+  function handleExportProject() {
+    const file = serializeProject(current, currentOrientation);
+    downloadBlob(new Blob([JSON.stringify(file, null, 2)], { type: "application/json" }), "plan-chantierlive.json");
+  }
+
+  function handleImportProjectClick() {
+    if (
+      !window.confirm(
+        "Importer un fichier de projet remplacera le brouillon actuellement ouvert (avec son historique Annuler/Rétablir). Continuer ?"
+      )
+    ) {
+      return;
+    }
+    importInputRef.current?.click();
+  }
+
+  function handleImportProjectFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // permet de réimporter le même fichier ensuite
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(String(reader.result));
+      } catch {
+        setImportError("Fichier invalide : JSON illisible. Le brouillon actuel n'a pas été modifié.");
+        window.setTimeout(() => setImportError(null), 4000);
+        return;
+      }
+      const result = validateProjectFile(parsed);
+      if (!result.ok) {
+        setImportError(`Import refusé : ${result.error} Le brouillon actuel n'a pas été modifié.`);
+        window.setTimeout(() => setImportError(null), 6000);
+        return;
+      }
+      // Remplace entièrement — nouvel historique, l'ancien n'est plus
+      // accessible (l'utilisateur vient de confirmer ce remplacement).
+      setCurrentOrientation(result.value.orientation);
+      setHistory([cloneLayout(result.value.layout)]);
+      setFuture([]);
+      setSelected(null);
+      setImportError(null);
+      saveNow(result.value.layout, result.value.orientation);
+    };
+    reader.onerror = () => {
+      setImportError("Échec de la lecture du fichier. Le brouillon actuel n'a pas été modifié.");
+      window.setTimeout(() => setImportError(null), 4000);
+    };
+    reader.readAsText(file);
+  }
+
   function commit(next: Layout | null, rejectionMessage: string) {
     if (!next) {
       setFlash(rejectionMessage);
@@ -134,17 +219,21 @@ export function PlanEditor({
     }
     setHistory((h) => [...h, next]);
     setFuture([]);
+    saveNow(next, currentOrientation);
   }
 
   function undo() {
     if (history.length <= 1) return;
+    const previous = history[history.length - 2];
     setFuture((f) => [history[history.length - 1], ...f]);
     setHistory((h) => h.slice(0, -1));
+    saveNow(previous, currentOrientation);
   }
   function redo() {
     if (future.length === 0) return;
     setHistory((h) => [...h, future[0]]);
     setFuture((f) => f.slice(1));
+    saveNow(future[0], currentOrientation);
   }
 
   function clientToWorld(clientX: number, clientY: number): { x: number; y: number } {
@@ -169,42 +258,94 @@ export function PlanEditor({
 
   function handlePointerMove(e: ReactPointerEvent) {
     const drag = dragRef.current;
-    if (!drag) return;
-    const world = clientToWorld(e.clientX, e.clientY);
-    const otherXs = current.rooms.flatMap((r, i) => (i === drag.roomIndex ? [] : [r.x, r.x + r.w]));
-    const otherYs = current.rooms.flatMap((r, i) => (i === drag.roomIndex ? [] : [r.y, r.y + r.d]));
-    const newX = snap(world.x - drag.grabDx, otherXs);
-    const newY = snap(world.y - drag.grabDy, otherYs);
-    const preview = tryMoveRoom(current, drag.roomIndex, newX, newY);
-    // Aperçu en direct : on affiche la position tentée même si invalide, avec
-    // une couleur distincte — jamais validée tant que le pointeur n'est pas
-    // relâché sur une position acceptée.
-    setPreviewState({ x: newX, y: newY, valid: preview !== null });
+    if (drag) {
+      const world = clientToWorld(e.clientX, e.clientY);
+      const otherXs = current.rooms.flatMap((r, i) => (i === drag.roomIndex ? [] : [r.x, r.x + r.w]));
+      const otherYs = current.rooms.flatMap((r, i) => (i === drag.roomIndex ? [] : [r.y, r.y + r.d]));
+      const newX = snap(world.x - drag.grabDx, otherXs);
+      const newY = snap(world.y - drag.grabDy, otherYs);
+      const preview = tryMoveRoom(current, drag.roomIndex, newX, newY);
+      // Aperçu en direct : on affiche la position tentée même si invalide, avec
+      // une couleur distincte — jamais validée tant que le pointeur n'est pas
+      // relâché sur une position acceptée.
+      setPreviewState({ x: newX, y: newY, valid: preview !== null });
+      return;
+    }
+    const resize = resizeRef.current;
+    if (resize) {
+      const world = clientToWorld(e.clientX, e.clientY);
+      const px = snap(world.x, []);
+      const py = snap(world.y, []);
+      const x = Math.min(resize.anchorX, px);
+      const y = Math.min(resize.anchorY, py);
+      const w = Math.abs(px - resize.anchorX);
+      const d = Math.abs(py - resize.anchorY);
+      const valid = w > 0 && d > 0 && resizeRoom(current, resize.roomIndex, x, y, w, d) !== null;
+      setResizePreview({ x, y, w, d, valid });
+    }
   }
 
   const [previewState, setPreviewState] = useState<{ x: number; y: number; valid: boolean } | null>(null);
 
   function handlePointerUp(e: ReactPointerEvent) {
     const drag = dragRef.current;
-    dragRef.current = null;
-    setDragRoomIndex(null);
-    if (!drag) {
+    if (drag) {
+      dragRef.current = null;
+      setDragRoomIndex(null);
+      // Relâché au-dessus de la zone de rangement : mise de côté, jamais un
+      // déplacement classique — la position visée sur le terrain n'a alors
+      // aucun sens et n'est pas utilisée.
+      const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
+      if (parkZoneRef.current && dropTarget && parkZoneRef.current.contains(dropTarget)) {
+        setPreviewState(null);
+        commit(parkRoom(current, drag.roomIndex), "");
+        return;
+      }
+      if (!previewState) return;
+      const next = tryMoveRoom(current, drag.roomIndex, previewState.x, previewState.y);
       setPreviewState(null);
+      commit(next, "Emplacement refusé : hors de l'emprise constructible, chevauchement avec une autre pièce/le corridor, ou empiète sur la cour réservée.");
       return;
     }
-    // Relâché au-dessus de la zone de rangement : mise de côté, jamais un
-    // déplacement classique — la position visée sur le terrain n'a alors
-    // aucun sens et n'est pas utilisée.
-    const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
-    if (parkZoneRef.current && dropTarget && parkZoneRef.current.contains(dropTarget)) {
-      setPreviewState(null);
-      commit(parkRoom(current, drag.roomIndex), "");
-      return;
+    const resize = resizeRef.current;
+    if (resize) {
+      resizeRef.current = null;
+      setResizingRoomIndex(null);
+      const preview = resizePreview;
+      setResizePreview(null);
+      if (!preview) return;
+      const next = resizeRoom(current, resize.roomIndex, preview.x, preview.y, preview.w, preview.d);
+      commit(
+        next,
+        "Redimensionnement refusé : en dessous des dimensions minimales définies, hors de l'emprise constructible, ou chevauchement (pièce, corridor, cour)."
+      );
     }
-    if (!previewState) return;
-    const next = tryMoveRoom(current, drag.roomIndex, previewState.x, previewState.y);
-    setPreviewState(null);
-    commit(next, "Emplacement refusé : hors de l'emprise constructible, chevauchement avec une autre pièce/le corridor, ou empiète sur la cour réservée.");
+  }
+
+  function handleResizeHandlePointerDown(e: ReactPointerEvent, roomIndex: number, corner: Corner) {
+    e.stopPropagation();
+    if (tool !== "resize") return;
+    setSelected(roomIndex);
+    const room = current.rooms[roomIndex];
+    const opposite = OPPOSITE_CORNER[corner];
+    const anchorX = opposite === "ne" || opposite === "se" ? room.x + room.w : room.x;
+    const anchorY = opposite === "sw" || opposite === "se" ? room.y + room.d : room.y;
+    resizeRef.current = { roomIndex, corner, anchorX, anchorY };
+    setResizingRoomIndex(roomIndex);
+    (e.target as Element).setPointerCapture(e.pointerId);
+  }
+
+  // Alternative simple au glisser des poignées : champs numériques,
+  // appliqués depuis le coin haut-gauche actuel (position inchangée, seules
+  // largeur/profondeur varient) — mêmes contrôles que le glissé.
+  function handleResizeField(roomIndex: number, field: "w" | "d", value: number) {
+    const room = current.rooms[roomIndex];
+    if (!room || !Number.isFinite(value) || value <= 0) return;
+    const next = resizeRoom(current, roomIndex, room.x, room.y, field === "w" ? value : room.w, field === "d" ? value : room.d);
+    commit(
+      next,
+      "Redimensionnement refusé : en dessous des dimensions minimales définies, hors de l'emprise constructible, ou chevauchement (pièce, corridor, cour)."
+    );
   }
 
   function handleParkSelected() {
@@ -328,18 +469,26 @@ export function PlanEditor({
         </button>
       </div>
       <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
-        Brouillon de travail — non enregistré durablement. Il sera perdu à la fermeture ou au rechargement de la page,
-        et une nouvelle génération ne l&apos;écrase pas sans confirmation.
+        Brouillon de travail. Annuler/Rétablir est l&apos;historique de travail de cette session — ce n&apos;est ni une
+        sauvegarde durable ni un futur historique de versions métier. Une nouvelle génération ne l&apos;écrase pas sans
+        confirmation.
       </p>
+      <p className="flex flex-wrap items-center gap-2 rounded bg-slate-50 p-2 text-xs">
+        <span className={saveStatus === "saved" ? "font-semibold text-green-700" : "font-semibold text-red-700"}>
+          {saveStatus === "saved" ? "✓ Enregistré localement" : `✗ Échec de l'enregistrement local${saveError ? ` (${saveError})` : ""}`}
+        </span>
+        <span className="text-slate-400">— reste dans ce navigateur, sur cet appareil uniquement.</span>
+      </p>
+      {importError ? <p className="rounded bg-red-50 p-2 text-xs text-red-700">{importError}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["select", "move", "add-door", "remove-door"] as Tool[]).map((t) => (
+        {(["select", "move", "resize", "add-door", "remove-door"] as Tool[]).map((t) => (
           <button
             key={t}
             onClick={() => setTool(t)}
             className={`rounded border px-3 py-1 text-sm ${tool === t ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
           >
-            {{ select: "Sélectionner", move: "Déplacer", "add-door": "Ajouter/déplacer une porte", "remove-door": "Supprimer une porte" }[t]}
+            {{ select: "Sélectionner", move: "Déplacer", resize: "Redimensionner", "add-door": "Ajouter/déplacer une porte", "remove-door": "Supprimer une porte" }[t]}
           </button>
         ))}
         <span className="mx-2 h-5 w-px bg-slate-300" />
@@ -359,10 +508,43 @@ export function PlanEditor({
         {tool === "select" && "Cliquez une pièce pour la sélectionner."}
         {tool === "move" &&
           "Glissez une pièce pour la déplacer (souris ou doigt), ou jusqu'à « Pièces à replacer » pour la mettre de côté. Flèches clavier pour la pièce sélectionnée."}
+        {tool === "resize" && "Sélectionnez une pièce, puis glissez un coin pour la redimensionner, ou utilisez les champs largeur/profondeur ci-dessous."}
         {tool === "add-door" && "Sélectionnez une pièce, puis cliquez un de ses murs en pointillés : vert = entrée extérieure, violet = porte intérieure vers un espace réel, gris = aucun espace de ce côté."}
         {tool === "remove-door" && "Sélectionnez une pièce, puis cliquez un mur en rouge (porte présente) pour la retirer."}
         {selected !== null ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number}.` : " Aucune sélection."}
       </p>
+      {tool === "resize" && selected !== null && !current.rooms[selected].parked ? (
+        <div className="flex flex-wrap items-center gap-3 text-sm">
+          <label className="flex items-center gap-1">
+            Largeur (m)
+            <input
+              type="number"
+              step={0.1}
+              min={current.rooms[selected].minW}
+              defaultValue={current.rooms[selected].w.toFixed(2)}
+              key={`w-${selected}-${current.rooms[selected].w}`}
+              onBlur={(e) => handleResizeField(selected, "w", Number(e.target.value))}
+              className="w-20 rounded border border-slate-300 px-2 py-1"
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            Profondeur (m)
+            <input
+              type="number"
+              step={0.1}
+              min={current.rooms[selected].minD}
+              defaultValue={current.rooms[selected].d.toFixed(2)}
+              key={`d-${selected}-${current.rooms[selected].d}`}
+              onBlur={(e) => handleResizeField(selected, "d", Number(e.target.value))}
+              className="w-20 rounded border border-slate-300 px-2 py-1"
+            />
+          </label>
+          <span className="text-slate-500">
+            Surface : {(current.rooms[selected].w * current.rooms[selected].d).toFixed(1)} m² — minimum {current.rooms[selected].minW.toFixed(2)} ×{" "}
+            {current.rooms[selected].minD.toFixed(2)} m.
+          </span>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {selected !== null
           ? doorsOf(current, selected).map((d) => (
@@ -403,7 +585,7 @@ export function PlanEditor({
         >
           <rect x={0} y={0} width={w} height={h} fill="#ffffff" />
           <rect x={X(0)} y={Y(0)} width={current.terrain.w * SCALE} height={current.terrain.d * SCALE} fill="none" stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="4 3" />
-          <text x={w - 24} y={16} fontSize={10} fill="#334155" textAnchor="middle">{orientation}</text>
+          <text x={w - 24} y={16} fontSize={10} fill="#334155" textAnchor="middle">{currentOrientation}</text>
           {current.emprise ? (
             <rect x={X(current.emprise.x)} y={Y(current.emprise.y)} width={current.emprise.w * SCALE} height={current.emprise.d * SCALE} fill="none" stroke="#0ea5e9" strokeWidth={1.5} strokeDasharray="6 3" />
           ) : null}
@@ -419,23 +601,31 @@ export function PlanEditor({
 
           {current.rooms.map((r, i) => {
             if (r.parked) return null;
-            const isPreview = dragRoomIndex === i && previewState;
-            const rx = X(isPreview ? previewState!.x : r.x);
-            const ry = Y(isPreview ? previewState!.y : r.y);
-            const rw = r.w * SCALE, rd = r.d * SCALE;
+            const isMovePreview = dragRoomIndex === i && previewState;
+            const isResizePreview = resizingRoomIndex === i && resizePreview;
+            const rx = X(isMovePreview ? previewState!.x : isResizePreview ? resizePreview!.x : r.x);
+            const ry = Y(isMovePreview ? previewState!.y : isResizePreview ? resizePreview!.y : r.y);
+            const rw = (isResizePreview ? resizePreview!.w : r.w) * SCALE;
+            const rd = (isResizePreview ? resizePreview!.d : r.d) * SCALE;
             const isSelected = selected === i;
             const roomDoors = doorsOf(current, i);
             return (
               <g key={i}>
-                {isPreview ? (
-                  <rect x={X(r.x)} y={Y(r.y)} width={rw} height={rd} fill="none" stroke="#cbd5e1" strokeDasharray="3 3" />
+                {isMovePreview ? (
+                  <rect x={X(r.x)} y={Y(r.y)} width={r.w * SCALE} height={r.d * SCALE} fill="none" stroke="#cbd5e1" strokeDasharray="3 3" />
                 ) : null}
                 <rect
                   x={rx}
                   y={ry}
                   width={rw}
                   height={rd}
-                  fill={isPreview ? (previewState!.valid ? "#bbf7d0" : "#fecaca") : isSelected ? "#dbeafe" : "#e2e8f0"}
+                  fill={
+                    isMovePreview
+                      ? previewState!.valid ? "#bbf7d0" : "#fecaca"
+                      : isResizePreview
+                        ? resizePreview!.valid ? "#bbf7d0" : "#fecaca"
+                        : isSelected ? "#dbeafe" : "#e2e8f0"
+                  }
                   stroke={isSelected ? "#1d4ed8" : "#1e293b"}
                   strokeWidth={isSelected ? 3 : 2}
                   style={{ cursor: tool === "move" ? "grab" : "pointer" }}
@@ -445,8 +635,12 @@ export function PlanEditor({
                   {r.label} {r.number}
                 </text>
                 <text x={rx + rw / 2} y={ry + rd / 2 + 11} fontSize={9} textAnchor="middle" fill="#334155" style={{ pointerEvents: "none" }}>
-                  {r.w.toFixed(2)} × {r.d.toFixed(2)} m
+                  {(isResizePreview ? resizePreview!.w : r.w).toFixed(2)} × {(isResizePreview ? resizePreview!.d : r.d).toFixed(2)} m
+                  {isResizePreview ? ` — ${(resizePreview!.w * resizePreview!.d).toFixed(1)} m²` : ""}
                 </text>
+                {tool === "resize" && isSelected && !r.parked ? (
+                  <ResizeHandles rx={rx} ry={ry} rw={rw} rd={rd} onPick={(corner, e) => handleResizeHandlePointerDown(e, i, corner)} />
+                ) : null}
                 {roomDoors.length === 0 ? (
                   <text x={rx + rw / 2} y={ry + rd - 6} fontSize={8} fill="#b91c1c" textAnchor="middle" style={{ pointerEvents: "none" }}>
                     ⚠ aucune porte
@@ -499,10 +693,23 @@ export function PlanEditor({
       </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button onClick={handleExportSvg} className="rounded border border-slate-400 px-3 py-1 text-sm">Exporter en SVG</button>
         <button onClick={handleExportPng} className="rounded border border-slate-400 px-3 py-1 text-sm">Exporter en PNG</button>
+        <span className="mx-1 h-5 w-px self-center bg-slate-300" />
+        <button onClick={handleExportProject} className="rounded border border-slate-400 px-3 py-1 text-sm">
+          Exporter le fichier de projet (.json)
+        </button>
+        <button onClick={handleImportProjectClick} className="rounded border border-slate-400 px-3 py-1 text-sm">
+          Importer un fichier de projet
+        </button>
+        <input ref={importInputRef} type="file" accept="application/json,.json" onChange={handleImportProjectFile} className="hidden" />
       </div>
+      <p className="text-xs text-slate-500">
+        Le fichier de projet (.json) est le seul format réellement modifiable : il contient la géométrie complète
+        (terrain, pièces placées et mises de côté, portes, fenêtres) et peut être réimporté pour continuer l&apos;édition.
+        Les exports SVG/PNG sont des images, pas des documents réouvrables.
+      </p>
       <canvas ref={canvasRef} className="hidden" />
 
       <div>
@@ -524,6 +731,45 @@ export function PlanEditor({
       ) : null}
       <p className="text-xs font-semibold text-red-700">{STAMP}</p>
     </div>
+  );
+}
+
+const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
+
+function ResizeHandles({
+  rx,
+  ry,
+  rw,
+  rd,
+  onPick,
+}: {
+  rx: number;
+  ry: number;
+  rw: number;
+  rd: number;
+  onPick: (corner: Corner, e: ReactPointerEvent) => void;
+}) {
+  return (
+    <>
+      {CORNERS.map((corner) => {
+        const cx = corner === "nw" || corner === "sw" ? rx : rx + rw;
+        const cy = corner === "nw" || corner === "ne" ? ry : ry + rd;
+        return (
+          <rect
+            key={corner}
+            x={cx - 5}
+            y={cy - 5}
+            width={10}
+            height={10}
+            fill="#1d4ed8"
+            stroke="#ffffff"
+            strokeWidth={1.5}
+            style={{ cursor: corner === "nw" || corner === "se" ? "nwse-resize" : "nesw-resize" }}
+            onPointerDown={(e) => onPick(corner, e)}
+          />
+        );
+      })}
+    </>
   );
 }
 
