@@ -213,6 +213,39 @@ try {
       record("Retour arrière — aucun chevauchement entre pièces/corridors du résultat", !overlapFound);
     }
 
+    // 8) COMPACITÉ — la fixture ci-dessus (plans-salon-regenerated.json) EST
+    // elle-même la disposition "historique" étalée du lot précédent :
+    // contour bâti 10.9×19.5 m = 212.5 m² pour seulement 51.1 m² de pièces
+    // (chambre verrouillée comprise), déjà vérifiée admissible par
+    // ailleurs (contrôles 1-7 ci-dessus). Elle sert ici de point de départ
+    // CONNU pour prouver que le moteur RÉEL (jamais une réponse codée en
+    // dur) peut reconstruire une disposition plus compacte qui quitte ce
+    // contour historique, tout en respectant le même terrain, programme,
+    // dimensions et le même verrou (position, dimensions, ouvertures).
+    const spreadFootprintArea = base.footprint.w * base.footprint.d;
+    const compactRegen = g.regenerateUnlocked(base);
+    record("Compacité — au moins une disposition admissible retrouvée depuis la fixture étalée", compactRegen.variants.length > 0);
+    if (compactRegen.variants.length > 0) {
+      const best = compactRegen.variants[0];
+      const bestFootprintArea = best.footprint.w * best.footprint.d;
+      // Seuil large (60 % du contour historique) : prouve une compacité
+      // réelle sans exiger LE résultat exact d'une exécution précédente,
+      // qui peut varier avec le budget de recherche ou l'ordre interne.
+      record(
+        "Compacité — le contour bâti retrouvé est réellement plus compact que le contour historique",
+        bestFootprintArea < spreadFootprintArea * 0.6,
+        `historique ${spreadFootprintArea.toFixed(1)} m² -> retrouvé ${bestFootprintArea.toFixed(1)} m²`
+      );
+      const lockedIdx = base.rooms.findIndex((r) => r.locked);
+      const lockedBefore = base.rooms[lockedIdx];
+      const lockedAfter = best.rooms[lockedIdx];
+      record(
+        "Compacité — la pièce verrouillée garde exactement sa position et ses dimensions",
+        lockedBefore.x === lockedAfter.x && lockedBefore.y === lockedAfter.y && lockedBefore.w === lockedAfter.w && lockedBefore.d === lockedAfter.d
+      );
+      record("Compacité — la disposition retrouvée reste admissible (0 erreur)", g.independentVerify(best).filter((i) => i.severity === "error").length === 0);
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

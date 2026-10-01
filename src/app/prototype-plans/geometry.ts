@@ -2533,6 +2533,78 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     minD: r.minD,
   }));
 
+  // DIAGNOSTIC (lot "compacité") : packNeedsIntoFreeSpace reçoit toujours
+  // l'emprise CONSTRUCTIBLE COMPLÈTE (terrain moins reculs, pas le contour
+  // bâti historique — celui-ci n'intervient qu'en clamp partiel ci-dessus,
+  // quand un mur verrouillé est encore réellement extérieur), et
+  // pickOrientation n'autorise une pose que sur un rectangle libre qui
+  // touche RÉELLEMENT un bord de cette emprise. Avec une emprise bien plus
+  // grande que ce qu'il faut pour loger les besoins, la recherche n'a
+  // aucune raison de rapprocher les pièces : elle les étale sur tout le
+  // périmètre disponible. La recherche tente donc AUSSI une emprise
+  // compacte, centrée sur les pièces verrouillées et dimensionnée sur la
+  // surface réellement demandée (jamais plus petite que nécessaire, jamais
+  // un carré imposé) — en PLUS de l'emprise complète, jamais à sa place :
+  // si la version compacte échoue, l'emprise complète reste tentée
+  // normalement, aucune régression possible.
+  const lockedBounds: Rect | null = lockedRooms.length > 0
+    ? lockedRooms.reduce<Rect>((acc, r) => {
+        const rr = roomRect(r);
+        const minX = Math.min(acc.x, rr.x);
+        const minY = Math.min(acc.y, rr.y);
+        const maxX = Math.max(acc.x + acc.w, rr.x + rr.w);
+        const maxY = Math.max(acc.y + acc.d, rr.y + rr.d);
+        return { x: minX, y: minY, w: maxX - minX, d: maxY - minY };
+      }, roomRect(lockedRooms[0]))
+    : null;
+  // Surface cible = somme des besoins non verrouillés, avec une marge pour
+  // la circulation et les murs à venir. AUCUN facteur unique n'est fiable
+  // (trop juste, certaines dispositions pourtant valides restent hors de
+  // portée ; trop large, aucun gain de compacité) : plusieurs échelles sont
+  // essayées (jamais codée en dur pour un cas précis), la recherche
+  // normale (packNeedsIntoFreeSpace / independentVerify) décide seule de ce
+  // qui est réellement admissible — une échelle trop généreuse dégénère
+  // simplement vers l'emprise complète, jamais une régression.
+  const COMPACT_AREA_FACTORS = [1.6, 2.2, 3.0];
+  const unlockedNeedsArea = needs.reduce((s, n) => s + n.width * n.depth, 0);
+  const lockedArea = lockedBounds ? lockedBounds.w * lockedBounds.d : 0;
+  function computeCompactEmprise(anchor: Rect, targetArea: number): Rect {
+    let w = Math.min(emprise.w, anchor.w);
+    let d = Math.min(emprise.d, anchor.d);
+    // Cible un contour globalement CARRÉ (aspect 1), jamais l'aspect de
+    // l'emprise complète : reprendre l'aspect du terrain (ex. 14×23, un
+    // rectangle déjà très allongé) reproduisait une emprise "compacte" tout
+    // aussi étirée, qui n'apportait rien de nouveau à explorer.
+    const aspect = 1;
+    let guard = 0;
+    while (w * d < targetArea && (w < emprise.w - 1e-6 || d < emprise.d - 1e-6) && guard++ < 200) {
+      if (w / Math.max(d, 0.1) < aspect && w < emprise.w - 1e-6) w = Math.min(emprise.w, w + 0.5);
+      else if (d < emprise.d - 1e-6) d = Math.min(emprise.d, d + 0.5);
+      else w = Math.min(emprise.w, w + 0.5);
+    }
+    let x = anchor.x + anchor.w / 2 - w / 2;
+    let y = anchor.y + anchor.d / 2 - d / 2;
+    x = Math.max(emprise.x, Math.min(x, emprise.x + emprise.w - w));
+    y = Math.max(emprise.y, Math.min(y, emprise.y + emprise.d - d));
+    return { x, y, w, d };
+  }
+  const compactAnchor = lockedBounds ?? (entryProbe ? { x: entryProbe.x, y: entryProbe.y, w: 0.1, d: 0.1 } : { x: emprise.x + emprise.w / 2, y: emprise.y + emprise.d / 2, w: 0.1, d: 0.1 });
+  const seenCompactKeys = new Set<string>();
+  const compactAttempts: { label: string; rect: Rect }[] = [];
+  for (const factor of COMPACT_AREA_FACTORS) {
+    const rect = computeCompactEmprise(compactAnchor, unlockedNeedsArea * factor + lockedArea);
+    // Écarte une échelle strictement redondante avec l'emprise complète
+    // (inutile de doubler le budget de recherche pour la même chose) ou
+    // avec une échelle plus petite déjà retenue (l'arrondi à 0.5 m peut
+    // faire coïncider deux facteurs voisins une fois clippée à l'emprise).
+    if (rect.w * rect.d >= emprise.w * emprise.d * 0.9) continue;
+    const key = `${rect.x.toFixed(1)}|${rect.y.toFixed(1)}|${rect.w.toFixed(1)}|${rect.d.toFixed(1)}`;
+    if (seenCompactKeys.has(key)) continue;
+    seenCompactKeys.add(key);
+    compactAttempts.push({ label: `, emprise compacte ×${factor}`, rect });
+  }
+  const EMPRISE_ATTEMPTS: { label: string; rect: Rect }[] = [{ label: "", rect: emprise }, ...compactAttempts];
+
   // Termine un candidat à partir d'un placement COMPLET (tous les besoins
   // posés quelque part) : raccorde les groupes au réseau, pose portes et
   // fenêtres, fusionne la circulation, recalcule et élague. Partagé par la
@@ -2599,10 +2671,10 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     };
   }
 
-  function attempt(order: FillOrder, mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
-    const label = `Ordre ${order}, ${mode.name}`;
+  function attempt(order: FillOrder, mode: ObstacleMode, searchEmprise: Rect, searchLabel: string): { layout: Layout; note: string } | { error: string } {
+    const label = `Ordre ${order}, ${mode.name}${searchLabel}`;
     const ordered = orderNeeds(needs, order);
-    const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, mode.obstacles, ordered);
+    const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(searchEmprise, mode.obstacles, ordered);
     if (leftover.length > 0) {
       return {
         error: `${label} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
@@ -2618,9 +2690,9 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   // suite de la recherche n'aboutit pas — voir backtrackPackNeedsIntoFreeSpace.
   // Les circulations ne sont reconstruites (finalizeCandidate) que pour les
   // placements COMPLETS trouvés ; jamais pour une disposition partielle.
-  function attemptBacktrack(mode: ObstacleMode): { results: { layout: Layout; note: string }[]; summary: string } {
-    const label = `Retour arrière, ${mode.name}`;
-    const outcome = backtrackPackNeedsIntoFreeSpace(emprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
+  function attemptBacktrack(mode: ObstacleMode, searchEmprise: Rect, searchLabel: string): { results: { layout: Layout; note: string }[]; summary: string } {
+    const label = `Retour arrière, ${mode.name}${searchLabel}`;
+    const outcome = backtrackPackNeedsIntoFreeSpace(searchEmprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
     const results: { layout: Layout; note: string }[] = [];
     for (const c of outcome.complete) {
       const built = finalizeCandidate(label, mode, c.placements, c.corridors, c.corridorFillers, c.groups);
@@ -2663,17 +2735,19 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   }
 
   for (const mode of obstacleModes) {
-    for (const order of FILL_ORDERS) {
-      const built = attempt(order, mode);
-      if ("error" in built) {
-        failureReasons.push(built.error);
-        continue;
+    for (const empriseAttempt of EMPRISE_ATTEMPTS) {
+      for (const order of FILL_ORDERS) {
+        const built = attempt(order, mode, empriseAttempt.rect, empriseAttempt.label);
+        if ("error" in built) {
+          failureReasons.push(built.error);
+          continue;
+        }
+        admitIfValid(`Ordre ${order}, ${mode.name}${empriseAttempt.label}`, built);
       }
-      admitIfValid(`Ordre ${order}, ${mode.name}`, built);
+      const { results, summary } = attemptBacktrack(mode, empriseAttempt.rect, empriseAttempt.label);
+      searchStats.push(summary);
+      results.forEach((built, i) => admitIfValid(`Retour arrière #${i + 1}, ${mode.name}${empriseAttempt.label}`, built));
     }
-    const { results, summary } = attemptBacktrack(mode);
-    searchStats.push(summary);
-    results.forEach((built, i) => admitIfValid(`Retour arrière #${i + 1}, ${mode.name}`, built));
   }
 
   // Écarte les doublons stricts (même disposition obtenue par deux chemins

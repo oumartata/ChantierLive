@@ -796,6 +796,12 @@ export function PlanEditor({
           <tbody>
             <tr><td>Terrain</td><td>{current.surfaces.terrain.toFixed(1)} m²</td></tr>
             <tr><td>Emprise disponible</td><td>{current.surfaces.emprise.toFixed(1)} m²</td></tr>
+            {current.footprint ? (
+              <tr>
+                <td>Contour englobant (rectangle, {current.footprint.w.toFixed(1)}×{current.footprint.d.toFixed(1)} m)</td>
+                <td>{(current.footprint.w * current.footprint.d).toFixed(1)} m²</td>
+              </tr>
+            ) : null}
             {current.surfaces.cour > 0 ? (
               <tr><td>Cour d&apos;entrée</td><td>{current.surfaces.cour.toFixed(1)} m²</td></tr>
             ) : null}
@@ -809,12 +815,13 @@ export function PlanEditor({
           </tbody>
         </table>
         <p className="mt-1 text-xs text-slate-500">
-          « Union pièces + circulations » est l&apos;union géométrique réelle des pièces et des circulations (jamais un
-          chevauchement compté deux fois, jamais le rectangle englobant) — elle ne compte PAS l&apos;épaisseur des murs
-          et n&apos;est donc pas une surface bâtie complète au sens réglementaire. Cour, cette union, résiduel non
-          affecté et espaces extérieurs sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible.
-          Recalculées après chaque déplacement, redimensionnement ou régénération — jamais figées depuis la génération
-          initiale.
+          Le « contour englobant » est le plus petit rectangle qui contient toutes les pièces et circulations — pas une
+          mesure de compacité en soi, juste sa taille. « Union pièces + circulations » est l&apos;union géométrique
+          réelle des pièces et des circulations à l&apos;intérieur de ce contour (jamais un chevauchement compté deux
+          fois) — elle ne compte PAS l&apos;épaisseur des murs et n&apos;est donc pas une surface bâtie complète au sens
+          réglementaire. Cour, cette union, résiduel non affecté et espaces extérieurs sont mutuellement exclusifs :
+          leur somme égale l&apos;emprise disponible. Recalculées après chaque déplacement, redimensionnement ou
+          régénération — jamais figées depuis la génération initiale.
         </p>
       </div>
 
@@ -863,9 +870,10 @@ function RegenerationPanel({
     <div className="flex flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-4">
       <h3 className="font-semibold text-indigo-900">Comparer de nouvelles dispositions</h3>
       <p className="text-xs text-indigo-800">
-        Ce calcul (au maximum 5 ordres de remplissage × 2 stratégies de circulation, un passage glouton chacun —
-        quelques dizaines de millisecondes avec le nombre de pièces de ce prototype) s&apos;est déjà terminé — il
-        n&apos;y a rien en cours à interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
+        Ce calcul (jusqu&apos;à 5 ordres de remplissage et une recherche avec retour arrière, × 2 stratégies de
+        circulation, × plusieurs emprises dont une compacte autour des verrous — quelques millisecondes à quelques
+        dizaines de millisecondes avec le nombre de pièces de ce prototype) s&apos;est déjà terminé — il n&apos;y a
+        rien en cours à interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
         disposition » ; « Fermer sans appliquer » vous y ramène exactement tel quel. Les pièces verrouillées restent
         identiques (position, dimensions, portes, fenêtres existantes) dans chaque proposition ci-dessous.
       </p>

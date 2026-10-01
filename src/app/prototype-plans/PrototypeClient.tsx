@@ -459,6 +459,12 @@ export function PrototypeClient() {
                   <tbody>
                     <tr><td>Terrain</td><td>{selected.surfaces.terrain.toFixed(1)} m²</td></tr>
                     <tr><td>Emprise disponible</td><td>{selected.surfaces.emprise.toFixed(1)} m²</td></tr>
+                    {selected.footprint ? (
+                      <tr>
+                        <td>Contour englobant (rectangle, {selected.footprint.w.toFixed(1)}×{selected.footprint.d.toFixed(1)} m)</td>
+                        <td>{(selected.footprint.w * selected.footprint.d).toFixed(1)} m²</td>
+                      </tr>
+                    ) : null}
                     {selected.surfaces.cour > 0 ? (
                       <tr><td>Cour d&apos;entrée</td><td>{selected.surfaces.cour.toFixed(1)} m²</td></tr>
                     ) : null}
@@ -472,7 +478,7 @@ export function PrototypeClient() {
                   </tbody>
                 </table>
                 <p className="mt-1 text-xs text-slate-500">
-                  « Union pièces + circulations » est l&apos;union géométrique réelle des pièces et des circulations (jamais un chevauchement compté deux fois, jamais le rectangle englobant) — elle ne compte PAS l&apos;épaisseur des murs et n&apos;est donc pas une surface bâtie complète au sens réglementaire. Cour, cette union, résiduel non affecté et espaces extérieurs sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible.
+                  Le « contour englobant » est le plus petit rectangle qui contient toutes les pièces et circulations — pas une mesure de compacité en soi, juste sa taille. « Union pièces + circulations » est l&apos;union géométrique réelle des pièces et des circulations à l&apos;intérieur de ce contour (jamais un chevauchement compté deux fois) — elle ne compte PAS l&apos;épaisseur des murs et n&apos;est donc pas une surface bâtie complète au sens réglementaire. Cour, cette union, résiduel non affecté et espaces extérieurs sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible.
                 </p>
               </div>
 
