@@ -800,6 +800,35 @@ try {
       chambre: 2, salon: 1, cuisine: 1, sanitaire: 1,
     });
 
+    // 13) RACCORDEMENT PAR N'IMPORTE QUEL SEGMENT D'UN GROUPE (lot "évaluer et
+    // améliorer la génération") — connectGroupsToNetwork ne sondait la
+    // jonction qu'avec LE CORRIDOR PRINCIPAL d'un groupe (g.corridor),
+    // jamais ses raccords (g.fillers), même quand un raccord était, lui,
+    // réellement aligné avec le réseau déjà connecté — un groupe entier
+    // (donc ses pièces) était alors écarté comme "coupé du reste du
+    // logement" alors qu'une jonction réelle existait, juste pas par le
+    // corridor. Corrigé en essayant TOUS les segments d'un groupe (corridor
+    // ET raccords) — généralisation de la recherche de jonction, jamais une
+    // règle spécifique à un terrain. Cas déterministe : un groupe dont le
+    // corridor est loin et mal aligné du réseau fixe, mais dont le RACCORD
+    // (filler) est, lui, exactement aligné et à portée.
+    {
+      const fixedNetwork = [{ x: 5, y: 0, w: 1, d: 0.3 }];
+      const group = {
+        corridor: { x: 0, y: 5, w: 3, d: 1.2 },
+        fillers: [{ x: 5, y: 1.2, w: 1, d: 3.8 }],
+        placements: [
+          { need: { idx: 0, label: "Test", type: "chambre", width: 3, depth: 1, minW: 3, minD: 1 }, x: 0, y: 5, w: 3, d: 1, exteriorWall: "bottom", doorWall: "top" },
+        ],
+      };
+      const result = g.connectGroupsToNetwork(fixedNetwork, [group], []);
+      record(
+        "Connectivité des groupes — un groupe se raccorde par son raccord (filler) même si son corridor principal ne s'aligne pas",
+        result.strandedNeeds.length === 0,
+        `ponts: ${JSON.stringify(result.bridges)}`
+      );
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

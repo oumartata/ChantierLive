@@ -2397,50 +2397,65 @@ export function buildExteriorPath(entryDoor: DoorGeometry, targets: Rect[], obst
 // géométrie le permet ; sinon, le groupe entier (pas seulement sa
 // circulation) est écarté — ses pièces reviennent au besoin non satisfait,
 // jamais laissées flottantes dans le résultat final.
-function connectGroupsToNetwork(
+export function connectGroupsToNetwork(
   fixedNetwork: Rect[],
   groups: PackedGroup[],
   obstacles: Rect[]
 ): { bridges: Rect[]; strandedNeeds: FreeSpaceNeed[] } {
   const MAX_BRIDGE_GAP = 2.5; // m — au-delà, une jonction droite ne serait plus une hypothèse crédible
-  const connectedRects: Rect[] = [...fixedNetwork];
   const bridges: Rect[] = [];
-  let pendingGroups = [...groups];
-  let changed = true;
-  while (changed && pendingGroups.length > 0) {
-    changed = false;
-    const stillPending: PackedGroup[] = [];
-    for (const g of pendingGroups) {
-      // Contact RÉEL seulement (voir CIRCULATION_TOUCH_EPS) : la tolérance
-      // d'épaisseur de mur acceptait à tort un vide de 10 à 20 cm entre deux
-      // segments comme "déjà raccordés", sans jonction dessinée.
-      if (connectedRects.some((t) => rectsAdjacent(g.corridor, t, CIRCULATION_TOUCH_EPS))) {
-        connectedRects.push(g.corridor, ...g.fillers);
-        changed = true;
-        continue;
-      }
-      const otherPlacementRects = pendingGroups
-        .filter((other) => other !== g)
-        .flatMap((other) => other.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })));
-      let bridge: Rect | null = null;
-      for (const t of connectedRects) {
-        const candidate = straightBridge(g.corridor, t, MAX_BRIDGE_GAP);
+  // GÉNÉRALISATION (blocage mesuré le plus fréquent, cas "connu" : deux
+  // groupes mutuellement raccordables par une jonction droite, mais dont
+  // AUCUN ne touche directement le réseau fixe — l'ancienne version ne
+  // faisait croître la connectivité QUE depuis le réseau fixe vers
+  // l'extérieur, donc ratait ce cas même quand un chemin complet existait
+  // (groupe A — groupe B — réseau fixe). Remplacé par une fusion de
+  // CLUSTERS (le réseau fixe est un cluster comme un autre, jamais
+  // privilégié dans l'ordre d'essai) : toute paire de clusters réellement
+  // adjacente ou pontable est fusionnée, quel que soit lequel contient déjà
+  // le réseau fixe — seul le résultat final (quels groupes ont rejoint le
+  // cluster du réseau fixe) compte. Mêmes primitives qu'avant
+  // (rectsAdjacent, straightBridge, rectsOverlap), aucune géométrie
+  // nouvelle : une généralisation de l'ordre de recherche, pas une règle
+  // spécifique à un terrain.
+  interface Cluster { rects: Rect[]; groupIdxs: Set<number> }
+  const root: Cluster = { rects: [...fixedNetwork], groupIdxs: new Set<number>() };
+  const clusters: Cluster[] = [root, ...groups.map((g, i) => ({ rects: [g.corridor, ...g.fillers], groupIdxs: new Set<number>([i]) }))];
+
+  function tryMerge(a: Cluster, b: Cluster): Rect | "touch" | null {
+    if (a.rects.some((ra) => b.rects.some((rb) => rectsAdjacent(ra, rb, CIRCULATION_TOUCH_EPS)))) return "touch";
+    const excluded = new Set<number>([...a.groupIdxs, ...b.groupIdxs]);
+    const otherPlacementRects = groups
+      .filter((_, gi) => !excluded.has(gi))
+      .flatMap((g) => g.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })));
+    for (const ra of a.rects) {
+      for (const rb of b.rects) {
+        const candidate = straightBridge(ra, rb, MAX_BRIDGE_GAP);
         if (candidate && !obstacles.some((o) => rectsOverlap(candidate, o)) && !otherPlacementRects.some((o) => rectsOverlap(candidate, o))) {
-          bridge = candidate;
-          break;
+          return candidate;
         }
       }
-      if (bridge) {
-        bridges.push(bridge);
-        connectedRects.push(g.corridor, ...g.fillers, bridge);
+    }
+    return null;
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = 0; i < clusters.length && !changed; i++) {
+      for (let j = i + 1; j < clusters.length; j++) {
+        const result = tryMerge(clusters[i], clusters[j]);
+        if (result === null) continue;
+        if (result !== "touch") bridges.push(result);
+        clusters[i].rects.push(...clusters[j].rects, ...(result !== "touch" ? [result] : []));
+        clusters[j].groupIdxs.forEach((gi) => clusters[i].groupIdxs.add(gi));
+        clusters.splice(j, 1);
         changed = true;
-      } else {
-        stillPending.push(g);
+        break;
       }
     }
-    pendingGroups = stillPending;
   }
-  const strandedNeeds = pendingGroups.flatMap((g) => g.placements.map((p) => p.need));
+  const strandedNeeds = groups.filter((_, gi) => !root.groupIdxs.has(gi)).flatMap((g) => g.placements.map((p) => p.need));
   return { bridges, strandedNeeds };
 }
 
