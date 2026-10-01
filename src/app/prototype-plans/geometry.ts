@@ -1745,6 +1745,12 @@ export interface RegenerationResult {
   // configuration non prise en charge — jamais "projet impossible", toujours
   // le motif précis.
   failureReasons: string[];
+  // Statistiques de la recherche avec retour arrière (voir
+  // backtrackPackNeedsIntoFreeSpace) : noeuds explorés, temps écoulé,
+  // dispositions complètes trouvées, impasses rencontrées, budget atteint
+  // ou non — jamais mêlé à failureReasons (qui ne décrit que des rejets).
+  // Vide si la recherche par retour arrière n'a pas été tentée.
+  searchStats: string[];
 }
 
 // ---- Recherche générale par espace libre — obstacles à position quelconque ----
@@ -1805,7 +1811,7 @@ function crossAbsMin(origin: number, crossExtent: number, exteriorIsMin: boolean
   return exteriorIsMin ? origin + distFromExterior : origin + crossExtent - distFromExterior - size;
 }
 
-interface FreeSpaceNeed { idx: number; label: string; type: string; width: number; depth: number; minW: number; minD: number }
+export interface FreeSpaceNeed { idx: number; label: string; type: string; width: number; depth: number; minW: number; minD: number }
 interface FreeSpacePlacement { need: FreeSpaceNeed; x: number; y: number; w: number; d: number; exteriorWall: WallSide; doorWall: WallSide }
 
 // Remplit GLOUTONNEMENT l'espace libre (plus grands rectangles d'abord) avec
@@ -1822,7 +1828,7 @@ interface PackedGroup {
   placements: FreeSpacePlacement[];
 }
 
-function packNeedsIntoFreeSpace(
+export function packNeedsIntoFreeSpace(
   emprise: Rect,
   obstacles: Rect[],
   needs: FreeSpaceNeed[]
@@ -1939,6 +1945,222 @@ function packNeedsIntoFreeSpace(
   }
 
   return { placements, corridors, corridorFillers, leftover: remaining, groups };
+}
+
+// Budget mesurable de la recherche avec retour arrière — jamais une
+// recherche non bornée : au-delà de l'un ou l'autre, la recherche s'arrête
+// et le signale explicitement (outcome.budgetHit), jamais en silence.
+const BACKTRACK_MAX_NODES = 400;
+const BACKTRACK_MAX_MILLIS = 150;
+// Au-delà de quelques dispositions complètes déjà trouvées, continuer à en
+// chercher d'autres n'apporte plus grand-chose face au coût : compareLayoutQuality
+// les classera de toute façon, jamais besoin d'en garder des dizaines.
+const BACKTRACK_MAX_COMPLETE = 4;
+// Nombre de rectangles libres (les plus grands par aire) essayés comme
+// point de départ à chaque noeud — pas seulement le plus grand : voir le
+// commentaire dans `search` pour le cas précis (reclip d'un autre
+// rectangle) que ce choix supplémentaire permet de contourner.
+const BACKTRACK_FR_BRANCHING = 2;
+
+// Calcule le placement d'UN groupe (ligne simple, même mur extérieur) dans
+// UN rectangle libre donné, pour une liste de besoins ESSAYÉS DANS CET
+// ORDRE (premier arrivé, premier servi dans la limite de la place) — EXACTE
+// MÊME géométrie que packNeedsIntoFreeSpace (corridor, raccords), mais SANS
+// aucun effet de bord sur un état partagé : ne fait que retourner son
+// résultat. Réutilisé par backtrackPackNeedsIntoFreeSpace pour essayer
+// plusieurs sous-ensembles au même endroit sans jamais avoir à "annuler"
+// une mutation — chaque essai part d'un état neuf.
+function fitGroupIntoFreeRect(
+  fr: Rect,
+  emprise: Rect,
+  tryOrder: FreeSpaceNeed[]
+): { placed: FreeSpacePlacement[]; corridor: Rect; fillers: Rect[]; consumed: Rect[] } | null {
+  const orient = pickOrientation(fr, emprise);
+  if (!orient) return null;
+  const { vertical, exteriorIsMin } = orient;
+  const crossExtent = vertical ? fr.w : fr.d;
+  const crossOrigin = vertical ? fr.x : fr.y;
+  const crossBudget = crossExtent - WALL_EXT - CORRIDOR_WIDTH - WALL_INT - WALL_EXT;
+  if (crossBudget < 1.5) return null;
+  const alongOrigin = vertical ? fr.y : fr.x;
+  const alongExtent = vertical ? fr.d : fr.w;
+  const alongStart = alongOrigin + WALL_EXT;
+  const alongLimit = alongOrigin + alongExtent - WALL_EXT;
+  let cursor = alongStart;
+  const placedHere: Array<{ need: FreeSpaceNeed; along: number; cross: number; alongPos: number }> = [];
+  for (const need of tryOrder) {
+    const crossDim = vertical ? need.width : need.depth;
+    const alongDim = vertical ? need.depth : need.width;
+    if (crossDim <= crossBudget + 1e-6 && cursor + alongDim <= alongLimit + 1e-6) {
+      placedHere.push({ need, along: alongDim, cross: crossDim, alongPos: cursor });
+      cursor += alongDim + WALL_INT;
+    }
+  }
+  if (placedHere.length === 0) return null;
+  const maxCross = Math.max(...placedHere.map((p) => p.cross));
+  const exteriorWall: WallSide = vertical ? (exteriorIsMin ? "left" : "right") : exteriorIsMin ? "top" : "bottom";
+  const doorWall: WallSide = exteriorWall === "left" ? "right" : exteriorWall === "right" ? "left" : exteriorWall === "top" ? "bottom" : "top";
+  const corridorAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT + maxCross, CORRIDOR_WIDTH);
+  const groupAlongStart = placedHere[0].alongPos;
+  const groupAlongSpan = placedHere[placedHere.length - 1].alongPos + placedHere[placedHere.length - 1].along - groupAlongStart;
+  const corridor: Rect = vertical
+    ? { x: corridorAbsMin, y: groupAlongStart, w: CORRIDOR_WIDTH, d: groupAlongSpan }
+    : { x: groupAlongStart, y: corridorAbsMin, w: groupAlongSpan, d: CORRIDOR_WIDTH };
+  const consumed: Rect[] = [corridor];
+  const fillers: Rect[] = [];
+  const placed: FreeSpacePlacement[] = [];
+  for (const p of placedHere) {
+    const roomCrossAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT, p.cross);
+    const x = vertical ? roomCrossAbsMin : p.alongPos;
+    const y = vertical ? p.alongPos : roomCrossAbsMin;
+    const w = vertical ? p.cross : p.along;
+    const d = vertical ? p.along : p.cross;
+    const placement: FreeSpacePlacement = { need: p.need, x, y, w, d, exteriorWall, doorWall };
+    placed.push(placement);
+    consumed.push({ x, y, w, d });
+    const roomInward = exteriorIsMin ? roomCrossAbsMin + p.cross : roomCrossAbsMin;
+    const corridorNear = exteriorIsMin ? corridorAbsMin : corridorAbsMin + CORRIDOR_WIDTH;
+    const fillerStart = exteriorIsMin ? roomInward : corridorNear;
+    const fillerSize = exteriorIsMin ? corridorNear - roomInward : roomInward - corridorNear;
+    if (fillerSize > 1e-6) {
+      const fillerRect: Rect = vertical
+        ? { x: fillerStart, y: p.alongPos, w: fillerSize, d: p.along }
+        : { x: p.alongPos, y: fillerStart, w: p.along, d: fillerSize };
+      fillers.push(fillerRect);
+      consumed.push(fillerRect);
+    }
+  }
+  return { placed, corridor, fillers, consumed };
+}
+
+interface BacktrackOutcome {
+  complete: { placements: FreeSpacePlacement[]; corridors: Rect[]; corridorFillers: Rect[]; groups: PackedGroup[] }[];
+  nodesExplored: number;
+  elapsedMillis: number;
+  budgetHit: boolean;
+  deadEnds: number;
+}
+
+// Recherche BORNÉE avec retour arrière réel : contrairement à
+// packNeedsIntoFreeSpace (un ordre fixe, un seul passage glouton, jamais de
+// retour possible sur un choix), explore pour le plus grand rectangle libre
+// restant PLUSIEURS sous-ensembles/ordres candidats de besoins à y placer ;
+// si une branche mène à une impasse (il reste des besoins mais plus aucun
+// rectangle libre), elle est abandonnée SANS AVOIR MUTÉ aucun état partagé
+// (chaque branche reçoit son propre état, voir fitGroupIntoFreeRect) et la
+// branche suivante au même point de choix est essayée — un vrai retour
+// arrière, pas une nouvelle tentative indépendante depuis le début. Les
+// circulations (corridor + raccords) ne sont composées que pour les
+// dispositions COMPLÈTES (plus aucun besoin restant) ; jamais pour un état
+// partiel, qui n'a pas vocation à être présenté comme tel.
+export function backtrackPackNeedsIntoFreeSpace(
+  emprise: Rect,
+  obstacles: Rect[],
+  needs: FreeSpaceNeed[],
+  maxNodes: number,
+  maxMillis: number,
+  maxComplete: number
+): BacktrackOutcome {
+  const startedAt = Date.now();
+  let nodesExplored = 0;
+  let budgetHit = false;
+  let deadEnds = 0;
+  const complete: BacktrackOutcome["complete"] = [];
+
+  interface SearchState {
+    pending: Rect[];
+    remaining: FreeSpaceNeed[];
+    placements: FreeSpacePlacement[];
+    corridors: Rect[];
+    corridorFillers: Rect[];
+    groups: PackedGroup[];
+  }
+
+  function budgetExceeded(): boolean {
+    if (nodesExplored >= maxNodes || Date.now() - startedAt >= maxMillis) {
+      budgetHit = true;
+      return true;
+    }
+    return false;
+  }
+
+  function reclip(pending: Rect[], consumed: Rect[]): Rect[] {
+    const next: Rect[] = [];
+    for (const other of pending) {
+      if (consumed.some((c) => rectsOverlap(other, c))) next.push(...computeFreeRects(other, consumed));
+      else next.push(other);
+    }
+    return next;
+  }
+
+  function search(state: SearchState): void {
+    if (complete.length >= maxComplete || budgetExceeded()) return;
+    if (state.remaining.length === 0) {
+      complete.push({ placements: state.placements, corridors: state.corridors, corridorFillers: state.corridorFillers, groups: state.groups });
+      return;
+    }
+    if (state.pending.length === 0) {
+      deadEnds++;
+      return;
+    }
+    const sortedPending = [...state.pending].sort((a, b) => b.w * b.d - a.w * a.d);
+
+    // Plusieurs CANDIDATS pour QUEL rectangle libre traiter en premier —
+    // pas seulement le plus grand : consommer le plus grand rectangle en
+    // premier peut re-écrêter (voir reclip) un AUTRE rectangle encore en
+    // attente qui chevauche la zone consommée, le rétrécissant avant même
+    // qu'un besoin encombrant ait eu sa chance d'y aller. Essayer aussi un
+    // rectangle plus petit en premier revient à "revenir en arrière" sur ce
+    // choix structurel, pas seulement sur le sous-ensemble posé dedans.
+    const frChoices = sortedPending.slice(0, Math.min(BACKTRACK_FR_BRANCHING, sortedPending.length));
+
+    let anyFit = false;
+    for (const fr of frChoices) {
+      const restPending = sortedPending.filter((r) => r !== fr);
+      // Plusieurs CANDIDATS pour CE rectangle libre, essayés dans cet ordre —
+      // chacun peut placer un sous-ensemble DIFFÉRENT des besoins restants
+      // (une "position" différente pour une même pièce, au sens de la
+      // consigne). "sans le plus grand d'abord" réserve explicitement le
+      // besoin le plus encombrant pour un autre rectangle, au cas où le
+      // caser ici l'empêcherait d'être placé ailleurs plus loin.
+      const byAreaDesc = [...state.remaining].sort((a, b) => b.width * b.depth - a.width * a.depth);
+      const byAreaAsc = [...state.remaining].sort((a, b) => a.width * a.depth - b.width * b.depth);
+      const withoutLargestFirst = byAreaDesc.length > 1 ? [...byAreaDesc.slice(1), byAreaDesc[0]] : null;
+      const candidateOrders: FreeSpaceNeed[][] = [state.remaining, byAreaDesc, byAreaAsc, ...(withoutLargestFirst ? [withoutLargestFirst] : [])];
+
+      const triedSubsets = new Set<string>();
+      for (const order of candidateOrders) {
+        if (complete.length >= maxComplete || budgetExceeded()) return;
+        const fit = fitGroupIntoFreeRect(fr, emprise, order);
+        if (!fit || fit.placed.length === 0) continue;
+        const subsetKey = fit.placed.map((p) => p.need.idx).sort((a, b) => a - b).join(",");
+        if (triedSubsets.has(subsetKey)) continue; // même sous-ensemble déjà essayé via un autre ordre
+        triedSubsets.add(subsetKey);
+        anyFit = true;
+        nodesExplored++;
+        const placedIdx = new Set(fit.placed.map((p) => p.need.idx));
+        search({
+          pending: reclip(restPending, fit.consumed),
+          remaining: state.remaining.filter((n) => !placedIdx.has(n.idx)),
+          placements: [...state.placements, ...fit.placed],
+          corridors: [...state.corridors, fit.corridor],
+          corridorFillers: [...state.corridorFillers, ...fit.fillers],
+          groups: [...state.groups, { corridor: fit.corridor, fillers: fit.fillers, placements: fit.placed }],
+        });
+      }
+    }
+    // Aucun besoin ne tient dans aucun des rectangles essayés (trop petits,
+    // ou tous déjà placés ailleurs dans les branches essayées) : le plus
+    // grand est retiré et la recherche continue sans lui, jamais une
+    // impasse immédiate pour un seul rectangle inutilisable.
+    if (!anyFit) {
+      search({ ...state, pending: sortedPending.slice(1) });
+    }
+  }
+
+  search({ pending: computeFreeRects(emprise, obstacles), remaining: needs, placements: [], corridors: [], corridorFillers: [], groups: [] });
+
+  return { complete, nodesExplored, elapsedMillis: Date.now() - startedAt, budgetHit, deadEnds };
 }
 
 // Segment de jonction DROIT entre deux rectangles de circulation qui
@@ -2186,7 +2408,7 @@ function pruneUnneededCirculation(layout: Layout): Layout {
 export function regenerateUnlocked(layout: Layout): RegenerationResult {
   const failureReasons: string[] = [];
   if (!layout.emprise || !layout.footprint) {
-    return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."] };
+    return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."], searchStats: [] };
   }
   const lockedRooms = layout.rooms.filter((r) => r.locked && !r.parked);
   // Le contour bâti reste une UNIQUE emprise rectangulaire (convention déjà
@@ -2233,6 +2455,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       variants: [],
       preferenceNotes: [],
       failureReasons: ["Aucune pièce non verrouillée à régénérer — verrouillez les pièces à conserver et laissez au moins une autre pièce déverrouillée."],
+      searchStats: [],
     };
   }
 
@@ -2244,6 +2467,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       failureReasons: [
         `Ce moteur général (espace libre autour d'obstacles) ne sait pas encore poser d'accès véhicule direct : « ${vehicleNeeds[0].r.label} ${vehicleNeeds[0].r.number} » ne peut pas être régénérée ainsi sans perdre son accès — verrouillez-la pour la conserver à sa place actuelle, ou déplacez-la manuellement après régénération des autres pièces.`,
       ],
+      searchStats: [],
     };
   }
 
@@ -2309,15 +2533,19 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     minD: r.minD,
   }));
 
-  function attempt(order: FillOrder, mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
-    const label = `Ordre ${order}, ${mode.name}`;
-    const ordered = orderNeeds(needs, order);
-    const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, mode.obstacles, ordered);
-    if (leftover.length > 0) {
-      return {
-        error: `${label} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
-      };
-    }
+  // Termine un candidat à partir d'un placement COMPLET (tous les besoins
+  // posés quelque part) : raccorde les groupes au réseau, pose portes et
+  // fenêtres, fusionne la circulation, recalcule et élague. Partagé par la
+  // recherche par ordre fixe (attempt) et par la recherche avec retour
+  // arrière (attemptBacktrack ci-dessous) — jamais dupliqué entre les deux.
+  function finalizeCandidate(
+    label: string,
+    mode: ObstacleMode,
+    placements: FreeSpacePlacement[],
+    corridors: Rect[],
+    corridorFillers: Rect[],
+    groups: PackedGroup[]
+  ): { layout: Layout; note: string } | { error: string } {
     const { bridges, strandedNeeds } = connectGroupsToNetwork(mode.networkAnchors, groups, mode.obstacles);
     if (strandedNeeds.length > 0) {
       return {
@@ -2371,26 +2599,55 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     };
   }
 
+  function attempt(order: FillOrder, mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
+    const label = `Ordre ${order}, ${mode.name}`;
+    const ordered = orderNeeds(needs, order);
+    const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, mode.obstacles, ordered);
+    if (leftover.length > 0) {
+      return {
+        error: `${label} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
+      };
+    }
+    return finalizeCandidate(label, mode, placements, corridors, corridorFillers, groups);
+  }
+
+  // Recherche avec RETOUR ARRIÈRE, bornée en noeuds explorés ET en temps :
+  // contrairement à `attempt` (un ordre fixe, un seul passage glouton sans
+  // retour possible), explore pour CHAQUE rectangle libre plusieurs
+  // sous-ensembles de besoins à y placer et revient sur ce choix si la
+  // suite de la recherche n'aboutit pas — voir backtrackPackNeedsIntoFreeSpace.
+  // Les circulations ne sont reconstruites (finalizeCandidate) que pour les
+  // placements COMPLETS trouvés ; jamais pour une disposition partielle.
+  function attemptBacktrack(mode: ObstacleMode): { results: { layout: Layout; note: string }[]; summary: string } {
+    const label = `Retour arrière, ${mode.name}`;
+    const outcome = backtrackPackNeedsIntoFreeSpace(emprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
+    const results: { layout: Layout; note: string }[] = [];
+    for (const c of outcome.complete) {
+      const built = finalizeCandidate(label, mode, c.placements, c.corridors, c.corridorFillers, c.groups);
+      if (!("error" in built)) results.push(built);
+    }
+    const summary =
+      `${label} : ${outcome.nodesExplored} placement(s) de groupe exploré(s) en ${outcome.elapsedMillis} ms, ` +
+      `${outcome.complete.length} disposition(s) complète(s) trouvée(s), ${outcome.deadEnds} impasse(s) rencontrée(s)` +
+      (outcome.budgetHit ? ", budget de recherche atteint (noeuds ou temps) — recherche interrompue, pas une impossibilité démontrée." : ", recherche achevée dans son budget.");
+    return { results, summary };
+  }
+
   const FILL_ORDERS: FillOrder[] = ["aire décroissante", "aire croissante", "largeur décroissante", "profondeur décroissante", "regroupé par type"];
   const candidates: { layout: Layout; note: string }[] = [];
-  for (const mode of obstacleModes) {
-  for (const order of FILL_ORDERS) {
-    const built = attempt(order, mode);
-    if ("error" in built) {
-      failureReasons.push(built.error);
-      continue;
-    }
+  const searchStats: string[] = [];
+  // Même règle que generateVariants (consider()) pour CHAQUE candidat testé
+  // (ordre fixe ou retour arrière) : indépendantVerify ne la signale qu'en
+  // avertissement (une pièce peut légitimement rester posée sans fenêtre
+  // pendant l'édition), mais une proposition de RÉGÉNÉRATION présentée
+  // comme admissible ne peut pas violer en silence la règle du prototype —
+  // y compris pour une pièce VERROUILLÉE : un verrou fige sa position,
+  // jamais la garantie que cette position reste conforme aux règles de
+  // présentation. Centralisé ici pour ne jamais diverger entre les deux
+  // recherches.
+  function admitIfValid(label: string, built: { layout: Layout; note: string }): void {
     const issues = independentVerify(built.layout);
     const errors = issues.filter((i) => i.severity === "error");
-    // Même règle que generateVariants (consider()) — jamais appliquée ici
-    // avant ce correctif : indépendantVerify ne la signale qu'en
-    // avertissement (une pièce peut légitimement rester posée sans fenêtre
-    // pendant l'édition), mais une proposition de RÉGÉNÉRATION présentée
-    // comme admissible ne peut pas violer en silence la règle du prototype
-    // ("une chambre ou un salon sans ouverture extérieure représentée est
-    // écarté des propositions satisfaisantes") — y compris pour une pièce
-    // VERROUILLÉE : un verrou fige sa position, jamais la garantie que
-    // cette position reste conforme aux règles de présentation.
     const realWindowFailures = built.layout.rooms.filter(
       (r) => !r.parked && REQUIRE_EXTERIOR_TYPES.has(r.type) && built.layout.footprint && !hasExteriorTouch(r, built.layout.footprint)
     );
@@ -2399,11 +2656,24 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         ...errors.map((e) => e.message),
         ...realWindowFailures.map((r) => `« ${r.label} ${r.number} » (${r.type}) : règle du prototype — ouverture extérieure requise pour une chambre ou un salon, absente ici.`),
       ];
-      failureReasons.push(`Ordre ${order}, ${mode.name} : ${reasons.join(" ")}`);
-      continue;
+      failureReasons.push(`${label} : candidat invalide — ${reasons.join(" ")}`);
+      return;
     }
     candidates.push(built);
   }
+
+  for (const mode of obstacleModes) {
+    for (const order of FILL_ORDERS) {
+      const built = attempt(order, mode);
+      if ("error" in built) {
+        failureReasons.push(built.error);
+        continue;
+      }
+      admitIfValid(`Ordre ${order}, ${mode.name}`, built);
+    }
+    const { results, summary } = attemptBacktrack(mode);
+    searchStats.push(summary);
+    results.forEach((built, i) => admitIfValid(`Retour arrière #${i + 1}, ${mode.name}`, built));
   }
 
   // Écarte les doublons stricts (même disposition obtenue par deux chemins
@@ -2429,7 +2699,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   deduped.sort((a, b) => compareLayoutQuality(a.layout, b.layout));
   deduped.forEach((c, i) => (c.layout.variantLabel = `Régénération ${i + 1}`));
 
-  return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons };
+  return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons, searchStats };
 }
 
 // Replace une pièce mise de côté à la position donnée — exactement les

@@ -152,6 +152,67 @@ try {
       );
     }
 
+    // 7) RECHERCHE AVEC RETOUR ARRIÈRE — cas déterministe où le premier
+    // placement (n'importe quel ordre fixe) bloque une pièce, mais où un
+    // autre choix permet de compléter le plan. Emprise 14×10 m, un obstacle
+    // (ex. pièce verrouillée) à x=[6,9] y=[0,4] découpe l'espace libre en 3
+    // rectangles qui se chevauchent (gauche x=[0,6] profondeur pleine,
+    // droite x=[9,14] profondeur pleine, bas x=[0,14] y=[4,10]) — le plus
+    // grand par aire (le bas) est TOUJOURS traité en premier par l'algorithme
+    // glouton à ordre fixe, et son remplissage (qui part toujours du bord
+    // gauche) rogne le rectangle de gauche avant que "Grande" (qui a besoin
+    // de sa pleine profondeur) n'ait sa chance. Les 5 ordres fixes échouent
+    // tous pour cette seule et même raison structurelle (jamais un ordre des
+    // besoins qui y changerait quoi que ce soit) ; le retour arrière, lui,
+    // explore aussi le rectangle de GAUCHE en premier (voir
+    // BACKTRACK_FR_BRANCHING) et trouve la disposition qui marche.
+    function mkNeed(idx, label, w, d) { return { idx, label, type: label, width: w, depth: d, minW: w, minD: d }; }
+    const btEmprise = { x: 0, y: 0, w: 14, d: 10 };
+    const btObstacle = { x: 6, y: 0, w: 3, d: 4 };
+    const btNeeds = [mkNeed(0, "Grande", 5.2, 5), mkNeed(1, "M1", 3.5, 2.2), mkNeed(2, "M2", 3.5, 2.2), mkNeed(3, "M3", 3.5, 2.2)];
+    const byAreaDesc = (a, b) => b.width * b.depth - a.width * a.depth;
+    const btOrders = {
+      "aire décroissante": [...btNeeds].sort(byAreaDesc),
+      "aire croissante": [...btNeeds].sort((a, b) => a.width * a.depth - b.width * b.depth),
+      "largeur décroissante": [...btNeeds].sort((a, b) => b.width - a.width || byAreaDesc(a, b)),
+      "profondeur décroissante": [...btNeeds].sort((a, b) => b.depth - a.depth || byAreaDesc(a, b)),
+      "regroupé par type": [...btNeeds].sort((a, b) => a.type.localeCompare(b.type) || byAreaDesc(a, b)),
+    };
+    const fixedOrderResults = Object.entries(btOrders).map(([name, ordered]) => ({
+      name,
+      leftover: g.packNeedsIntoFreeSpace(btEmprise, [btObstacle], ordered).leftover,
+    }));
+    record(
+      "Retour arrière — préalable : les 5 ordres fixes échouent tous (« Grande » bloquée)",
+      fixedOrderResults.every((r) => r.leftover.some((n) => n.label === "Grande")),
+      fixedOrderResults.map((r) => `${r.name}: ${r.leftover.map((n) => n.label).join(",") || "complet"}`).join(" | ")
+    );
+    const btOutcome = g.backtrackPackNeedsIntoFreeSpace(btEmprise, [btObstacle], btNeeds, 400, 150, 4);
+    record(
+      "Retour arrière — trouve une disposition complète là où tous les ordres fixes échouent",
+      btOutcome.complete.length > 0,
+      `${btOutcome.nodesExplored} noeud(s), ${btOutcome.deadEnds} impasse(s), ${btOutcome.elapsedMillis} ms, budget atteint: ${btOutcome.budgetHit}`
+    );
+    if (btOutcome.complete.length > 0) {
+      const first = btOutcome.complete[0];
+      const placedLabels = new Set(first.placements.map((p) => p.need.label));
+      record("Retour arrière — la disposition complète place bien les 4 besoins", ["Grande", "M1", "M2", "M3"].every((l) => placedLabels.has(l)));
+      // Contrôles géométriques habituels sur le résultat du retour arrière :
+      // aucun chevauchement entre les pièces posées et le corridor de leur
+      // propre groupe (même exigence que packNeedsIntoFreeSpace).
+      const allRects = [...first.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })), ...first.corridors];
+      let overlapFound = false;
+      for (let i = 0; i < allRects.length && !overlapFound; i++) {
+        for (let j = i + 1; j < allRects.length; j++) {
+          const a = allRects[i], b = allRects[j];
+          const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          const overlapY = Math.min(a.y + a.d, b.y + b.d) - Math.max(a.y, b.y);
+          if (overlapX > 1e-6 && overlapY > 1e-6) { overlapFound = true; break; }
+        }
+      }
+      record("Retour arrière — aucun chevauchement entre pièces/corridors du résultat", !overlapFound);
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

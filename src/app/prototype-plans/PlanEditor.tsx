@@ -873,15 +873,22 @@ function RegenerationPanel({
         <div className="rounded bg-red-50 p-3 text-sm text-red-900">
           <p className="font-semibold">Aucune disposition trouvée respectant toutes les contraintes obligatoires.</p>
           <p className="mt-1 text-xs">
-            Ceci ne signifie pas que le projet est architecturalement impossible — seulement que ce moteur, avec cet
-            algorithme borné (2 ordres d&apos;empilement explorés au maximum par colonne), n&apos;a pas trouvé de
-            disposition satisfaisante pour les pièces non verrouillées, compte tenu des pièces verrouillées conservées
-            telles quelles.
+            Ceci ne signifie pas que le projet est architecturalement impossible — seulement que ce moteur (ordres de
+            remplissage fixes et recherche bornée avec retour arrière, voir le détail ci-dessous) n&apos;a pas trouvé
+            de disposition satisfaisante pour les pièces non verrouillées, compte tenu des pièces verrouillées
+            conservées telles quelles.
           </p>
           {result.failureReasons.length > 0 ? (
             <ul className="mt-2 list-disc pl-5 text-xs">
               {result.failureReasons.map((r, i) => (
                 <li key={i}>{r}</li>
+              ))}
+            </ul>
+          ) : null}
+          {result.searchStats.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
+              {result.searchStats.map((s, i) => (
+                <li key={i}>{s}</li>
               ))}
             </ul>
           ) : null}
@@ -909,6 +916,16 @@ function RegenerationPanel({
               <ul className="mt-1 list-disc pl-5">
                 {result.failureReasons.map((r, i) => (
                   <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+          {result.searchStats.length > 0 ? (
+            <details className="text-xs text-slate-600">
+              <summary className="cursor-pointer">Recherche avec retour arrière — statistiques</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {result.searchStats.map((s, i) => (
+                  <li key={i}>{s}</li>
                 ))}
               </ul>
             </details>
