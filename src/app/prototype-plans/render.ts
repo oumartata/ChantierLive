@@ -120,6 +120,13 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
   for (const filler of layout.corridorFillers) {
     parts.push(`<rect x="${X(filler.x)}" y="${Y(filler.y)}" width="${filler.w * scalePxPerMeter}" height="${filler.d * scalePxPerMeter}" fill="#fef9c3" stroke="#eab308" stroke-width="0.5" />`);
   }
+  // Espaces de circulation supplémentaires (Layout.circulations) — mêmes
+  // données que le corridor historique, dessinées de façon identique :
+  // jamais un singleton supposé unique (voir une disposition en L, où ce
+  // tableau porte le second segment de circulation).
+  for (const extra of layout.circulations ?? []) {
+    parts.push(`<rect x="${X(extra.x)}" y="${Y(extra.y)}" width="${extra.w * scalePxPerMeter}" height="${extra.d * scalePxPerMeter}" fill="#fef9c3" stroke="#eab308" stroke-width="1" />`);
+  }
 
   // Une pièce mise de côté (zone de rangement) n'occupe aucune place réelle
   // sur le terrain tant qu'elle n'est pas replacée — jamais dessinée ici.

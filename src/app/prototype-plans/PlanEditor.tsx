@@ -613,10 +613,12 @@ export function PlanEditor({
       </div>
       {selected !== null && current.rooms[selected].locked ? (
         <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
-          Pièce verrouillée : sa position et ses dimensions resteront EXACTEMENT inchangées lors d&apos;une régénération.
-          Ses portes et fenêtres actuelles ne sont ni touchées ni supprimées par la régénération ; vous pouvez encore les
-          modifier manuellement ici tant qu&apos;elle reste sélectionnée. Déplacement, redimensionnement et mise de côté
-          sont bloqués tant qu&apos;elle est verrouillée.
+          Ce que verrouille ce bouton : la POSITION (x, y) et les DIMENSIONS (largeur, profondeur) de cette pièce — une
+          régénération ne les modifiera jamais, quelle que soit la disposition proposée. Les OUVERTURES (portes,
+          fenêtres) actuelles de cette pièce ne sont ni touchées ni supprimées par une régénération non plus — mais le
+          verrou ne les fige PAS pour vous : vous pouvez encore en ajouter, déplacer ou retirer manuellement ici tant que
+          la pièce reste sélectionnée. Déplacement (glisser-déposer), redimensionnement et mise de côté sont bloqués tant
+          qu&apos;elle reste verrouillée.
         </p>
       ) : null}
       {parked.length > 0 ? (
@@ -668,6 +670,9 @@ export function PlanEditor({
           ) : null}
           {current.corridorFillers.map((f, i) => (
             <rect key={i} x={X(f.x)} y={Y(f.y)} width={f.w * SCALE} height={f.d * SCALE} fill="#fef9c3" stroke="#eab308" strokeWidth={0.5} />
+          ))}
+          {current.circulations.map((c, i) => (
+            <rect key={`circ-${i}`} x={X(c.x)} y={Y(c.y)} width={c.w * SCALE} height={c.d * SCALE} fill="#fef9c3" stroke="#eab308" />
           ))}
 
           {current.rooms.map((r, i) => {
@@ -830,9 +835,10 @@ function RegenerationPanel({
     <div className="flex flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-4">
       <h3 className="font-semibold text-indigo-900">Comparer de nouvelles dispositions</h3>
       <p className="text-xs text-indigo-800">
-        Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette disposition » —
-        « Annuler » vous y ramène exactement tel quel. Les pièces verrouillées restent identiques (position, dimensions,
-        portes, fenêtres) dans chaque proposition ci-dessous.
+        Ce calcul (2 ordres de remplissage au maximum) s&apos;est déjà terminé — il n&apos;y a rien en cours à
+        interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
+        disposition » ; « Fermer sans appliquer » vous y ramène exactement tel quel. Les pièces verrouillées restent
+        identiques (position, dimensions, portes, fenêtres existantes) dans chaque proposition ci-dessous.
       </p>
       {result.variants.length === 0 ? (
         <div className="rounded bg-red-50 p-3 text-sm text-red-900">
@@ -887,7 +893,7 @@ function RegenerationPanel({
           </button>
         ) : null}
         <button onClick={onCancel} className="rounded border border-indigo-400 px-3 py-2 text-sm">
-          Annuler — garder le brouillon actuel
+          Fermer sans appliquer — garder le brouillon actuel
         </button>
       </div>
     </div>

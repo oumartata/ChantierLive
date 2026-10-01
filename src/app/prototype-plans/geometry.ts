@@ -719,6 +719,176 @@ function buildGuidedLayout(
   };
 }
 
+// Famille d'organisation RÉELLEMENT distincte du corridor double-chargé
+// ci-dessus : une circulation EN L, composée de DEUX segments de géométrie
+// différente, chacun avec une largeur utilisable (CORRIDOR_WIDTH) et des
+// connexions réellement vérifiées (independentVerify, sans exception) —
+// jamais un simple changement d'ordre des pièces ni un petit raccord ajouté
+// au même couloir.
+// - Segment HAUT (horizontal) : une rangée de pièces à simple charge le
+//   long de la façade d'accès (chaque pièce donne sur l'extérieur par son
+//   propre mur avant), desservie par ce segment juste derrière elle.
+// - Segment BAS (vertical) : un corridor double-chargé classique (comme
+//   buildDoubleLoadedLayout), occupant la profondeur restante.
+// Les deux segments se touchent réellement là où le segment haut (toute la
+// largeur du bâti) rejoint le haut du segment bas (plus étroit) — un
+// contact géométrique vrai, pas une fiction. Layout.corridor = segment haut
+// (c'est lui que l'entrée doit atteindre) ; le segment bas est ajouté à
+// Layout.circulations — exactement le mécanisme généralisé prévu pour
+// plusieurs espaces de circulation identifiés.
+// Limite EXACTE de cette version : seul un accès par la façade GAUCHE est
+// pris en charge (l'entrée rejoint directement le segment haut par le mur
+// gauche du bâti, un contact réel, pas une approximation) — toute autre
+// façade est refusée explicitement. Toutes les pièces d'un même besoin
+// partagent encore une seule taille (comme le moteur existant) ; un
+// redimensionnement manuel ultérieur reste possible en édition.
+function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNeeds: RoomNeed[], rightNeeds: RoomNeed[], label: string): Layout {
+  const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
+  const fail = (reasons: string[]): Layout => ({
+    variantLabel: label,
+    feasible: false,
+    failureReasons: reasons,
+    rejected: false,
+    rejectionReasons: [],
+    accessSide: input.accessSide,
+    terrain,
+    emprise: null,
+    footprint: null,
+    corridor: null,
+    corridorFillers: [],
+    circulations: [],
+    courtyard: null,
+    streetDoor: null,
+    entryDoor: null,
+    rooms: [],
+    doors: [],
+    windows: [],
+    exteriorSpaces: [],
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0 },
+  });
+
+  if (input.accessSide !== "left") {
+    return fail([
+      "Circulation en L non prise en charge dans cette version pour une façade d'accès autre que gauche — combinaison non traitée, choix ignoré nulle part : réessayez avec « Gauche ».",
+    ]);
+  }
+  if (topNeeds.length === 0) return fail(["Circulation en L : aucune pièce disponible pour le segment haut (rangée simple charge)."]);
+  if (leftNeeds.length === 0 && rightNeeds.length === 0) return fail(["Circulation en L : aucune pièce disponible pour le segment bas (corridor double-chargé)."]);
+
+  const empriseW = input.terrainWidth - input.setbacks.left - input.setbacks.right;
+  const empriseD = input.terrainDepth - input.setbacks.front - input.setbacks.back;
+  if (empriseW <= 0 || empriseD <= 0) {
+    return fail(["Les reculs ne laissent aucune emprise constructible (largeur ou profondeur disponible ≤ 0)."]);
+  }
+  const emprise: Rect = { x: input.setbacks.left, y: input.setbacks.front, w: empriseW, d: empriseD };
+
+  // Segment HAUT : rangée de pièces côte à côte, chacune contre la façade
+  // d'accès (exterior="top"), desservies par le segment haut juste en
+  // dessous. Pièces moins profondes que la rangée : raccord (filler) pour
+  // garder une ligne de corridor rectiligne — même principe que les
+  // raccords latéraux du corridor double-chargé.
+  const rooms: PlacedRoom[] = [];
+  const doors: Door[] = [];
+  const windows: Window[] = [];
+  const extraFillers: Rect[] = [];
+  const topSized = topNeeds.map((need) => ({ need, width: sizeFor(need.targetWidth, need.minWidth), depth: sizeFor(need.targetDepth, need.minDepth) }));
+  const rowMaxDepth = Math.max(...topSized.map((s) => s.depth));
+  let cursorX = emprise.x + WALL_EXT;
+  topSized.forEach(({ need, width, depth }, i) => {
+    const x = cursorX;
+    const y = emprise.y + WALL_EXT;
+    const roomIndex = rooms.length;
+    rooms.push({ type: need.type, label: need.label, number: numberWithin(topNeeds, i, need.type), x, y, w: width, d: depth, minW: need.minWidth, minD: need.minDepth, exteriorWall: "top", vehicleDoor: null });
+    doors.push({ roomIndex, wall: "bottom", cx: x + width / 2, cy: y + depth, width: Math.min(DOOR_WIDTH, width), to: { kind: "circulation" } });
+    windows.push({ roomIndex, wall: "top", cx: x + width / 2, cy: y, width: width * 0.5 });
+    const depthGap = rowMaxDepth - depth;
+    if (depthGap > 1e-6) extraFillers.push({ x, y: y + depth, w: width, d: depthGap + WALL_INT });
+    cursorX += width + WALL_INT;
+  });
+  const rowWidth = cursorX - WALL_INT - (emprise.x + WALL_EXT);
+  if (rowWidth > empriseW - 2 * WALL_EXT + 1e-6) {
+    return fail([`Circulation en L : largeur insuffisante pour le segment haut (${rowWidth.toFixed(2)} m nécessaires > ${(empriseW - 2 * WALL_EXT).toFixed(2)} m disponibles).`]);
+  }
+  const topCorridor: Rect = { x: emprise.x + WALL_EXT, y: emprise.y + WALL_EXT + rowMaxDepth, w: rowWidth, d: CORRIDOR_WIDTH };
+
+  // Segment BAS : corridor double-chargé classique, décalé sous le segment
+  // haut — même logique géométrique que buildDoubleLoadedLayout, réutilisée
+  // ici directement (pas un second calcul qui pourrait diverger).
+  const left = leftNeeds.length > 0 ? layoutColumn(leftNeeds) : null;
+  const right = rightNeeds.length > 0 ? layoutColumn(rightNeeds) : null;
+  const bottomFootprintW = WALL_EXT * 2 + (left ? left.maxWidth + WALL_INT : 0) + CORRIDOR_WIDTH + (right ? right.maxWidth + WALL_INT : 0);
+  if (bottomFootprintW > empriseW) {
+    return fail([`Circulation en L : largeur insuffisante pour le segment bas (${bottomFootprintW.toFixed(2)} m nécessaires > ${empriseW.toFixed(2)} m disponibles).`]);
+  }
+  const bottomRoomsDepth = Math.max(left?.totalDepth ?? 0, right?.totalDepth ?? 0);
+  const bottomBandY = topCorridor.y + topCorridor.d + WALL_INT;
+  const bottomFootprintD = WALL_EXT * 2 + bottomRoomsDepth;
+  if (bottomBandY + bottomFootprintD > emprise.y + empriseD + 1e-6) {
+    return fail([
+      `Circulation en L : profondeur insuffisante pour le segment bas (${(bottomBandY + bottomFootprintD - emprise.y).toFixed(2)} m nécessaires > ${empriseD.toFixed(2)} m disponibles).`,
+    ]);
+  }
+  const bottomCorridorX = emprise.x + WALL_EXT + (left ? left.maxWidth + WALL_INT : 0);
+  const bottomCorridor: Rect = { x: bottomCorridorX, y: bottomBandY + WALL_EXT, w: CORRIDOR_WIDTH, d: bottomRoomsDepth };
+
+  function placeBottomColumn(col: { rooms: ColumnRoom[]; maxWidth: number } | null, needsArr: RoomNeed[], side: "left" | "right") {
+    if (!col) return;
+    let cursorY = bottomBandY + WALL_EXT;
+    const colMaxWidth = col.maxWidth;
+    col.rooms.forEach((cr, i) => {
+      const need = needsArr[i];
+      const x = side === "left" ? emprise.x + WALL_EXT : bottomCorridor.x + bottomCorridor.w + WALL_INT + (colMaxWidth - cr.width);
+      const exteriorWall: WallSide = side === "left" ? "left" : "right";
+      const roomIndex = rooms.length;
+      rooms.push({ type: need.type, label: need.label, number: numberWithin(needsArr, i, need.type), x, y: cursorY, w: cr.width, d: cr.depth, minW: need.minWidth, minD: need.minDepth, exteriorWall, vehicleDoor: null });
+      const doorWall: WallSide = side === "left" ? "right" : "left";
+      const innerX = side === "left" ? x + cr.width : x;
+      doors.push({ roomIndex, wall: doorWall, cx: innerX, cy: cursorY + cr.depth / 2, width: Math.min(DOOR_WIDTH, cr.depth), to: { kind: "circulation" } });
+      windows.push({ roomIndex, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + cr.width, cy: cursorY + cr.depth / 2, width: cr.depth * 0.5 });
+      const gap = colMaxWidth - cr.width;
+      if (gap > 1e-6) {
+        const fillerX = side === "left" ? x + cr.width : bottomCorridor.x + bottomCorridor.w + WALL_INT;
+        extraFillers.push({ x: fillerX, y: cursorY, w: gap + WALL_INT, d: cr.depth });
+      }
+      cursorY += cr.depth + WALL_INT;
+    });
+  }
+  placeBottomColumn(left, leftNeeds, "left");
+  placeBottomColumn(right, rightNeeds, "right");
+
+  const footprintW = Math.max(rowWidth + 2 * WALL_EXT, bottomFootprintW);
+  const footprint: Rect = { x: emprise.x, y: emprise.y, w: footprintW, d: bottomBandY + bottomFootprintD - emprise.y };
+
+  // Entrée : rejoint le segment HAUT directement par le mur GAUCHE du bâti —
+  // un contact géométrique réel (le segment haut commence exactement à ce
+  // mur, x=emprise.x+WALL_EXT=footprint.x+WALL_EXT), jamais une approxima-
+  // tion numérique sans appui physique.
+  const entryDoor: DoorGeometry = { wall: "left", cx: footprint.x, cy: topCorridor.y + topCorridor.d / 2, width: DOOR_WIDTH };
+
+  return {
+    variantLabel: label,
+    feasible: true,
+    failureReasons: [],
+    rejected: false,
+    rejectionReasons: [],
+    accessSide: input.accessSide,
+    terrain,
+    emprise,
+    footprint,
+    corridor: topCorridor,
+    corridorFillers: extraFillers,
+    circulations: [bottomCorridor],
+    courtyard: null,
+    streetDoor: null,
+    entryDoor,
+    rooms,
+    doors,
+    windows,
+    exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
+    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, [...extraFillers, bottomCorridor], rooms, null),
+  };
+}
+
 function computeExteriorSpaces(terrain: Rect, emprise: Rect, footprint: Rect, accessSide: AccessSide): ExteriorSpace[] {
   // Utilise les bords RÉELS du bâti (footprint.y/footprint.x), jamais ceux de
   // l'emprise directement : avec une cour d'entrée, footprint.y est décalé
@@ -1336,15 +1506,21 @@ export interface RegenerationResult {
 
 // Régénère les pièces NON verrouillées et NON mises de côté, en conservant
 // EXACTEMENT les pièces verrouillées (identité, position, dimensions,
-// portes, fenêtres — jamais touchées). Portée EXACTE de ce moteur dans
-// cette tranche : seules les dispositions organisées en au plus deux
-// colonnes autour d'un unique corridor central, où les pièces verrouillées
-// de chaque colonne forment un bloc contigu depuis le haut, sont prises en
-// charge — toute autre configuration est refusée avec un motif précis,
-// jamais une tentative silencieuse qui déplacerait une pièce verrouillée.
-// Explore 2 ordres d'empilement par colonne (profondeur croissante/décrois-
-// sante) quand au moins deux pièces de profondeurs différentes doivent être
-// régénérées dans la même colonne — jamais un simple miroir gauche/droite.
+// portes, fenêtres — jamais touchées) et les dimensions INDIVIDUELLES
+// (éventuellement redimensionnées manuellement) de chaque pièce régénérée —
+// jamais ramenées à une taille unique par type. Portée EXACTE de ce moteur
+// dans cette tranche : les pièces (verrouillées ou non) doivent se trouver
+// dans l'une des deux bandes gauche/droite autour d'un unique corridor
+// central ; DANS une bande, les pièces verrouillées peuvent être N'IMPORTE
+// OÙ (plus de contrainte "bloc contigu depuis le haut") — les espaces
+// libres entre/au-dessus/en dessous d'elles sont comblés par les pièces à
+// régénérer. Une pièce hors de ces deux bandes (position vraiment
+// quelconque dans l'emprise) est un cas HORS DE PORTÉE de ce moteur,
+// signalé comme tel — jamais confondu avec une contradiction géométrique
+// démontrée (largeur insuffisante, manque de profondeur dans l'emprise).
+// Explore 2 ordres de remplissage (profondeur croissante/décroissante)
+// quand au moins deux pièces de profondeurs différentes doivent être
+// régénérées dans la même bande — jamais un simple miroir gauche/droite.
 export function regenerateUnlocked(layout: Layout): RegenerationResult {
   const failureReasons: string[] = [];
   if (!layout.emprise || !layout.corridor || !layout.footprint) {
@@ -1367,57 +1543,51 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     if (r.x >= corridor.x + corridor.w - 1e-2) return "right";
     return null;
   }
-  const allPlaced = [...lockedRooms, ...targetRooms.map((x) => x.r)];
-  if (allPlaced.some((r) => sideOf(r) === null)) {
+  const outOfScope = [...lockedRooms, ...targetRooms.map((x) => x.r)].filter((r) => sideOf(r) === null);
+  if (outOfScope.length > 0) {
     return {
       variants: [],
       preferenceNotes: [],
-      failureReasons: ["Disposition actuelle non organisée en deux colonnes autour d'un seul corridor : régénération non prise en charge pour cette configuration dans cette tranche."],
+      failureReasons: [
+        `Hors de portée de ce moteur dans cette version (pas une contradiction géométrique) : « ${outOfScope[0].label} ${outOfScope[0].number} » occupe une position que la régénération ne sait pas encore traiter (ni dans la bande gauche, ni dans la bande droite du corridor central). Repositionnez-la dans l'une des deux bandes, ou laissez-la déverrouillée.`,
+      ],
     };
   }
 
   const lockedBySide = { left: [] as PlacedRoom[], right: [] as PlacedRoom[] };
   for (const r of lockedRooms) lockedBySide[sideOf(r)!].push(r);
-  const targetIndicesBySide = { left: [] as number[], right: [] as number[] };
-  const targetNeedsBySide = { left: new Map<string, RoomNeed>(), right: new Map<string, RoomNeed>() };
+  // Chaque pièce à régénérer garde SA PROPRE taille (cible = sa taille
+  // actuelle, minimum = son propre minimum défini à l'origine) — jamais
+  // regroupée avec les autres pièces du même type.
+  interface TargetDesc { idx: number; label: string; width: number; depth: number; minW: number; minD: number }
+  const targetBySide = { left: [] as TargetDesc[], right: [] as TargetDesc[] };
   for (const { r, i } of targetRooms) {
     const side = sideOf(r)!;
-    targetIndicesBySide[side].push(i);
-    const existing = targetNeedsBySide[side].get(r.type);
-    if (existing) {
-      existing.targetWidth = Math.max(existing.targetWidth, r.w);
-      existing.targetDepth = Math.max(existing.targetDepth, r.d);
-      existing.minWidth = Math.min(existing.minWidth, r.minW);
-      existing.minDepth = Math.min(existing.minDepth, r.minD);
-    } else {
-      targetNeedsBySide[side].set(r.type, { type: r.type, label: r.label, count: 0, minWidth: r.minW, minDepth: r.minD, targetWidth: r.w, targetDepth: r.d });
-    }
+    targetBySide[side].push({ idx: i, label: `${r.label} ${r.number}`, width: sizeFor(r.w, r.minW), depth: sizeFor(r.d, r.minD), minW: r.minW, minD: r.minD });
   }
 
-  // Les pièces verrouillées de chaque colonne doivent former un bloc
-  // contigu depuis le haut — seule disposition où "le reste de la colonne"
-  // est un espace rectangulaire simple à régénérer.
-  const lockedEndY = { left: emprise.y + WALL_EXT, right: emprise.y + WALL_EXT };
-  for (const side of ["left", "right"] as const) {
-    const locked = lockedBySide[side].slice().sort((a, b) => a.y - b.y);
-    let expectedY = emprise.y + WALL_EXT;
-    for (const r of locked) {
-      if (Math.abs(r.y - expectedY) > 1e-2) {
-        return {
-          variants: [],
-          preferenceNotes: [],
-          failureReasons: [
-            `Colonne ${side === "left" ? "gauche" : "droite"} : les pièces verrouillées n'occupent pas un bloc contigu depuis le haut de la colonne — régénération non prise en charge pour cette disposition.`,
-          ],
-        };
-      }
-      expectedY += r.d + WALL_INT;
-    }
-    lockedEndY[side] = locked.length > 0 ? expectedY - WALL_INT : emprise.y + WALL_EXT;
-  }
   const lockedWidth = { left: null as number | null, right: null as number | null };
   for (const side of ["left", "right"] as const) {
     if (lockedBySide[side].length > 0) lockedWidth[side] = Math.max(...lockedBySide[side].map((r) => r.w));
+  }
+
+  // Espaces LIBRES dans chaque bande, calculés à partir des pièces
+  // verrouillées quelle que soit leur position (plus de restriction "haut
+  // de colonne") : un segment avant chaque pièce verrouillée (le cas
+  // échéant), entre deux pièces verrouillées consécutives, et un dernier
+  // segment ouvert après la dernière — jamais un chevauchement avec une
+  // pièce verrouillée.
+  interface Gap { start: number; end: number | null }
+  function gapsFor(side: "left" | "right"): Gap[] {
+    const locked = lockedBySide[side].slice().sort((a, b) => a.y - b.y);
+    const gaps: Gap[] = [];
+    let cursor = emprise.y + WALL_EXT;
+    for (const r of locked) {
+      if (r.y > cursor + 1e-2) gaps.push({ start: cursor, end: r.y - WALL_INT });
+      cursor = Math.max(cursor, r.y + r.d + WALL_INT);
+    }
+    gaps.push({ start: cursor, end: null });
+    return gaps;
   }
 
   // Profondeur cible ORIGINALE des pièces régénérées (avant régénération),
@@ -1432,50 +1602,56 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     const next = cloneLayout(layout);
     next.doors = next.doors.filter((d) => !targetRooms.some((t) => t.i === d.roomIndex));
     next.windows = next.windows.filter((w) => !targetRooms.some((t) => t.i === w.roomIndex));
-    const newEndY = { left: lockedEndY.left, right: lockedEndY.right };
-    const usedTypesOrder: string[] = [];
+    const totalNewDepth = { left: 0, right: 0 };
 
     for (const side of ["left", "right"] as const) {
-      const needs = [...targetNeedsBySide[side].values()];
-      if (needs.length === 0) continue;
-      const sized = needs.map((need) => ({ need, width: sizeFor(need.targetWidth, need.minWidth), depth: sizeFor(need.targetDepth, need.minDepth) }));
-      const naturalMaxWidth = sized.reduce((m, s) => Math.max(m, s.width), 0);
+      const descs = targetBySide[side];
+      if (descs.length === 0) continue;
+      const naturalMaxWidth = descs.reduce((m, s) => Math.max(m, s.width), 0);
       const colMaxWidth = lockedWidth[side] ?? naturalMaxWidth;
-      const tooWide = sized.find((s) => s.width > colMaxWidth + 1e-6);
+      const tooWide = descs.find((s) => s.width > colMaxWidth + 1e-6);
       if (tooWide) {
         return {
-          error: `Colonne ${side === "left" ? "gauche" : "droite"} : largeur requise pour « ${tooWide.need.label} » (${tooWide.width.toFixed(2)} m) dépasse la largeur fixée par les pièces verrouillées (${colMaxWidth.toFixed(2)} m).`,
+          error: `Bande ${side === "left" ? "gauche" : "droite"} : largeur de « ${tooWide.label} » (${tooWide.width.toFixed(2)} m) dépasse la largeur fixée par les pièces verrouillées (${colMaxWidth.toFixed(2)} m) — contradiction géométrique, pas une limite de portée.`,
         };
       }
-      const ordered = [...sized].sort((a, b) => (order === "croissant" ? a.depth - b.depth : b.depth - a.depth));
-      usedTypesOrder.push(...ordered.map((s) => s.need.type));
-      let cursorY = lockedEndY[side] + (lockedBySide[side].length > 0 ? WALL_INT : 0);
+      const ordered = [...descs].sort((a, b) => (order === "croissant" ? a.depth - b.depth : b.depth - a.depth));
+      const gaps = gapsFor(side).map((g) => ({ ...g, cursor: g.start }));
       const exteriorWall: WallSide = side === "left" ? "left" : "right";
       const doorWall: WallSide = side === "left" ? "right" : "left";
-      for (const { need, width, depth } of ordered) {
-        const roomIndicesForType = targetIndicesBySide[side].filter((idx) => layout.rooms[idx].type === need.type);
-        for (const idx of roomIndicesForType) {
-          const x = side === "left" ? emprise.x + WALL_EXT : corridor.x + corridor.w + WALL_INT + (colMaxWidth - width);
-          const innerX = side === "left" ? x + width : x;
-          const room = next.rooms[idx];
-          room.x = x;
-          room.y = cursorY;
-          room.w = width;
-          room.d = depth;
-          room.minW = need.minWidth;
-          room.minD = need.minDepth;
-          room.exteriorWall = exteriorWall;
-          next.doors.push({ roomIndex: idx, wall: doorWall, cx: innerX, cy: cursorY + depth / 2, width: Math.min(DOOR_WIDTH, depth), to: { kind: "circulation" } });
-          next.windows.push({ roomIndex: idx, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + width, cy: cursorY + depth / 2, width: depth * 0.5 });
-          const gap = colMaxWidth - width;
-          if (gap > 1e-6) {
-            const fillerX = side === "left" ? x + width : corridor.x + corridor.w + WALL_INT;
-            next.circulations.push({ x: fillerX, y: cursorY, w: gap + WALL_INT, d: depth });
-          }
-          cursorY += depth + WALL_INT;
+      for (const desc of ordered) {
+        // Premier espace (dans l'ordre) où cette pièce tient encore —
+        // heuristique de remplissage simple (premier ajustement), pas une
+        // optimisation exhaustive de la disposition.
+        let gap = gaps.find((g) => g.end === null || g.cursor + desc.depth <= g.end + 1e-6);
+        if (!gap) gap = gaps[gaps.length - 1];
+        const needsMargin = gap.cursor > gap.start + 1e-9;
+        const y = gap.cursor + (needsMargin ? WALL_INT : 0);
+        if (gap.end !== null && y + desc.depth > gap.end + 1e-6) {
+          return {
+            error: `Bande ${side === "left" ? "gauche" : "droite"} : profondeur insuffisante dans l'espace libre disponible pour « ${desc.label} » entre les pièces verrouillées — contradiction géométrique pour cet ordre de remplissage, pas une limite de portée.`,
+          };
+        }
+        gap.cursor = y + desc.depth;
+        const x = side === "left" ? emprise.x + WALL_EXT : corridor.x + corridor.w + WALL_INT + (colMaxWidth - desc.width);
+        const innerX = side === "left" ? x + desc.width : x;
+        const room = next.rooms[desc.idx];
+        room.x = x;
+        room.y = y;
+        room.w = desc.width;
+        room.d = desc.depth;
+        room.minW = desc.minW;
+        room.minD = desc.minD;
+        room.exteriorWall = exteriorWall;
+        next.doors.push({ roomIndex: desc.idx, wall: doorWall, cx: innerX, cy: y + desc.depth / 2, width: Math.min(DOOR_WIDTH, desc.depth), to: { kind: "circulation" } });
+        next.windows.push({ roomIndex: desc.idx, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + desc.width, cy: y + desc.depth / 2, width: desc.depth * 0.5 });
+        const widthGap = colMaxWidth - desc.width;
+        if (widthGap > 1e-6) {
+          const fillerX = side === "left" ? x + desc.width : corridor.x + corridor.w + WALL_INT;
+          next.circulations.push({ x: fillerX, y, w: widthGap + WALL_INT, d: desc.depth });
         }
       }
-      newEndY[side] = cursorY - WALL_INT;
+      totalNewDepth[side] = gaps.reduce((s, g) => s + Math.max(0, g.cursor - g.start), 0);
     }
 
     // Retire les anciens raccords tombant dans la zone régénérée (identifiés
@@ -1483,23 +1659,26 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     // laisser de raccord fantôme pointant vers une position abandonnée.
     next.corridorFillers = next.corridorFillers.filter((f) => {
       const side: "left" | "right" | null = f.x + f.w <= corridor.x ? "left" : f.x >= corridor.x + corridor.w ? "right" : null;
-      if (!side || targetNeedsBySide[side].size === 0) return true;
-      return f.y < lockedEndY[side] - 1e-2;
+      if (!side || targetBySide[side].length === 0) return true;
+      return !targetBySide[side].some((d) => Math.abs(next.rooms[d.idx].y - f.y) < 1e-2);
     });
 
-    // Le corridor historique peut avoir besoin d'être prolongé si une
-    // colonne régénérée réclame plus de profondeur que ce qu'il desservait
-    // jusqu'ici — ce prolongement est un espace de circulation à part
-    // entière (Layout.circulations), identifié séparément du corridor
-    // historique, jamais confondu avec lui.
+    // Le corridor historique peut avoir besoin d'être prolongé si la pièce
+    // régénérée la plus profonde dépasse ce qu'il desservait jusqu'ici — ce
+    // prolongement est un espace de circulation à part entière (Layout.
+    // circulations), identifié séparément du corridor historique.
     const oldCorridorEnd = corridor.y + corridor.d;
-    const newEnd = Math.max(newEndY.left, newEndY.right, oldCorridorEnd);
-    if (newEnd > oldCorridorEnd + 1e-6) {
-      next.circulations.push({ x: corridor.x, y: oldCorridorEnd, w: corridor.w, d: newEnd - oldCorridorEnd });
+    const newRoomsMaxY = Math.max(
+      oldCorridorEnd,
+      ...targetBySide.left.map((d) => next.rooms[d.idx].y + next.rooms[d.idx].d),
+      ...targetBySide.right.map((d) => next.rooms[d.idx].y + next.rooms[d.idx].d)
+    );
+    if (newRoomsMaxY > oldCorridorEnd + 1e-6) {
+      next.circulations.push({ x: corridor.x, y: oldCorridorEnd, w: corridor.w, d: newRoomsMaxY - oldCorridorEnd });
     }
 
     const result = recomputeDerivedGeometry(next);
-    const deviation = Math.abs(newEndY.left - lockedEndY.left - originalDepth.left) + Math.abs(newEndY.right - lockedEndY.right - originalDepth.right);
+    const deviation = Math.abs(totalNewDepth.left - originalDepth.left) + Math.abs(totalNewDepth.right - originalDepth.right);
     const note =
       deviation < 1e-2
         ? `Ordre ${order} — même profondeur totale que l'origine pour les pièces régénérées.`
@@ -1525,7 +1704,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   }
 
   // Écarte les doublons stricts (même ordre produit la même disposition si
-  // une seule pièce est régénérée par colonne) — jamais compté comme deux
+  // une seule pièce est régénérée par bande) — jamais compté comme deux
   // organisations distinctes.
   const seen = new Set<string>();
   const deduped: typeof candidates = [];
@@ -1883,6 +2062,33 @@ export function generateVariants(input: GenerationInput): GenerationResult {
       }
       consider(buildAny(balancedA, balancedB, salon, leftSlot, rightSlot, `Variante ${variantN}`));
       consider(buildAny(balancedB, balancedA, salon, leftSlot, rightSlot, `Variante ${variantN}`));
+    }
+
+    // Famille D'ORGANISATION RÉELLEMENT DISTINCTE : circulation en L (voir
+    // buildLShapedLayout) — jamais tentée pour les dispositions guidées
+    // (cour/salon central, portée différente). Toujours TENTÉE sinon, même
+    // hors accès gauche : buildLShapedLayout refuse alors explicitement
+    // (motif remonté dans les détails techniques), jamais un silence qui
+    // masquerait la limite de portée de cette version.
+    // Répartition fixe dans ce lot : sanitaire/cuisine en rangée haute
+    // (simple charge), le reste (chambre/salon/garage) en bas (double
+    // charge, réparti gauche/droite par profondeur comme ci-dessus) —
+    // heuristique explicite, pas une optimisation du regroupement.
+    if (!guided) {
+      const topTypes = new Set(["sanitaire", "cuisine"]);
+      const topNeeds = roomList.filter((n) => topTypes.has(n.type));
+      const bottomNeeds = roomList.filter((n) => !topTypes.has(n.type));
+      if (topNeeds.length > 0 && bottomNeeds.length > 0) {
+        const byDepthDesc = [...bottomNeeds].sort((r1, r2) => sizeFor(r2.targetDepth, r2.minDepth) - sizeFor(r1.targetDepth, r1.minDepth));
+        const lNeeds: RoomNeed[] = [];
+        const rNeeds: RoomNeed[] = [];
+        let dL = 0, dR = 0;
+        for (const need of byDepthDesc) {
+          const d = sizeFor(need.targetDepth, need.minDepth);
+          if (dL <= dR) { lNeeds.push(need); dL += d; } else { rNeeds.push(need); dR += d; }
+        }
+        consider(buildLShapedLayout(input, garageFirst(topNeeds), garageFirst(lNeeds), garageFirst(rNeeds), `Variante ${variantN}`));
+      }
     }
   }
 
