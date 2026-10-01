@@ -34,7 +34,11 @@ export const WALL_EXT = 0.2; // épaisseur mur extérieur (m), hypothèse fixe e
 export const WALL_INT = 0.1; // épaisseur mur intérieur (m), hypothèse fixe en T0
 export const CORRIDOR_WIDTH = 1.2; // largeur du corridor central (m), hypothèse
 export const DOOR_WIDTH = 0.9; // largeur mini d'une porte (m)
-export const MIN_WINDOW_WIDTH = 0.6; // largeur mini utilisable d'une fenêtre (m), hypothèse fixe en T0
+// Largeur mini utilisable d'une fenêtre (m) — HYPOTHÈSE DE CE MOTEUR pour
+// juger un mur "assez large pour une fenêtre", jamais une valeur issue d'une
+// norme réglementaire (éclairement naturel, surface vitrée minimale, etc.) :
+// aucune de ces règles n'est modélisée ici.
+export const MIN_WINDOW_WIDTH = 0.6;
 // Élongation maximale d'une pièce par rapport à sa dimension cible — un
 // garde-fou documenté, pas un mécanisme de remplissage : à taille cible
 // normale (>= minimum), il ne se déclenche jamais (voir sizeFor()).
@@ -252,6 +256,17 @@ export interface Layout {
   accessSide: AccessSide;
   terrain: Rect;
   emprise: Rect | null;
+  // Contour bâti — TOUJOURS le RECTANGLE ENGLOBANT (bounding box) de tout ce
+  // qui est réellement construit (pièces actives, corridor, raccords,
+  // circulations ; voir recomputeDerivedGeometry), JAMAIS les façades
+  // réelles d'un bâtiment non rectangulaire. Une façade en retrait (un mur
+  // réellement extérieur mais situé EN DEÇÀ de ce rectangle — bâtiment en L,
+  // encoche, aile en retrait) n'est pas modélisée : elle ne touche jamais ce
+  // rectangle (voir wallTouchesExterior/chooseExteriorWindow) et est donc
+  // refusée comme n'importe quel mur intérieur, jamais acceptée à tort NI
+  // présentée comme une façade couverte par ce moteur — c'est une limitation
+  // de périmètre assumée de ce prototype (contour toujours convexe,
+  // rectangulaire), pas un défaut de calcul à corriger au cas par cas.
   footprint: Rect | null;
   corridor: Rect | null;
   // Petits segments de raccord entre une pièce plus étroite que sa colonne
@@ -1177,6 +1192,11 @@ function openingLeadsOutside(layout: Layout, roomIndex: number, wall: WallSide):
 //    doit jamais redevenir silencieusement acceptée par erreur.
 // `preferredWall`, si fourni et valide, est essayé EN PREMIER (stabilité :
 // ne change le mur retenu que si l'ancien choix ne tient plus réellement).
+// LIMITE DE PÉRIMÈTRE ASSUMÉE (voir Layout.footprint) : "contour bâti" ici
+// désigne TOUJOURS le rectangle englobant, jamais les façades réelles d'un
+// bâtiment non rectangulaire — une façade en retrait (bâtiment en L, encoche)
+// n'est pas couverte : elle ne touche jamais ce rectangle et est donc
+// refusée, jamais acceptée à tort ni présentée comme prise en charge.
 export function chooseExteriorWindow(
   rect: Rect,
   footprint: Rect,
@@ -3032,6 +3052,28 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     candidates.push(built);
   }
 
+  // Disposition ACTUELLE (avant toute régénération), vérifiée EXACTEMENT
+  // comme n'importe quel autre candidat (même admitIfValid, aucun critère
+  // relâché) et ajoutée EN PREMIER si elle est déjà admissible — jamais
+  // supposée valide par défaut. Nécessaire pour qu'une régénération répétée
+  // (ex. relancée après sauvegarde/réimport, ou simplement une seconde fois
+  // de suite) ne confonde jamais « cette recherche n'a rien trouvé de
+  // NOUVEAU » avec « aucun plan n'est admissible » : le mode "préserver"
+  // traite la circulation déjà en place comme un obstacle fixe à ne pas
+  // perturber, ce qui est le bon repli pour une disposition éditée à la
+  // main, mais devient un piège sur un appel RÉPÉTÉ — la circulation en
+  // place est alors elle-même un résultat de ce même moteur (reconstructible
+  // par nature, jamais une intention humaine à préserver), et sa forme
+  // fragmentée (plusieurs groupes + raccords) peut rendre "préserver"
+  // inopérant sans que le brouillon cesse d'être valide pour autant. Posée
+  // en premier dans `candidates` : si la recherche retrouve exactement la
+  // même disposition par un autre chemin, le dédoublonnage ci-dessous garde
+  // CETTE entrée (note explicite), pas le libellé technique de la recherche.
+  admitIfValid("Disposition actuelle, aucune modification", {
+    layout: cloneLayout(layout),
+    note: "Disposition actuelle conservée telle quelle — déjà admissible, aucune modification.",
+  });
+
   // Emprise en boucle EXTÉRIEURE (pas les modes) : les modes "circulation
   // réservée d'abord" dépendent de l'emprise de recherche (taille,
   // alignement sur l'entrée) et doivent donc être reconstruits pour
@@ -3055,11 +3097,14 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
 
   // Écarte les doublons stricts (même disposition obtenue par deux chemins
   // différents, ex. rien à reconstruire) — jamais compté comme deux
-  // organisations distinctes.
+  // organisations distinctes. Même clé que pour repérer, plus bas, la
+  // disposition actuelle parmi les survivants (voir admitIfValid plus haut).
+  const roomsKey = (l: Layout) => l.rooms.map((r) => `${r.x.toFixed(2)}|${r.y.toFixed(2)}|${r.w.toFixed(2)}|${r.d.toFixed(2)}`).join(";");
+  const baselineKey = roomsKey(layout);
   const seen = new Set<string>();
   const deduped: typeof candidates = [];
   for (const c of candidates) {
-    const key = c.layout.rooms.map((r) => `${r.x.toFixed(2)}|${r.y.toFixed(2)}|${r.w.toFixed(2)}|${r.d.toFixed(2)}`).join(";");
+    const key = roomsKey(c.layout);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(c);
@@ -3074,7 +3119,29 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   // 4) moins de résiduel non affecté. Un score moyen pour classer des
   // dispositions déjà valides, jamais un critère d'exclusion.
   deduped.sort((a, b) => compareLayoutQuality(a.layout, b.layout));
-  deduped.forEach((c, i) => (c.layout.variantLabel = `Régénération ${i + 1}`));
+  // Distingue explicitement, dans le libellé, la disposition identique à
+  // l'existant (jamais numérotée comme une "nouvelle" régénération, même
+  // si elle a été retrouvée par la recherche plutôt que par le repli
+  // ci-dessus) des dispositions RÉELLEMENT nouvelles — numérotées à part,
+  // jamais décalées par la présence ou non de la disposition actuelle.
+  let newCount = 0;
+  deduped.forEach((c) => {
+    if (roomsKey(c.layout) === baselineKey) {
+      c.layout.variantLabel = "Disposition actuelle (inchangée)";
+    } else {
+      newCount += 1;
+      c.layout.variantLabel = `Régénération ${newCount}`;
+    }
+  });
+  // Message de repli informatif : si SEULE la disposition actuelle survit,
+  // le dire explicitement plutôt que de laisser la note technique générique
+  // (ou pire, le message d'échec total de l'UI, réservé à variants.length
+  // === 0) suggérer qu'aucun plan n'est admissible — seule cette recherche
+  // n'a rien trouvé de NOUVEAU.
+  if (deduped.length === 1 && deduped[0].layout.variantLabel === "Disposition actuelle (inchangée)") {
+    deduped[0].note =
+      "Disposition actuelle conservée — cette recherche n'a trouvé aucune disposition NOUVELLE et admissible (voir le détail des tentatives écartées ci-dessous), mais le brouillon actuel reste lui-même admissible, inchangé.";
+  }
 
   return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons, searchStats };
 }

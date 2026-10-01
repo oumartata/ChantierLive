@@ -27,6 +27,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
 const geometrySourceRelative = join("src", "app", "prototype-plans", "geometry.ts");
+const projectFileSourceRelative = join("src", "app", "prototype-plans", "projectFile.ts");
 
 const results = [];
 function record(name, pass, detail) {
@@ -37,18 +38,24 @@ function record(name, pass, detail) {
 const tmpDir = mkdtempSync(join(tmpdir(), "plans-geometry-test-"));
 try {
   const tscBin = join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "tsc.cmd" : "tsc");
+  // projectFile.ts n'importe que des TYPES de geometry.ts (import type, effacé
+  // à la compilation) : compilable seul, aucun bundling nécessaire. Compilé
+  // ICI (pas seulement geometry.ts) pour tester les VRAIES fonctions de
+  // sauvegarde/réimport (serializeProject/validateProjectFile), jamais un
+  // JSON.stringify/parse nu qui ne passerait pas par la validation réelle.
   const compile = spawnSync(
-    `"${tscBin}" "${geometrySourceRelative}" --module commonjs --target es2020 --outDir "${tmpDir}" --esModuleInterop --skipLibCheck --strict`,
+    `"${tscBin}" "${geometrySourceRelative}" "${projectFileSourceRelative}" --module commonjs --target es2020 --outDir "${tmpDir}" --esModuleInterop --skipLibCheck --strict`,
     { shell: true, encoding: "utf8", cwd: repoRoot }
   );
   if (compile.status !== 0) {
-    console.error("Échec de la compilation de geometry.ts pour le test :");
+    console.error("Échec de la compilation de geometry.ts/projectFile.ts pour le test :");
     console.error(compile.stdout);
     console.error(compile.stderr);
     process.exitCode = 1;
   } else {
     const compiledPath = join(tmpDir, "geometry.js");
     const g = await import(pathToFileURL(compiledPath).href);
+    const pf = await import(pathToFileURL(join(tmpDir, "projectFile.js")).href);
 
     function key(r) { return r.x.toFixed(2) + "," + r.y.toFixed(2) + "," + r.w.toFixed(2) + "," + r.d.toFixed(2); }
     function salonIndexOf(l) { return l.rooms.findIndex((r) => r.type === "salon"); }
@@ -345,8 +352,25 @@ try {
     const pathBase = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-scenario2-pre-regen.json"), "utf8"));
     const pathRegen = g.regenerateUnlocked(pathBase);
     record("Compacité — au moins une disposition admissible retrouvée depuis la base réelle", pathRegen.variants.length > 0);
+    // Cette fixture (plans-scenario2-pre-regen.json) se trouve être DÉJÀ
+    // admissible telle quelle (voir le lot "Régénération fiable après
+    // sauvegarde et réimport") : regenerateUnlocked la propose donc aussi,
+    // étiquetée distinctement — jamais numérotée comme une régénération.
+    // Testé ici explicitement, sur cette fixture réelle, plutôt que
+    // seulement sur un cas construit à la main.
+    const baselineVariant = pathRegen.variants.find((v) => v.variantLabel === "Disposition actuelle (inchangée)");
+    record(
+      "Compacité — la base déjà admissible est proposée telle quelle, distinctement étiquetée",
+      !!baselineVariant && Math.abs(baselineVariant.surfaces.circulation - pathBase.surfaces.circulation) < 1e-6
+    );
     if (pathRegen.variants.length > 0) {
-      const best = pathRegen.variants[0];
+      // La disposition RÉGÉNÉRÉE (pas la base inchangée, qui peut légitimement
+      // être classée devant elle par compareLayoutQuality si elle a déjà
+      // moins de circulation) : c'est elle que ce test vérifie depuis
+      // l'origine (reconnexion de l'entrée après compaction), jamais la
+      // base elle-même qui n'a par définition rien à prouver de nouveau.
+      const genuinelyNew = pathRegen.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)");
+      const best = genuinelyNew.length > 0 ? genuinelyNew[0] : pathRegen.variants[0];
       record("Compacité — la disposition retrouvée reste admissible (0 erreur)", g.independentVerify(best).filter((i) => i.severity === "error").length === 0);
       record(
         "Compacité — l'entrée débouche réellement sur la disposition retrouvée (graphe)",
@@ -535,6 +559,127 @@ try {
       "Cheminement extérieur — retirer le raccord coupe l'accès de la pièce qu'il dessert",
       fillerErrors.some((i) => i.message.includes("Chambre"))
     );
+
+    // 11) RÉGÉNÉRATION FIABLE APRÈS SAUVEGARDE ET RÉIMPORT — défaut constaté
+    // au lot précédent : relancer regenerateUnlocked sur une disposition DÉJÀ
+    // régénérée (en mémoire, après sauvegarde locale, ou après export/import
+    // JSON — les trois mêmes données, mêmes paramètres, même budget) ne
+    // trouvait plus AUCUNE variante (variants.length === 0), que la
+    // disposition courante soit elle-même parfaitement admissible ou non —
+    // confondant "cette recherche n'a rien trouvé de NOUVEAU" avec "aucun
+    // plan n'est admissible". Cause RÉELLE identifiée (pas supposée) par
+    // comparaison directe des obstacles utilisés par le mode "préserver" :
+    // la circulation déjà en place après une première régénération est
+    // elle-même un résultat de ce moteur (plusieurs groupes + raccords,
+    // entièrement reconstructible, jamais une intention humaine), et sa
+    // forme fragmentée rend "préserver" inopérant sur l'appel suivant — SANS
+    // que la disposition cesse d'être valide pour autant. Corrigé en
+    // proposant TOUJOURS la disposition actuelle comme candidat, vérifiée
+    // par EXACTEMENT les mêmes contrôles (admitIfValid) que toute autre
+    // proposition, jamais par hypothèse.
+    {
+      const lshapeInput = {
+        terrainWidth: 18, terrainDepth: 28, accessSide: "left", orientation: "N",
+        setbacks: { front: 3, back: 2, left: 2, right: 2 },
+        entryMode: "direct", centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor",
+        needs: [
+          { type: "chambre", label: "Chambre", count: 3, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+          { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+          { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+          { type: "sanitaire", label: "Sanitaire", count: 2, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+          { type: "garage", label: "Garage", count: 0, minWidth: 3, minDepth: 5, targetWidth: 3.5, targetDepth: 5.5 },
+        ],
+      };
+      const genL = g.generateVariants(lshapeInput);
+      const lShaped = genL.variants.find((v) => v.circulations && v.circulations.length > 0 && v.corridor && v.corridor.d < 2);
+      const c1Idx = lShaped.rooms.findIndex((r) => r.label === "Chambre" && r.number === 1);
+      const c1 = lShaped.rooms[c1Idx];
+      const resized = g.resizeRoom(lShaped, c1Idx, c1.x, c1.y, c1.w, 3.0);
+      const lockedOnce = g.lockRoom(resized, c1Idx);
+
+      const labelsAndSurfaces = (result) => result.variants.map((v) => `${v.variantLabel}:${v.surfaces.circulation.toFixed(2)}`).join("|");
+
+      // Cas A — une nouvelle variante CONNUE (deux dispositions régénérées
+      // distinctes de la base, voir le lot précédent : 54.04 et 54.58 m²)
+      // doit rester trouvable, ET distincte de la base inchangée (27.xx m²,
+      // la disposition L d'origine, elle-même déjà admissible).
+      const regenMemory = g.regenerateUnlocked(lockedOnce);
+      const newOnesMemory = regenMemory.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)");
+      record(
+        "Régénération fiable — une nouvelle variante connue reste trouvable (en mémoire)",
+        newOnesMemory.length >= 2 && newOnesMemory.some((v) => Math.abs(v.surfaces.circulation - 54.04) < 0.01),
+        labelsAndSurfaces(regenMemory)
+      );
+      record(
+        "Régénération fiable — la base inchangée reste distinguée des nouvelles variantes (en mémoire)",
+        regenMemory.variants.some((v) => v.variantLabel === "Disposition actuelle (inchangée)")
+      );
+
+      // Cas B/C — sauvegarde locale -> rechargement ET export -> import
+      // utilisent LE MÊME code (serializeProject + JSON + validateProjectFile :
+      // seul le support — localStorage ou fichier — diffère réellement, pas
+      // la donnée ni sa validation) : testé une fois ici pour les deux.
+      // Mêmes paramètres, même budget (BACKTRACK_MAX_NODES/MILLIS inchangés) :
+      // le résultat doit être RIGOUREUSEMENT identique à la recherche en
+      // mémoire, étiquettes et surfaces comprises.
+      const saved = pf.serializeProject(lockedOnce, "N");
+      const reloaded = pf.validateProjectFile(JSON.parse(JSON.stringify(saved)));
+      record("Régénération fiable — sauvegarde/réimport valide (structure, références, migrations)", reloaded.ok);
+      if (reloaded.ok) {
+        const regenReloaded = g.regenerateUnlocked(reloaded.value.layout);
+        record(
+          "Régénération fiable — résultat rigoureusement identique après sauvegarde/réimport (mêmes paramètres, même budget)",
+          labelsAndSurfaces(regenReloaded) === labelsAndSurfaces(regenMemory),
+          labelsAndSurfaces(regenReloaded)
+        );
+      }
+
+      // Cas « seules des variantes identiques » — régénérer une disposition
+      // DÉJÀ régénérée (le défaut initialement signalé) : le message doit
+      // rester informatif ("aucune disposition NOUVELLE", jamais "aucun plan
+      // admissible") et le brouillon (la disposition retrouvée) reste
+      // sélectionnable/utilisable — jamais variants.length === 0 alors que
+      // la disposition courante est elle-même admissible.
+      const firstRegenNew = newOnesMemory.find((v) => Math.abs(v.surfaces.circulation - 54.04) < 0.01) ?? newOnesMemory[0];
+      const secondRegen = g.regenerateUnlocked(firstRegenNew);
+      record(
+        "Régénération fiable — régénérer une disposition déjà régénérée reste informatif, jamais « aucun plan admissible »",
+        secondRegen.variants.length === 1 && secondRegen.variants[0].variantLabel === "Disposition actuelle (inchangée)",
+        secondRegen.variants[0]?.variantLabel ?? "(aucune variante)"
+      );
+      record(
+        "Régénération fiable — le brouillon (disposition déjà régénérée) reste pleinement utilisable dans ce cas",
+        secondRegen.variants.length > 0 && g.independentVerify(secondRegen.variants[0]).filter((i) => i.severity === "error").length === 0
+      );
+      // Même garantie après un second aller-retour sauvegarde/réimport (le
+      // scénario EXACT initialement signalé : régénérer, exporter, réimporter,
+      // régénérer à nouveau).
+      const savedTwice = pf.validateProjectFile(JSON.parse(JSON.stringify(pf.serializeProject(firstRegenNew, "N"))));
+      const secondRegenReloaded = g.regenerateUnlocked(savedTwice.value.layout);
+      record(
+        "Régénération fiable — même garantie après un second export/import (scénario initialement signalé)",
+        labelsAndSurfaces(secondRegenReloaded) === labelsAndSurfaces(secondRegen)
+      );
+
+      // Choisir -> modifier -> régénérer une deuxième fois : un EDIT réel
+      // (verrouiller une pièce supplémentaire, ici le salon) entre les deux
+      // régénérations, pas une simple répétition à l'identique.
+      const salonIdx = firstRegenNew.rooms.findIndex((r) => r.type === "salon");
+      const salonBefore = firstRegenNew.rooms[salonIdx];
+      const afterEdit = g.lockRoom(firstRegenNew, salonIdx);
+      const thirdRegen = g.regenerateUnlocked(afterEdit);
+      record(
+        "Régénération fiable — choisir puis modifier (verrouiller une pièce de plus) puis régénérer reste utilisable",
+        thirdRegen.variants.length > 0
+      );
+      record(
+        "Régénération fiable — la pièce nouvellement verrouillée garde exactement sa place dans chaque variante retrouvée",
+        thirdRegen.variants.every((v) => {
+          const s = v.rooms[salonIdx];
+          return s.x === salonBefore.x && s.y === salonBefore.y && s.w === salonBefore.w && s.d === salonBefore.d;
+        })
+      );
+    }
 
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
