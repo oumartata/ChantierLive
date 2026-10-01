@@ -867,6 +867,26 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
   placeBottomColumn(left, leftNeeds, "left");
   placeBottomColumn(right, rightNeeds, "right");
 
+  // Jonction RÉELLE entre les deux segments de circulation : topCorridor et
+  // bottomCorridor sont séparés par la cloison du bas de la rangée haute
+  // (WALL_INT) et le mur extérieur propre de la bande basse (WALL_EXT) — un
+  // écart géométrique réel, jamais un simple détail de rendu. Sans ouverture
+  // explicite ici, la bande basse entière serait physiquement coupée de
+  // l'entrée (qui débouche sur topCorridor) malgré un graphe qui le
+  // suggérait à tort. On comble cet écart par un segment de circulation
+  // dédié, sur le recouvrement HORIZONTAL réel des deux corridors — une
+  // largeur insuffisante pour ce recouvrement est une contradiction
+  // géométrique de cette topologie, pas une limite de portée.
+  const junctionX0 = Math.max(topCorridor.x, bottomCorridor.x);
+  const junctionX1 = Math.min(topCorridor.x + topCorridor.w, bottomCorridor.x + bottomCorridor.w);
+  if (junctionX1 - junctionX0 < DOOR_WIDTH - 1e-6) {
+    return fail([
+      `Circulation en L : les segments haut et bas ne se recoupent pas assez horizontalement pour une jonction praticable (${Math.max(0, junctionX1 - junctionX0).toFixed(2)} m < ${DOOR_WIDTH.toFixed(2)} m nécessaires).`,
+    ]);
+  }
+  const junctionGap = bottomCorridor.y - (topCorridor.y + topCorridor.d);
+  const junction: Rect | null = junctionGap > 1e-6 ? { x: junctionX0, y: topCorridor.y + topCorridor.d, w: junctionX1 - junctionX0, d: junctionGap } : null;
+
   const footprintW = Math.max(rowWidth + 2 * WALL_EXT, bottomFootprintW);
   const footprint: Rect = { x: emprise.x, y: emprise.y, w: footprintW, d: bottomBandY + bottomFootprintD - emprise.y };
 
@@ -888,7 +908,7 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     footprint,
     corridor: topCorridor,
     corridorFillers: extraFillers,
-    circulations: [bottomCorridor],
+    circulations: junction ? [bottomCorridor, junction] : [bottomCorridor],
     courtyard: null,
     streetDoor: null,
     entryDoor,
@@ -896,32 +916,55 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     doors,
     windows,
     exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, [...extraFillers, bottomCorridor], rooms, null),
+    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, junction ? [...extraFillers, bottomCorridor, junction] : [...extraFillers, bottomCorridor], rooms, null),
   };
 }
 
 function computeExteriorSpaces(terrain: Rect, emprise: Rect, footprint: Rect, accessSide: AccessSide): ExteriorSpace[] {
-  // Utilise les bords RÉELS du bâti (footprint.y/footprint.x), jamais ceux de
-  // l'emprise directement : avec une cour d'entrée, footprint.y est décalé
-  // de la profondeur de cour par rapport à emprise.y — les confondre plaçait
-  // ce rectangle "libre" par-dessus des pièces réelles (chevauchement visuel
-  // détecté à la revue, corrigé ici).
+  // Utilise les bords RÉELS du bâti des QUATRE côtés, jamais une hypothèse
+  // d'alignement avec un bord de l'emprise. Avant ce correctif, seuls
+  // l'arrière (footprint.y+d vs emprise) et la largeur totale (emprise.w -
+  // footprint.w, rattachée au bord GAUCHE de l'emprise) étaient couverts —
+  // valide tant que footprint.x == emprise.x (toujours vrai pour les
+  // générateurs dédiés, qui posent toujours leur première pièce contre le
+  // mur gauche de l'emprise). Une pièce verrouillée déplacée loin de ce bord
+  // (régénération par espace libre) peut désormais produire un footprint qui
+  // ne touche AUCUN bord gauche de l'emprise : le rectangle "latéral" calculé
+  // à l'ancienne (depuis emprise.x, large de emprise.w-footprint.w)
+  // recouvrait alors directement des pièces réelles, posées plus loin à
+  // droite que ce que ce calcul supposait — chevauchement visuel détecté à
+  // l'inspection des exports, corrigé ici en dérivant chaque espace restant
+  // du bord RÉEL du bâti correspondant, sur les quatre côtés.
   const spaces: ExteriorSpace[] = [];
-  const backEdge = footprint.y + footprint.d;
-  const empriseBackEdge = emprise.y + emprise.d;
-  const remainingD = empriseBackEdge - backEdge;
-  if (remainingD > 0.5) {
+  const backGap = emprise.y + emprise.d - (footprint.y + footprint.d);
+  if (backGap > 0.5) {
     spaces.push({
       label: "Espace extérieur non bâti (reste de l'emprise, distinct de la cour d'entrée)",
-      rect: { x: emprise.x, y: backEdge, w: emprise.w, d: remainingD },
+      rect: { x: emprise.x, y: footprint.y + footprint.d, w: emprise.w, d: backGap },
       accessFrom: accessSide === "back" ? "façade d'accès" : "arrière de la parcelle",
     });
   }
-  const remainingW = emprise.w - footprint.w;
-  if (remainingW > 0.5) {
+  const frontGap = footprint.y - emprise.y;
+  if (frontGap > 0.5) {
     spaces.push({
-      label: "Espace extérieur non bâti (latéral)",
-      rect: { x: emprise.x + footprint.w, y: footprint.y, w: remainingW, d: footprint.d },
+      label: "Espace extérieur non bâti (avant du bâti, distinct de la cour d'entrée)",
+      rect: { x: emprise.x, y: emprise.y, w: emprise.w, d: frontGap },
+      accessFrom: accessSide === "front" ? "façade d'accès" : "avant de la parcelle",
+    });
+  }
+  const rightGap = emprise.x + emprise.w - (footprint.x + footprint.w);
+  if (rightGap > 0.5) {
+    spaces.push({
+      label: "Espace extérieur non bâti (latéral droit)",
+      rect: { x: footprint.x + footprint.w, y: footprint.y, w: rightGap, d: footprint.d },
+      accessFrom: "façade latérale",
+    });
+  }
+  const leftGap = footprint.x - emprise.x;
+  if (leftGap > 0.5) {
+    spaces.push({
+      label: "Espace extérieur non bâti (latéral gauche)",
+      rect: { x: emprise.x, y: footprint.y, w: leftGap, d: footprint.d },
       accessFrom: "façade latérale",
     });
   }
@@ -1032,69 +1075,89 @@ export function spaceRect(layout: Layout, ref: SpaceRef): Rect | null {
 // du logement se déclareraient accessibles l'une l'autre à tort.
 export function computeReachableRooms(layout: Layout): Set<number> {
   const reached = new Set<number>();
-  if (!layout.corridor) return reached;
   const salonIndex = layout.rooms.findIndex((r) => r.type === "salon");
   const salonRect = salonIndex >= 0 ? roomRect(layout.rooms[salonIndex]) : null;
-  // Généralisé aux circulations multiples (voir circulationSpaces), comme le
-  // contrôle équivalent de independentVerify : seul `layout.corridor` était
-  // testé ici avant ce correctif, un reliquat antérieur au support de
-  // plusieurs segments — un salon desservi par un segment autre que le
-  // corridor historique (circulation en L, ou tout segment neuf posé par
-  // packNeedsIntoFreeSpace) ne coupait jamais la chaîne vers ce segment,
-  // seulement vers `layout.corridor` spécifiquement.
-  const circulation = circulationSpaces(layout);
-  const salonTouchesCorridor = salonRect ? circulation.some((c) => rectsAdjacent(salonRect, c)) : false;
+  // Chaque segment de circulation (corridor, raccords, circulations
+  // multiples) est un noeud DISTINCT du graphe — jamais fusionnés en un seul
+  // noeud "corridor" comme avant ce correctif. Deux segments ne communiquent
+  // que s'ils se touchent RÉELLEMENT (rectsAdjacent), exactement comme deux
+  // pièces : un plan en L dont le segment haut et le segment bas ne se
+  // touchent pas géométriquement (l'écart réel entre les deux, même petit)
+  // déclarait jusqu'ici les pièces du second atteignables depuis le premier
+  // par construction du graphe, jamais par un passage physiquement
+  // praticable — repéré à l'inspection visuelle des exports, pas une
+  // hypothèse théorique.
+  const segments = circulationSpaces(layout);
+  if (segments.length === 0 && !salonRect) return reached;
   const usableDoors = layout.doors.filter((d) => d.width >= DOOR_WIDTH - 1e-6);
   const genuinelyTouches = (d: DoorGeometry, target: Rect) => rectsOverlap(doorOutsideProbe(d), target);
 
-  // L'entrée amorce le graphe à partir de ce qu'elle touche RÉELLEMENT — le
-  // salon, une circulation, les deux, ou aucun des deux (auquel cas rien
-  // n'est atteignable, honnêtement) — jamais une hypothèse fixe "l'entrée
-  // mène toujours au salon s'il y en a un", qui supposait à tort un
-  // parcours guidé même pour un salon ordinaire sans statut particulier.
-  const infraQueue: ("corridor" | "salon")[] = [];
-  if (layout.entryDoor) {
-    const entryProbe = doorInsideProbe(layout.entryDoor);
-    if (salonRect && rectsOverlap(entryProbe, salonRect)) infraQueue.push("salon");
-    if (circulation.some((c) => rectsOverlap(entryProbe, c))) infraQueue.push("corridor");
-  }
+  const segReached: boolean[] = segments.map(() => false);
+  let salonReached = false;
+  const segFrontier: number[] = [];
+  const roomFrontier: number[] = [];
 
-  const roomQueue: number[] = [];
-  const pushRoomsConnectedTo = (node: "corridor" | "salon") => {
-    for (const d of usableDoors) {
-      if (d.roomIndex === salonIndex) continue;
-      const reachesNode =
-        node === "salon"
-          ? d.to.kind === "room" && d.to.index === salonIndex && !!salonRect && genuinelyTouches(d, salonRect)
-          : d.to.kind === "circulation" && circulation.some((c) => genuinelyTouches(d, c));
-      if (reachesNode) roomQueue.push(d.roomIndex);
+  const markSeg = (i: number) => {
+    if (!segReached[i]) {
+      segReached[i] = true;
+      segFrontier.push(i);
+    }
+  };
+  const markSalon = () => {
+    if (!salonReached && salonIndex >= 0) {
+      salonReached = true;
+      reached.add(salonIndex);
+      roomFrontier.push(salonIndex);
+    }
+  };
+  const markRoom = (i: number) => {
+    if (!reached.has(i)) {
+      reached.add(i);
+      roomFrontier.push(i);
     }
   };
 
-  const infraReached = new Set<"corridor" | "salon">();
-  while (infraQueue.length || roomQueue.length) {
-    while (infraQueue.length) {
-      const node = infraQueue.shift()!;
-      if (infraReached.has(node)) continue;
-      infraReached.add(node);
-      if (node === "salon" && salonIndex >= 0) {
-        reached.add(salonIndex);
-        if (salonTouchesCorridor) infraQueue.push("corridor");
-      }
-      if (node === "corridor" && salonTouchesCorridor) infraQueue.push("salon");
-      pushRoomsConnectedTo(node);
-    }
-    while (roomQueue.length) {
-      const i = roomQueue.shift()!;
-      if (reached.has(i)) continue;
-      reached.add(i);
+  // L'entrée amorce le graphe à partir de ce qu'elle touche RÉELLEMENT — un,
+  // plusieurs, ou aucun des segments/le salon (auquel cas rien n'est
+  // atteignable, honnêtement) — jamais une hypothèse fixe "l'entrée mène
+  // toujours à tel noeud", qui supposait à tort un parcours particulier même
+  // pour une disposition ordinaire.
+  if (layout.entryDoor) {
+    const entryProbe = doorInsideProbe(layout.entryDoor);
+    segments.forEach((s, i) => {
+      if (rectsOverlap(entryProbe, s)) markSeg(i);
+    });
+    if (salonRect && rectsOverlap(entryProbe, salonRect)) markSalon();
+  }
+
+  while (segFrontier.length || roomFrontier.length) {
+    while (segFrontier.length) {
+      const i = segFrontier.pop()!;
+      segments.forEach((s, j) => {
+        if (!segReached[j] && rectsAdjacent(segments[i], s)) markSeg(j);
+      });
+      if (salonRect && !salonReached && rectsAdjacent(salonRect, segments[i])) markSalon();
       for (const d of usableDoors) {
-        if (d.roomIndex === i && d.to.kind === "room" && genuinelyTouches(d, roomRect(layout.rooms[d.to.index]))) {
-          roomQueue.push(d.to.index);
+        if (d.to.kind === "circulation" && genuinelyTouches(d, segments[i])) markRoom(d.roomIndex);
+      }
+    }
+    while (roomFrontier.length) {
+      const i = roomFrontier.pop()!;
+      if (i === salonIndex) {
+        segments.forEach((s, j) => {
+          if (!segReached[j] && rectsAdjacent(roomRect(layout.rooms[i]), s)) markSeg(j);
+        });
+      }
+      for (const d of usableDoors) {
+        if (d.roomIndex === i) {
+          if (d.to.kind === "room" && genuinelyTouches(d, roomRect(layout.rooms[d.to.index]))) markRoom(d.to.index);
+          if (d.to.kind === "circulation") {
+            segments.forEach((s, j) => {
+              if (!segReached[j] && genuinelyTouches(d, s)) markSeg(j);
+            });
+          }
         }
-        if (d.to.kind === "room" && d.to.index === i && genuinelyTouches(d, roomRect(layout.rooms[i]))) {
-          roomQueue.push(d.roomIndex);
-        }
+        if (d.to.kind === "room" && d.to.index === i && genuinelyTouches(d, roomRect(layout.rooms[i]))) markRoom(d.roomIndex);
       }
     }
   }
@@ -1301,10 +1364,17 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   // lui-même (computeReachableRooms) exige déjà une largeur de porte
   // réellement utilisable sur chaque arête — un graphe connecté seul ne
   // suffit jamais ici.
+  // Le salon n'est plus exclu de ce contrôle : une pièce comme une autre
+  // (voir le modèle SpaceRef), sa propre accessibilité transitive doit être
+  // vérifiée exactement de la même façon — l'exclure masquait un salon
+  // placé sur un segment de circulation RÉELLEMENT coupé du reste du
+  // logement (repéré à l'inspection visuelle d'un export : le salon ET la
+  // chambre qui en dépendait semblaient tous deux accessibles alors que rien
+  // ne les reliait physiquement à l'entrée).
   const reachable = computeReachableRooms(layout);
   for (const r of activeRooms) {
     const i = layout.rooms.indexOf(r);
-    if (r === salonRoom || activeDoors.filter((d) => d.roomIndex === i).length === 0) continue;
+    if (activeDoors.filter((d) => d.roomIndex === i).length === 0) continue;
     if (!reachable.has(i)) {
       issues.push({ severity: "error", message: `« ${r.label} ${r.number} » n'est pas réellement accessible depuis l'entrée (chaîne de portes incomplète, ou largeur de passage insuffisante).` });
     }
@@ -1614,14 +1684,21 @@ interface FreeSpacePlacement { need: FreeSpaceNeed; x: number; y: number; w: num
 // pièce étirée ou réduite hors de sa taille individuelle pour "faire
 // rentrer" le résultat : un besoin qui ne tient dans aucun rectangle libre
 // reste dans `leftover`, jamais forcé ni abandonné en silence.
+interface PackedGroup {
+  corridor: Rect;
+  fillers: Rect[];
+  placements: FreeSpacePlacement[];
+}
+
 function packNeedsIntoFreeSpace(
   emprise: Rect,
   obstacles: Rect[],
   needs: FreeSpaceNeed[]
-): { placements: FreeSpacePlacement[]; corridors: Rect[]; corridorFillers: Rect[]; leftover: FreeSpaceNeed[] } {
+): { placements: FreeSpacePlacement[]; corridors: Rect[]; corridorFillers: Rect[]; leftover: FreeSpaceNeed[]; groups: PackedGroup[] } {
   const placements: FreeSpacePlacement[] = [];
   const corridors: Rect[] = [];
   const corridorFillers: Rect[] = [];
+  const groups: PackedGroup[] = [];
   let remaining = [...needs];
   // La découpe guillotine n'est PAS maximale : au sein même d'un seul appel,
   // les morceaux renvoyés (haut/bas/gauche/droite autour d'un obstacle)
@@ -1681,6 +1758,8 @@ function packNeedsIntoFreeSpace(
       : { x: groupAlongStart, y: corridorAbsMin, w: groupAlongSpan, d: CORRIDOR_WIDTH };
     corridors.push(corridorRect);
     justConsumed.push(corridorRect);
+    const group: PackedGroup = { corridor: corridorRect, fillers: [], placements: [] };
+    groups.push(group);
 
     for (const p of placedHere) {
       const roomCrossAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT, p.cross);
@@ -1688,14 +1767,25 @@ function packNeedsIntoFreeSpace(
       const y = vertical ? p.alongPos : roomCrossAbsMin;
       const w = vertical ? p.cross : p.along;
       const d = vertical ? p.along : p.cross;
-      placements.push({ need: p.need, x, y, w, d, exteriorWall, doorWall });
+      const placement: FreeSpacePlacement = { need: p.need, x, y, w, d, exteriorWall, doorWall };
+      placements.push(placement);
+      group.placements.push(placement);
       justConsumed.push({ x, y, w, d });
-      if (maxCross - p.cross > 1e-6) {
-        const fillerCrossAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT + p.cross, maxCross - p.cross + WALL_INT);
+      // Comble EXACTEMENT l'écart entre le mur intérieur de cette pièce
+      // (moins profonde que la plus profonde du groupe) et le bord du
+      // corridor qui lui fait face — jamais une marge arbitraire ajoutée en
+      // plus, qui décollait ce raccord du corridor lui-même (écart de 0.1 m
+      // repéré à l'inspection visuelle d'un export, corrigé ici).
+      const roomInward = exteriorIsMin ? roomCrossAbsMin + p.cross : roomCrossAbsMin;
+      const corridorNear = exteriorIsMin ? corridorAbsMin : corridorAbsMin + CORRIDOR_WIDTH;
+      const fillerStart = exteriorIsMin ? roomInward : corridorNear;
+      const fillerSize = exteriorIsMin ? corridorNear - roomInward : roomInward - corridorNear;
+      if (fillerSize > 1e-6) {
         const fillerRect: Rect = vertical
-          ? { x: fillerCrossAbsMin, y: p.alongPos, w: maxCross - p.cross + WALL_INT, d: p.along }
-          : { x: p.alongPos, y: fillerCrossAbsMin, w: p.along, d: maxCross - p.cross + WALL_INT };
+          ? { x: fillerStart, y: p.alongPos, w: fillerSize, d: p.along }
+          : { x: p.alongPos, y: fillerStart, w: p.along, d: fillerSize };
         corridorFillers.push(fillerRect);
+        group.fillers.push(fillerRect);
         justConsumed.push(fillerRect);
       }
     }
@@ -1716,7 +1806,98 @@ function packNeedsIntoFreeSpace(
     }
   }
 
-  return { placements, corridors, corridorFillers, leftover: remaining };
+  return { placements, corridors, corridorFillers, leftover: remaining, groups };
+}
+
+// Segment de jonction DROIT entre deux rectangles de circulation qui
+// partagent un recouvrement réel sur un axe (horizontal ou vertical) et dont
+// l'écart sur l'autre axe reste court — jamais une circulation fictive
+// traversant une zone sans rapport. `null` si aucun recouvrement exploitable
+// ou si l'écart dépasse `maxGap`.
+function straightBridge(a: Rect, b: Rect, maxGap: number): Rect | null {
+  const xOverlap = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+  if (xOverlap > 0.1) {
+    const x0 = Math.max(a.x, b.x);
+    const x1 = Math.min(a.x + a.w, b.x + b.w);
+    if (a.y + a.d <= b.y + 1e-6) {
+      const gap = b.y - (a.y + a.d);
+      if (gap > 1e-6 && gap <= maxGap) return { x: x0, y: a.y + a.d, w: x1 - x0, d: gap };
+    }
+    if (b.y + b.d <= a.y + 1e-6) {
+      const gap = a.y - (b.y + b.d);
+      if (gap > 1e-6 && gap <= maxGap) return { x: x0, y: b.y + b.d, w: x1 - x0, d: gap };
+    }
+  }
+  const yOverlap = Math.min(a.y + a.d, b.y + b.d) - Math.max(a.y, b.y);
+  if (yOverlap > 0.1) {
+    const y0 = Math.max(a.y, b.y);
+    const y1 = Math.min(a.y + a.d, b.y + b.d);
+    if (a.x + a.w <= b.x + 1e-6) {
+      const gap = b.x - (a.x + a.w);
+      if (gap > 1e-6 && gap <= maxGap) return { x: a.x + a.w, y: y0, w: gap, d: y1 - y0 };
+    }
+    if (b.x + b.w <= a.x + 1e-6) {
+      const gap = a.x - (b.x + b.w);
+      if (gap > 1e-6 && gap <= maxGap) return { x: b.x + b.w, y: y0, w: gap, d: y1 - y0 };
+    }
+  }
+  return null;
+}
+
+// Un groupe posé par packNeedsIntoFreeSpace n'est utilisable que s'il se
+// raccorde RÉELLEMENT (directement ou via un autre groupe déjà raccordé) au
+// réseau de circulation déjà fixe de la disposition de base — celui-ci est
+// déjà prouvé relié à l'entrée (la disposition de base était admissible
+// avant régénération). Un groupe dont le corridor neuf ne touche rien
+// d'existant serait un îlot : accessible depuis ses propres portes, mais
+// physiquement coupé du reste du logement — repéré à l'inspection visuelle
+// d'exports où deux segments de circulation n'avaient entre eux qu'un vide,
+// jamais une ouverture réelle. Relié par une jonction droite courte quand la
+// géométrie le permet ; sinon, le groupe entier (pas seulement sa
+// circulation) est écarté — ses pièces reviennent au besoin non satisfait,
+// jamais laissées flottantes dans le résultat final.
+function connectGroupsToNetwork(
+  fixedNetwork: Rect[],
+  groups: PackedGroup[],
+  obstacles: Rect[]
+): { bridges: Rect[]; strandedNeeds: FreeSpaceNeed[] } {
+  const MAX_BRIDGE_GAP = 2.5; // m — au-delà, une jonction droite ne serait plus une hypothèse crédible
+  const connectedRects: Rect[] = [...fixedNetwork];
+  const bridges: Rect[] = [];
+  let pendingGroups = [...groups];
+  let changed = true;
+  while (changed && pendingGroups.length > 0) {
+    changed = false;
+    const stillPending: PackedGroup[] = [];
+    for (const g of pendingGroups) {
+      if (connectedRects.some((t) => rectsAdjacent(g.corridor, t))) {
+        connectedRects.push(g.corridor, ...g.fillers);
+        changed = true;
+        continue;
+      }
+      const otherPlacementRects = pendingGroups
+        .filter((other) => other !== g)
+        .flatMap((other) => other.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })));
+      let bridge: Rect | null = null;
+      for (const t of connectedRects) {
+        const candidate = straightBridge(g.corridor, t, MAX_BRIDGE_GAP);
+        if (candidate && !obstacles.some((o) => rectsOverlap(candidate, o)) && !otherPlacementRects.some((o) => rectsOverlap(candidate, o))) {
+          bridge = candidate;
+          break;
+        }
+      }
+      if (bridge) {
+        bridges.push(bridge);
+        connectedRects.push(g.corridor, ...g.fillers, bridge);
+        changed = true;
+      } else {
+        stillPending.push(g);
+      }
+    }
+    pendingGroups = stillPending;
+  }
+  const strandedNeeds = pendingGroups.flatMap((g) => g.placements.map((p) => p.need));
+  return { bridges, strandedNeeds };
 }
 
 // Régénère les pièces NON verrouillées et NON mises de côté, en conservant
@@ -1823,10 +2004,17 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
 
   function attempt(order: "aire décroissante" | "aire croissante"): { layout: Layout; note: string; newCirculationArea: number } | { error: string } {
     const ordered = [...needs].sort((a, b) => (order === "aire décroissante" ? b.width * b.depth - a.width * a.depth : a.width * a.depth - b.width * b.depth));
-    const { placements, corridors, corridorFillers, leftover } = packNeedsIntoFreeSpace(emprise, obstacles, ordered);
+    const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, obstacles, ordered);
     if (leftover.length > 0) {
       return {
         error: `Ordre ${order} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
+      };
+    }
+    const fixedNetwork: Rect[] = [...(layout.corridor ? [layout.corridor] : []), ...layout.corridorFillers, ...layout.circulations];
+    const { bridges, strandedNeeds } = connectGroupsToNetwork(fixedNetwork, groups, obstacles);
+    if (strandedNeeds.length > 0) {
+      return {
+        error: `Ordre ${order} : ${strandedNeeds.map((n) => `« ${n.label} »`).join(", ")} seraient posées sur un segment de circulation réellement coupé du reste du logement (aucune jonction praticable trouvée) — rejeté plutôt que proposé comme accessible.`,
       };
     }
     const next = cloneLayout(layout);
@@ -1861,10 +2049,10 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         width: (outerVertical ? p.d : p.w) * 0.5,
       });
     }
-    next.circulations = [...next.circulations, ...corridors];
+    next.circulations = [...next.circulations, ...corridors, ...bridges];
     next.corridorFillers = [...next.corridorFillers, ...corridorFillers];
     const result = recomputeDerivedGeometry(next);
-    const newCirculationArea = corridors.reduce((s, c) => s + c.w * c.d, 0) + corridorFillers.reduce((s, f) => s + f.w * f.d, 0);
+    const newCirculationArea = corridors.reduce((s, c) => s + c.w * c.d, 0) + corridorFillers.reduce((s, f) => s + f.w * f.d, 0) + bridges.reduce((s, b) => s + b.w * b.d, 0);
     return {
       layout: result,
       note: `Ordre ${order} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés, ${newCirculationArea.toFixed(2)} m² de nouvelle circulation ajoutée (préférence : circulation ajoutée minimale).`,
