@@ -265,10 +265,12 @@ export interface Layout {
   // deux ; computeReachableRooms traite chaque segment comme un espace
   // identifié parmi d'autres, jamais un singleton supposé unique.
   circulations: Rect[];
-  // Trajet(s) EXTÉRIEUR(S) réels reliant l'entrée du bâti (entryDoor, fixée
-  // par l'utilisateur/le terrain — l'accès à la PARCELLE) à une ouverture
-  // réelle du bâti lorsque celui-ci ne la touche plus directement (ex. un
-  // contour bâti reconstruit plus compact, éloigné de l'entrée historique).
+  // Trajet(s) EXTÉRIEUR(S) réels reliant entryDoor — le SEUIL D'ACCÈS AU
+  // CONTOUR CONSTRUCTIBLE (emprise), fixé par l'utilisateur/le terrain,
+  // jamais le portail de la parcelle lui-même (reculs non modélisés entre
+  // ce seuil et la limite réelle du terrain) — à une ouverture réelle du
+  // bâti lorsque celui-ci ne la touche plus directement (ex. un contour
+  // bâti reconstruit plus compact, éloigné de ce seuil).
   // Largeur réelle (CORRIDOR_WIDTH), jamais une ligne ni un chevauchement
   // de pièce/mur — voir buildExteriorPath. Compté séparément de
   // `circulation` dans les surfaces (jamais fusionné, jamais compté deux
@@ -2259,9 +2261,11 @@ function straightBridge(a: Rect, b: Rect, maxGap: number): Rect | null {
 }
 
 // Trajet extérieur RÉEL (largeur CORRIDOR_WIDTH, jamais une ligne) reliant
-// l'entrée du bâti (son point fixe, entryDoor — l'accès à la PARCELLE,
-// jamais déplacé ici) à la circulation du bâti quand celui-ci ne la touche
-// plus directement (ex. contour reconstruit plus compact). Part de
+// entryDoor — son point FIXE, jamais déplacé ici, le seuil d'accès au
+// contour CONSTRUCTIBLE (emprise), jamais le portail de la parcelle (les
+// reculs entre ce seuil et la limite réelle du terrain ne sont pas
+// modélisés par ce trajet) — à la circulation du bâti quand celui-ci ne la
+// touche plus directement (ex. contour reconstruit plus compact). Part de
 // l'entrée tout droit, dans le sens où elle ouvre déjà (même convention
 // que doorInsideProbe), sur la distance EXACTE qui sépare l'entrée de la
 // cible la plus proche dont l'étendue transversale recouvre réellement
@@ -2601,6 +2605,60 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     keepFillers: Rect[];
     keepCirculations: Rect[];
   };
+
+  // Stratégie "circulation réservée d'abord" : au lieu de laisser chaque
+  // groupe de pièces inventer SA propre circulation (le placement "en
+  // colonnes" historique, où la circulation n'est qu'un sous-produit du
+  // placement), réserve D'ABORD un petit nombre de tracés RÉELLEMENT
+  // différents (droit horizontal, droit vertical, en coude — largeur
+  // réelle CORRIDOR_WIDTH, jamais une ligne), alignés sur l'entrée quand
+  // elle existe, puis place les pièces AUTOUR via la MÊME recherche
+  // (attempt/attemptBacktrack, packNeedsIntoFreeSpace, connectGroupsToNetwork
+  // — aucune réécriture) : seule la construction de l'ObstacleMode change.
+  // Un tracé qui bloque une pièce est juste une tentative de plus (retour
+  // arrière au niveau du CHOIX DE TRACÉ, en plus du retour arrière déjà
+  // existant sur le sous-ensemble posé dans chaque rectangle libre).
+  function candidateCirculationSpines(searchEmprise: Rect): Rect[][] {
+    const w = CORRIDOR_WIDTH;
+    if (searchEmprise.w < w + 1 || searchEmprise.d < w + 1) return [];
+    const entryIsVertical = layout.entryDoor ? layout.entryDoor.wall === "left" || layout.entryDoor.wall === "right" : null;
+    const alignX =
+      entryIsVertical === true
+        ? Math.min(Math.max(layout.entryDoor!.cx, searchEmprise.x + w / 2), searchEmprise.x + searchEmprise.w - w / 2)
+        : searchEmprise.x + searchEmprise.w / 2;
+    const alignY =
+      entryIsVertical === false
+        ? Math.min(Math.max(layout.entryDoor!.cy, searchEmprise.y + w / 2), searchEmprise.y + searchEmprise.d - w / 2)
+        : searchEmprise.y + searchEmprise.d / 2;
+
+    const horizontal: Rect = { x: searchEmprise.x, y: alignY - w / 2, w: searchEmprise.w, d: w };
+    const vertical: Rect = { x: alignX - w / 2, y: searchEmprise.y, w, d: searchEmprise.d };
+    const spines: Rect[][] = [[horizontal], [vertical]];
+    if (searchEmprise.w >= 2 * w + 1 && searchEmprise.d >= 2 * w + 1) {
+      // Coude : part du bord aligné sur l'entrée sur la moitié de la
+      // portée, puis tourne à 90° — une forme réellement différente des
+      // deux tracés droits ci-dessus, pas une simple variante. Les deux
+      // segments se TOUCHENT exactement à la jonction (bord à bord, jamais
+      // un chevauchement) : un chevauchement entre deux segments de
+      // circulation est par ailleurs une vraie erreur (voir independentVerify,
+      // contrôle 2) — distinguer ce coude d'un chevauchement fautif plutôt
+      // que de relâcher ce contrôle pour ce seul cas.
+      if (entryIsVertical !== true) {
+        const halfW = searchEmprise.w / 2;
+        spines.push([
+          { x: searchEmprise.x, y: alignY - w / 2, w: halfW, d: w },
+          { x: searchEmprise.x + halfW, y: searchEmprise.y, w, d: searchEmprise.d },
+        ]);
+      } else {
+        const halfD = searchEmprise.d / 2;
+        spines.push([
+          { x: alignX - w / 2, y: searchEmprise.y, w, d: halfD },
+          { x: searchEmprise.x, y: searchEmprise.y + halfD, w: searchEmprise.w, d: w },
+        ]);
+      }
+    }
+    return spines;
+  }
   // Mode "préserver" (repli sûr, comportement historique) : le réseau
   // existant reste un obstacle fixe et le point de départ du nouveau réseau.
   // Mode "reconstruire" : seules les pièces verrouillées, la cour et le
@@ -2632,6 +2690,22 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         ]
       : []),
   ];
+
+  // Construit les modes "circulation réservée d'abord" pour UNE emprise de
+  // recherche donnée (dépend de sa taille/position, contrairement aux deux
+  // modes ci-dessus) — le seuil de chaque porte verrouillée reste réservé,
+  // exactement comme pour "reconstruire entièrement".
+  function spineObstacleModes(searchEmprise: Rect): ObstacleMode[] {
+    if (!entryProbe) return [];
+    return candidateCirculationSpines(searchEmprise).map((spineRects, i) => ({
+      name: `circulation réservée d'abord #${i + 1}`,
+      obstacles: [...fixedObstacles, ...lockedDoorProbes, ...spineRects],
+      networkAnchors: [entryProbe, ...lockedDoorProbes, ...spineRects],
+      keepCorridor: null,
+      keepFillers: [],
+      keepCirculations: spineRects,
+    }));
+  }
 
   const needs: FreeSpaceNeed[] = targetRooms.map(({ r, i }) => ({
     idx: i,
@@ -2791,8 +2865,9 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     next.corridor = mode.keepCorridor;
     next.corridorFillers = [...mode.keepFillers, ...corridorFillers];
     next.circulations = [...mode.keepCirculations, ...corridors, ...bridges];
-    // L'entrée (son point FIXE, jamais déplacé — l'accès à la PARCELLE,
-    // distinct de l'accès au bâti) doit réellement déboucher sur CE réseau.
+    // L'entrée (son point FIXE, jamais déplacé — le seuil d'accès au
+    // contour CONSTRUCTIBLE, distinct du portail de la parcelle ET de
+    // l'accès au bâti) doit réellement déboucher sur CE réseau.
     // Un bâti reconstruit plus compact peut s'en être éloigné : dans ce cas,
     // tente un trajet extérieur réel (largeur réelle, sans traverser aucune
     // pièce ni aucun mur — voir buildExteriorPath) avant de conclure.
@@ -2878,8 +2953,13 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     candidates.push(built);
   }
 
-  for (const mode of obstacleModes) {
-    for (const empriseAttempt of EMPRISE_ATTEMPTS) {
+  // Emprise en boucle EXTÉRIEURE (pas les modes) : les modes "circulation
+  // réservée d'abord" dépendent de l'emprise de recherche (taille,
+  // alignement sur l'entrée) et doivent donc être reconstruits pour
+  // CHACUNE, pas une seule fois à l'extérieur.
+  for (const empriseAttempt of EMPRISE_ATTEMPTS) {
+    const modesForThisEmprise: ObstacleMode[] = [...obstacleModes, ...spineObstacleModes(empriseAttempt.rect)];
+    for (const mode of modesForThisEmprise) {
       for (const order of FILL_ORDERS) {
         const built = attempt(order, mode, empriseAttempt.rect, empriseAttempt.label);
         if ("error" in built) {

@@ -213,6 +213,72 @@ try {
       record("Retour arrière — aucun chevauchement entre pièces/corridors du résultat", !overlapFound);
     }
 
+    // 7bis) CIRCULATION RÉSERVÉE D'ABORD — cas déterministe où le placement
+    // en colonnes (un seul rectangle libre, qu'il soit rempli par un ordre
+    // fixe OU par le retour arrière) échoue structurellement, alors que
+    // réserver un petit réseau de circulation AVANT de poser les pièces
+    // réussit. Emprise 10×12 m SANS obstacle verrouillé : un seul rectangle
+    // libre (l'emprise entière). `packInto`/`fitGroupIntoFreeRect` ne posent
+    // qu'UNE SEULE rangée par rectangle libre (le long d'un bord, avec un
+    // seul corridor) — jamais une deuxième rangée dans la profondeur
+    // restante du MÊME rectangle, même quand cette profondeur est largement
+    // suffisante. Avec 4 besoins identiques (3×3 m), la capacité d'une
+    // rangée le long du bord de 10 m est de 3 (3×(3+0.1 mur) = 9,3 m ≤ 9,8 m
+    // utiles ; la 4ᵉ dépasse). Le 4ᵉ besoin reste donc TOUJOURS sans place :
+    // ni un ordre différent (besoins identiques, l'ordre ne change rien), ni
+    // le retour arrière (un seul rectangle libre, donc `BACKTRACK_FR_BRANCHING`
+    // ne lui trouve aucune alternative, et une fois ce rectangle consommé
+    // par une rangée il n'est jamais réexaminé pour une seconde — voir
+    // `search`/`reclip` dans backtrackPackNeedsIntoFreeSpace) ne peut
+    // dépasser cette capacité de 3. En revanche, réserver D'ABORD un spine de
+    // circulation (largeur réelle CORRIDOR_WIDTH) qui traverse toute la
+    // largeur à mi-profondeur scinde ce même rectangle en DEUX rectangles
+    // libres (haut et bas), chacun avec sa propre rangée/son propre
+    // corridor — capacité 3+3=6 ≥ 4, donc les 4 besoins tiennent, retrouvé
+    // par le simple appel glouton (`packNeedsIntoFreeSpace`), sans même avoir
+    // besoin du retour arrière. C'est exactement le mécanisme intégré dans
+    // `spineObstacleModes`/`candidateCirculationSpines` (le spine est ajouté
+    // aux obstacles AVANT l'appel à ces mêmes fonctions, inchangées).
+    const spineEmprise = { x: 0, y: 0, w: 10, d: 12 };
+    const spineNeeds = [mkNeed(0, "A", 3, 3), mkNeed(1, "B", 3, 3), mkNeed(2, "C", 3, 3), mkNeed(3, "D", 3, 3)];
+    const columnOnly = g.packNeedsIntoFreeSpace(spineEmprise, [], spineNeeds);
+    record(
+      "Circulation réservée d'abord — préalable : le placement en colonnes (ordre fixe) bloque un besoin sur 4",
+      columnOnly.leftover.length === 1 && columnOnly.leftover[0].label === "D",
+      `placés: ${columnOnly.placements.map((p) => p.need.label).join(",")} | reste: ${columnOnly.leftover.map((n) => n.label).join(",")}`
+    );
+    const columnBacktrack = g.backtrackPackNeedsIntoFreeSpace(spineEmprise, [], spineNeeds, 400, 150, 4);
+    record(
+      "Circulation réservée d'abord — préalable : le retour arrière seul (sans spine) ne trouve aucune disposition complète non plus",
+      columnBacktrack.complete.length === 0,
+      `${columnBacktrack.nodesExplored} noeud(s), ${columnBacktrack.deadEnds} impasse(s)`
+    );
+    const reservedSpine = { x: 0, y: 5.4, w: 10, d: 1.2 };
+    const withSpine = g.packNeedsIntoFreeSpace(spineEmprise, [reservedSpine], spineNeeds);
+    record(
+      "Circulation réservée d'abord — en réservant le spine avant de poser les pièces, les 4 besoins tiennent",
+      withSpine.leftover.length === 0,
+      `placés: ${withSpine.placements.map((p) => p.need.label).join(",")}`
+    );
+    if (withSpine.leftover.length === 0) {
+      const spineAllRects = [
+        reservedSpine,
+        ...withSpine.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })),
+        ...withSpine.corridors,
+        ...withSpine.corridorFillers,
+      ];
+      let spineOverlap = false;
+      for (let i = 0; i < spineAllRects.length && !spineOverlap; i++) {
+        for (let j = i + 1; j < spineAllRects.length; j++) {
+          const a = spineAllRects[i], b = spineAllRects[j];
+          const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+          const overlapY = Math.min(a.y + a.d, b.y + b.d) - Math.max(a.y, b.y);
+          if (overlapX > 1e-6 && overlapY > 1e-6) { spineOverlap = true; break; }
+        }
+      }
+      record("Circulation réservée d'abord — aucun chevauchement entre spine/pièces/corridors du résultat", !spineOverlap);
+    }
+
     // 8) COMPACITÉ — RÉVISÉ (lot sur l'entrée non reliée, après
     // scenario2.projet(4).json) : la revendication précédente de ce test
     // ("212,5 -> 103,0 m², trouvé par le moteur") reposait sur le MÊME bug

@@ -285,7 +285,11 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
     parts.push(`<line ${wallGapLine(ex, ey, layout.entryDoor.wall, halfPx)} stroke="#ffffff" stroke-width="4" />`);
     const labelDx = layout.entryDoor.wall === "left" ? -55 : layout.entryDoor.wall === "right" ? 15 : -20;
     const labelDy = layout.entryDoor.wall === "top" ? -8 : layout.entryDoor.wall === "bottom" ? 16 : 4;
-    parts.push(`<text x="${ex + labelDx}" y="${ey + labelDy}" font-size="10" font-weight="700" fill="#15803d">Entrée</text>`);
+    // "Entrée (limite constructible)" — jamais "portail de parcelle" :
+    // entryDoor marque le seuil de l'EMPRISE (terrain moins reculs), pas la
+    // limite réelle du terrain ni un portail sur rue, qu'aucun trajet ne
+    // modélise au-delà de ce seuil.
+    parts.push(`<text x="${ex + labelDx}" y="${ey + labelDy}" font-size="9" font-weight="700" fill="#15803d">Entrée (limite constructible)</text>`);
     parts.push(`<circle cx="${ex}" cy="${ey}" r="4" fill="#15803d" />`);
   }
 
