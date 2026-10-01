@@ -1,0 +1,170 @@
+{
+ "variantLabel": "Preuve cheminement extérieur",
+ "feasible": true,
+ "failureReasons": [],
+ "rejected": false,
+ "rejectionReasons": [],
+ "accessSide": "back",
+ "terrain": {
+  "x": 0,
+  "y": 0,
+  "w": 15,
+  "d": 25
+ },
+ "emprise": {
+  "x": 2,
+  "y": 3,
+  "w": 11,
+  "d": 19
+ },
+ "footprint": {
+  "x": 3,
+  "y": 16,
+  "w": 7.699999999999999,
+  "d": 5.599999999999998
+ },
+ "corridor": null,
+ "corridorFillers": [
+  {
+   "x": 3.2,
+   "y": 19.4,
+   "w": 3.2,
+   "d": 0.8000000000000007
+  }
+ ],
+ "circulations": [
+  {
+   "x": 3.2,
+   "y": 20.2,
+   "w": 7.3,
+   "d": 1.2
+  }
+ ],
+ "exteriorPaths": [
+  {
+   "x": 6.4,
+   "y": 21.4,
+   "w": 1.2,
+   "d": 0.6000000000000014
+  }
+ ],
+ "courtyard": null,
+ "streetDoor": null,
+ "entryDoor": {
+  "wall": "bottom",
+  "cx": 7,
+  "cy": 22,
+  "width": 0.9
+ },
+ "rooms": [
+  {
+   "type": "chambre",
+   "label": "Chambre",
+   "number": 1,
+   "x": 3.2,
+   "y": 16.2,
+   "w": 3.2,
+   "d": 3.2,
+   "minW": 3.2,
+   "minD": 3.2,
+   "exteriorWall": "top",
+   "vehicleDoor": null,
+   "locked": true
+  },
+  {
+   "type": "salon",
+   "label": "Salon",
+   "number": 1,
+   "x": 6.5,
+   "y": 16.2,
+   "w": 4,
+   "d": 4,
+   "minW": 4,
+   "minD": 4,
+   "exteriorWall": "top",
+   "vehicleDoor": null,
+   "locked": false
+  }
+ ],
+ "doors": [
+  {
+   "roomIndex": 0,
+   "wall": "bottom",
+   "cx": 4.800000000000001,
+   "cy": 19.4,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  },
+  {
+   "roomIndex": 1,
+   "wall": "bottom",
+   "cx": 8.5,
+   "cy": 20.2,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  }
+ ],
+ "windows": [
+  {
+   "roomIndex": 0,
+   "wall": "top",
+   "cx": 4.800000000000001,
+   "cy": 16.2,
+   "width": 1.6
+  },
+  {
+   "roomIndex": 1,
+   "wall": "top",
+   "cx": 8.5,
+   "cy": 16.2,
+   "width": 2
+  }
+ ],
+ "exteriorSpaces": [
+  {
+   "label": "Espace extérieur non bâti (avant du bâti, distinct de la cour d'entrée)",
+   "rect": {
+    "x": 2,
+    "y": 3,
+    "w": 11,
+    "d": 13
+   },
+   "accessFrom": "avant de la parcelle"
+  },
+  {
+   "label": "Espace extérieur non bâti (latéral droit)",
+   "rect": {
+    "x": 10.7,
+    "y": 16,
+    "w": 2.3000000000000007,
+    "d": 5.599999999999998
+   },
+   "accessFrom": "façade latérale"
+  },
+  {
+   "label": "Espace extérieur non bâti (latéral gauche)",
+   "rect": {
+    "x": 2,
+    "y": 16,
+    "w": 1,
+    "d": 5.599999999999998
+   },
+   "accessFrom": "façade latérale"
+  }
+ ],
+ "surfaces": {
+  "terrain": 375,
+  "emprise": 209,
+  "cour": 0,
+  "batie": 37.56,
+  "utileHabitable": 26.240000000000002,
+  "exterieure": 165.16000000000003,
+  "circulation": 11.320000000000002,
+  "cheminementExterieur": 0.7200000000000016,
+  "nonAffectee": 5.559999999999974
+ }
+}

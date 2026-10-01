@@ -334,6 +334,81 @@ try {
         JSON.stringify(faultyEntry.doors.filter((d) => d.roomIndex === lockedFaultyIdx)) === JSON.stringify(withPath.doors.filter((d) => d.roomIndex === lockedFaultyIdx))
     );
 
+    // 10) CONSOLIDATION DU VÉRIFICATEUR (corridor=null) — le défaut corrigé
+    // au lot précédent faisait sauter TOUT independentVerify pour ce cas,
+    // pas seulement l'accessibilité depuis l'entrée. Chaque contrôle qui en
+    // dépendait est donc revérifié ICI explicitement avec corridor=null,
+    // plutôt que supposé réparé par un seul test déjà passé.
+    {
+      // a) Chevauchement de pièces, corridor=null.
+      const overlap = JSON.parse(JSON.stringify(faultyEntry));
+      const salonIdxOv = overlap.rooms.findIndex((r) => r.type === "salon");
+      const chambre2IdxOv = overlap.rooms.findIndex((r) => r.label === "Chambre" && r.number === 2);
+      overlap.rooms[chambre2IdxOv] = { ...overlap.rooms[chambre2IdxOv], x: overlap.rooms[salonIdxOv].x, y: overlap.rooms[salonIdxOv].y };
+      record(
+        "Consolidation (corridor=null) — chevauchement de pièces détecté",
+        g.independentVerify(overlap).some((i) => i.severity === "error" && i.message.includes("Chevauchement"))
+      );
+
+      // b) Sortie d'emprise, corridor=null.
+      const outside = JSON.parse(JSON.stringify(faultyEntry));
+      const anyRoomIdx = 1;
+      outside.rooms[anyRoomIdx] = { ...outside.rooms[anyRoomIdx], x: outside.emprise.x + outside.emprise.w + 5 };
+      record(
+        "Consolidation (corridor=null) — sortie d'emprise détectée",
+        g.independentVerify(outside).some((i) => i.severity === "error" && i.message.includes("sort de l'emprise"))
+      );
+
+      // c) Porte orpheline, corridor=null — une pièce dont la porte ne
+      // touche plus aucune circulation réelle (éloignée de tout).
+      const orphan = JSON.parse(JSON.stringify(faultyEntry));
+      const cuisineIdxOr = orphan.rooms.findIndex((r) => r.type === "cuisine");
+      orphan.rooms[cuisineIdxOr] = { ...orphan.rooms[cuisineIdxOr], x: orphan.emprise.x + 0.2, y: orphan.emprise.y + 0.2 };
+      record(
+        "Consolidation (corridor=null) — porte orpheline détectée (ne débouche sur aucune circulation réelle)",
+        g.independentVerify(orphan).some((i) => i.severity === "error" && i.message.includes("aucune ouverture réelle"))
+      );
+
+      // d) Fenêtre obstruée, corridor=null — le contour bâti recalculé ne
+      // touche plus le mur portant la fenêtre (ex. un autre élément a
+      // repoussé ce contour), sans qu'elle ait été explicitement retirée.
+      const obstructed = JSON.parse(JSON.stringify(faultyEntry));
+      obstructed.footprint = { ...obstructed.footprint, d: obstructed.footprint.d - 1.0 };
+      record(
+        "Consolidation (corridor=null) — fenêtre obstruée détectée (mur qui ne débouche plus réellement dehors)",
+        g.independentVerify(obstructed).some((i) => i.severity === "error" && i.message.includes("fenêtre ne débouche plus"))
+      );
+    }
+
+    // 11) PREUVE COMPLÈTE DU CHEMINEMENT EXTÉRIEUR — fixture dédiée (jamais
+    // le scénario 1, dont exteriorPaths=[] ne démontre rien ici) : accès
+    // parcelle (entryDoor, mur bas) -> chemin extérieur réel (0,72 m²,
+    // largeur CORRIDOR_WIDTH, vérifié sans obstacle par buildExteriorPath)
+    // -> raccord -> corridor -> les deux pièces (Chambre verrouillée +
+    // Salon), le tout posé par packNeedsIntoFreeSpace (même moteur que la
+    // régénération réelle), jamais une accessibilité codée en dur.
+    const pathProof = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-exterior-path-proof.json"), "utf8"));
+    record("Cheminement extérieur — la preuve complète est admissible (0 erreur, avertissement compris)", g.independentVerify(pathProof).length === 0);
+    const proofReach = g.computeReachableRooms(pathProof);
+    record("Cheminement extérieur — toutes les pièces réellement accessibles (graphe)", pathProof.rooms.every((r, i) => proofReach.has(i)));
+
+    function errorsOf(l) { return g.independentVerify(l).filter((i) => i.severity === "error"); }
+    const proofNoPath = JSON.parse(JSON.stringify(pathProof));
+    proofNoPath.exteriorPaths = [];
+    record("Cheminement extérieur — retirer le trajet coupe effectivement l'accès (independentVerify)", errorsOf(proofNoPath).length > 0);
+
+    const proofNoEntry = JSON.parse(JSON.stringify(pathProof));
+    proofNoEntry.entryDoor = null;
+    record("Cheminement extérieur — retirer l'ouverture d'entrée coupe effectivement l'accès (independentVerify)", errorsOf(proofNoEntry).length > 0);
+
+    const proofNoFiller = JSON.parse(JSON.stringify(pathProof));
+    proofNoFiller.corridorFillers = [];
+    const fillerErrors = errorsOf(proofNoFiller);
+    record(
+      "Cheminement extérieur — retirer le raccord coupe l'accès de la pièce qu'il dessert",
+      fillerErrors.some((i) => i.message.includes("Chambre"))
+    );
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

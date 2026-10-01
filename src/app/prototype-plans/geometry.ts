@@ -1310,9 +1310,17 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   // silence, AVANT tout contrôle, pour une disposition par ailleurs
   // complète — aucune erreur n'était jamais signalée (ni chevauchement, ni
   // accessibilité depuis l'entrée), quelle que soit la réalité du terrain.
-  // Seule l'absence de footprint/emprise, ou un échec déjà déclaré en
-  // amont, justifie de ne rien vérifier ici.
-  if (!layout.feasible || !layout.footprint || !layout.emprise) return issues;
+  // GÉNÉRALISATION : un contrôle qui ne peut pas s'exécuter (contour bâti ou
+  // emprise absents, ou disposition déjà déclarée infaisable en amont) ne
+  // doit JAMAIS retourner silencieusement un tableau vide — un appelant qui
+  // lit "0 erreur" ne doit jamais pouvoir confondre "rien à vérifier" avec
+  // "vérifié et valide". Un diagnostic explicite est renvoyé à la place.
+  if (!layout.footprint || !layout.emprise) {
+    return [{ severity: "error", message: "Vérification impossible : contour bâti ou emprise absent — jamais assimilé à une disposition validée." }];
+  }
+  if (!layout.feasible) {
+    return [{ severity: "error", message: "Vérification impossible : disposition déjà déclarée infaisable en amont — jamais assimilée à une disposition validée." }];
+  }
 
   // Une pièce mise de côté (zone de rangement) est volontairement hors du
   // terrain : son incomplétude est signalée séparément (compteur de pièces
@@ -2261,7 +2269,7 @@ function straightBridge(a: Rect, b: Rect, maxGap: number): Rect | null {
 // trajet qui dépasse sa cible. Refusé (null) si ce segment traverserait un
 // obstacle réel (une pièce, un mur) ou sortirait de l'emprise : jamais un
 // passage fictif à travers du bâti pour "prouver" une liaison.
-function buildExteriorPath(entryDoor: DoorGeometry, targets: Rect[], obstacles: Rect[], bounds: Rect): Rect | null {
+export function buildExteriorPath(entryDoor: DoorGeometry, targets: Rect[], obstacles: Rect[], bounds: Rect): Rect | null {
   const width = CORRIDOR_WIDTH;
   const half = width / 2;
   const axis: "x" | "y" = entryDoor.wall === "left" || entryDoor.wall === "right" ? "x" : "y";
@@ -2690,7 +2698,25 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     y = Math.max(emprise.y, Math.min(y, emprise.y + emprise.d - d));
     return { x, y, w, d };
   }
-  const compactAnchor = lockedBounds ?? (entryProbe ? { x: entryProbe.x, y: entryProbe.y, w: 0.1, d: 0.1 } : { x: emprise.x + emprise.w / 2, y: emprise.y + emprise.d / 2, w: 0.1, d: 0.1 });
+  // L'ancre inclut désormais l'ENTRÉE elle-même, pas seulement les pièces
+  // verrouillées : une emprise compacte centrée uniquement sur les verrous
+  // pouvait produire un bâti entier hors de portée d'un trajet extérieur
+  // praticable (voir buildExteriorPath) — reconnu seulement APRÈS coup,
+  // trop tard pour influencer la recherche. L'inclure dès le calcul de
+  // l'ancre rapproche mécaniquement le bâti reconstruit de l'entrée réelle,
+  // sans jamais la déplacer ni relâcher aucune contrainte.
+  const entryPoint: Rect | null = entryProbe ? { x: entryProbe.x, y: entryProbe.y, w: entryProbe.w, d: entryProbe.d } : null;
+  function unionRect(a: Rect, b: Rect): Rect {
+    const minX = Math.min(a.x, b.x);
+    const minY = Math.min(a.y, b.y);
+    const maxX = Math.max(a.x + a.w, b.x + b.w);
+    const maxY = Math.max(a.y + a.d, b.y + b.d);
+    return { x: minX, y: minY, w: maxX - minX, d: maxY - minY };
+  }
+  const compactAnchor =
+    lockedBounds && entryPoint
+      ? unionRect(lockedBounds, entryPoint)
+      : lockedBounds ?? entryPoint ?? { x: emprise.x + emprise.w / 2, y: emprise.y + emprise.d / 2, w: 0.1, d: 0.1 };
   const seenCompactKeys = new Set<string>();
   const compactAttempts: { label: string; rect: Rect }[] = [];
   for (const factor of COMPACT_AREA_FACTORS) {
