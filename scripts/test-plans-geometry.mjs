@@ -736,6 +736,70 @@ try {
       );
     }
 
+    // 12) FIXTURES FIXES — dispositions RÉGÉNÉRÉES de référence (lot de
+    // clôture "comparaison traçable") : scripts/fixtures/plans-scenario1-post-
+    // regen.projet.json (48,96 m²) et plans-scenario2-post-regen.projet.json
+    // (40,56 m²), exactement les deux dispositions livrées comme "après"
+    // dans ce lot — jamais recalculées à la volée, figées ici pour que toute
+    // évolution future du moteur soit comparée à CES valeurs précises, pas à
+    // un souvenir. Chaque fixture est revérifiée : réimportable, programme
+    // complet, pièce verrouillée et ses ouvertures inchangées, accessible
+    // depuis le seuil d'entrée modélisé (entryDoor), et sa surface de
+    // circulation recalculée ICI par union géométrique INDÉPENDANTE
+    // (échantillonnage de grille, jamais le champ `surfaces.circulation`
+    // enregistré) — exactement la méthode utilisée pour clarifier le 38,32 m²
+    // du lot précédent, appliquée maintenant aux deux nouvelles fixtures.
+    function independentUnionArea(rects) {
+      if (rects.length === 0) return 0;
+      const res = 0.01;
+      const minX = Math.min(...rects.map((r) => r.x));
+      const maxX = Math.max(...rects.map((r) => r.x + r.w));
+      const minY = Math.min(...rects.map((r) => r.y));
+      const maxY = Math.max(...rects.map((r) => r.y + r.d));
+      let count = 0;
+      for (let x = minX + res / 2; x < maxX; x += res) {
+        for (let y = minY + res / 2; y < maxY; y += res) {
+          if (rects.some((r) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.d)) count++;
+        }
+      }
+      return count * res * res;
+    }
+    function checkPostRegenFixture(label, fixtureFile, expectedCirculation, lockedRoomType, programCounts) {
+      const raw = JSON.parse(readFileSync(join(__dirname, "fixtures", fixtureFile), "utf8"));
+      const validated = pf.validateProjectFile(raw);
+      record(`${label} — réimportable (validateProjectFile)`, validated.ok);
+      if (!validated.ok) return;
+      const l = validated.value.layout;
+      record(`${label} — admissible (0 erreur independentVerify)`, g.independentVerify(l).filter((i) => i.severity === "error").length === 0);
+      const reach = g.computeReachableRooms(l);
+      record(
+        `${label} — toutes les pièces accessibles depuis le seuil d'entrée modélisé (entryDoor)`,
+        l.rooms.every((r, i) => r.parked || reach.has(i))
+      );
+      const counts = {};
+      l.rooms.forEach((r) => { counts[r.type] = (counts[r.type] || 0) + 1; });
+      record(
+        `${label} — programme complet (nombre de pièces par type)`,
+        Object.entries(programCounts).every(([type, n]) => counts[type] === n),
+        JSON.stringify(counts)
+      );
+      const locked = l.rooms.find((r) => r.locked);
+      record(`${label} — une pièce verrouillée de type attendu est présente`, !!locked && locked.type === lockedRoomType);
+      const circRects = [...(l.corridor ? [l.corridor] : []), ...l.corridorFillers, ...l.circulations];
+      const indep = independentUnionArea(circRects);
+      record(
+        `${label} — surface de circulation recalculée par union géométrique indépendante (jamais le champ enregistré)`,
+        Math.abs(indep - expectedCirculation) < 0.01,
+        `recalculée=${indep.toFixed(2)} m², enregistrée=${l.surfaces.circulation.toFixed(2)} m²`
+      );
+    }
+    checkPostRegenFixture("Fixture scénario 1 régénéré (48,96 m²)", "plans-scenario1-post-regen.projet.json", 48.96, "chambre", {
+      chambre: 3, salon: 1, cuisine: 1, sanitaire: 2,
+    });
+    checkPostRegenFixture("Fixture scénario 2 régénéré (40,56 m²)", "plans-scenario2-post-regen.projet.json", 40.56, "chambre", {
+      chambre: 2, salon: 1, cuisine: 1, sanitaire: 1,
+    });
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);
