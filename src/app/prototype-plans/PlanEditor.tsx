@@ -863,8 +863,9 @@ function RegenerationPanel({
     <div className="flex flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-4">
       <h3 className="font-semibold text-indigo-900">Comparer de nouvelles dispositions</h3>
       <p className="text-xs text-indigo-800">
-        Ce calcul (2 ordres de remplissage au maximum) s&apos;est déjà terminé — il n&apos;y a rien en cours à
-        interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
+        Ce calcul (au maximum 5 ordres de remplissage × 2 stratégies de circulation, un passage glouton chacun —
+        quelques dizaines de millisecondes avec le nombre de pièces de ce prototype) s&apos;est déjà terminé — il
+        n&apos;y a rien en cours à interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
         disposition » ; « Fermer sans appliquer » vous y ramène exactement tel quel. Les pièces verrouillées restent
         identiques (position, dimensions, portes, fenêtres existantes) dans chaque proposition ci-dessous.
       </p>

@@ -2068,6 +2068,34 @@ function compareLayoutQuality(a: Layout, b: Layout): number {
   return sa.nonAffectee - sb.nonAffectee;
 }
 
+// Plusieurs ordres de remplissage glouton (packNeedsIntoFreeSpace pose les
+// pièces dans l'ordre reçu, sans retour-arrière) explorent des placements
+// RÉELLEMENT différents, pas une simple variation cosmétique : la pièce
+// posée en premier dans chaque groupe fixe la profondeur du corridor de ce
+// groupe, donc l'ordre change la disposition obtenue. "aire" priorise le
+// gabarit global ; "largeur"/"profondeur" peuvent regrouper différemment
+// des pièces de forme contrastée (ex. un sanitaire étroit mais profond) ;
+// "type" rapproche les pièces de même nature (ex. les deux sanitaires côte
+// à côte), répondant directement à la demande de regroupement plus compact
+// — jamais une règle architecturale, seulement un ordre de tentative parmi
+// d'autres, tous bornés et non exhaustifs.
+type FillOrder = "aire décroissante" | "aire croissante" | "largeur décroissante" | "profondeur décroissante" | "regroupé par type";
+function orderNeeds(needs: FreeSpaceNeed[], order: FillOrder): FreeSpaceNeed[] {
+  const byAreaDesc = (a: FreeSpaceNeed, b: FreeSpaceNeed) => b.width * b.depth - a.width * a.depth;
+  switch (order) {
+    case "aire décroissante":
+      return [...needs].sort(byAreaDesc);
+    case "aire croissante":
+      return [...needs].sort((a, b) => a.width * a.depth - b.width * b.depth);
+    case "largeur décroissante":
+      return [...needs].sort((a, b) => b.width - a.width || byAreaDesc(a, b));
+    case "profondeur décroissante":
+      return [...needs].sort((a, b) => b.depth - a.depth || byAreaDesc(a, b));
+    case "regroupé par type":
+      return [...needs].sort((a, b) => a.type.localeCompare(b.type) || byAreaDesc(a, b));
+  }
+}
+
 // Une fois une disposition déjà ADMISSIBLE (aucune contrainte obligatoire
 // violée), tente de retirer UN PAR UN les segments de circulation (corridor
 // principal compris, raccords, circulations secondaires — jamais une pièce,
@@ -2146,10 +2174,11 @@ function pruneUnneededCirculation(layout: Layout): Layout {
 // connexion). Le résultat de chacune est ensuite élagué (voir
 // pruneUnneededCirculation) avant classement par qualité.
 //
-// Recherche BORNÉE et NON EXHAUSTIVE (2 ordres de remplissage par aire
-// croissante/décroissante, remplissage glouton en un seul passage, aucun
-// retour-arrière) — un échec signifie seulement que CETTE recherche n'a rien
-// trouvé, jamais qu'une organisation est impossible. Une pièce à accès
+// Recherche BORNÉE et NON EXHAUSTIVE (voir FillOrder : 5 ordres de
+// remplissage × jusqu'à 2 modes d'obstacles, remplissage glouton en un seul
+// passage par tentative, aucun retour-arrière) — un échec signifie seulement
+// que CETTE recherche n'a rien trouvé, jamais qu'une organisation est
+// impossible. Une pièce à accès
 // véhicule obligatoire (garage) n'est pas prise en charge par ce moteur
 // général (aucune porte véhicule posée) : plutôt que produire un plan sans
 // accès garage, cette famille est explicitement écartée pour cette
@@ -2280,9 +2309,9 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     minD: r.minD,
   }));
 
-  function attempt(order: "aire décroissante" | "aire croissante", mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
+  function attempt(order: FillOrder, mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
     const label = `Ordre ${order}, ${mode.name}`;
-    const ordered = [...needs].sort((a, b) => (order === "aire décroissante" ? b.width * b.depth - a.width * a.depth : a.width * a.depth - b.width * b.depth));
+    const ordered = orderNeeds(needs, order);
     const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, mode.obstacles, ordered);
     if (leftover.length > 0) {
       return {
@@ -2342,9 +2371,10 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     };
   }
 
+  const FILL_ORDERS: FillOrder[] = ["aire décroissante", "aire croissante", "largeur décroissante", "profondeur décroissante", "regroupé par type"];
   const candidates: { layout: Layout; note: string }[] = [];
   for (const mode of obstacleModes) {
-  for (const order of ["aire décroissante", "aire croissante"] as const) {
+  for (const order of FILL_ORDERS) {
     const built = attempt(order, mode);
     if ("error" in built) {
       failureReasons.push(built.error);
