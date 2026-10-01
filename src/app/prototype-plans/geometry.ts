@@ -305,6 +305,18 @@ function rectsOverlap(a: Rect, b: Rect, eps = 1e-6): boolean {
 // ni un écart plus grand — une pièce à 2 m d'un corridor n'est PAS adjacente.
 const ADJACENCY_TOLERANCE = WALL_EXT + WALL_INT + 0.02;
 
+// Tolérance RÉSERVÉE au contact entre deux segments de circulation entre eux
+// (jamais pièce-à-circulation, qui garde ADJACENCY_TOLERANCE pour l'épaisseur
+// de mur réelle) : seulement l'épaisseur d'une erreur numérique (arrondis de
+// calcul), jamais une épaisseur de mur. Un écart réel de 10 à 20 cm entre
+// deux segments — sans ouverture modélisée — n'est PAS un contact : il a été
+// accepté à tort par ADJACENCY_TOLERANCE (32 cm) dans une version
+// précédente, laissant un vide non dessiné entre deux rectangles "jointifs"
+// dans le graphe mais visiblement séparés sur l'export. Un tel écart doit
+// être comblé par un segment de jonction explicite (voir straightBridge) ou
+// le groupe qu'il isole doit être écarté — jamais toléré en silence.
+const CIRCULATION_TOUCH_EPS = 1e-2;
+
 function rectsAdjacent(a: Rect, b: Rect, eps = ADJACENCY_TOLERANCE): boolean {
   const xTouch = Math.abs(a.x + a.w - b.x) < eps || Math.abs(b.x + b.w - a.x) < eps;
   const yOverlap = a.y < b.y + b.d - 1e-6 && a.y + a.d > b.y + 1e-6;
@@ -812,8 +824,14 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     rooms.push({ type: need.type, label: need.label, number: numberWithin(topNeeds, i, need.type), x, y, w: width, d: depth, minW: need.minWidth, minD: need.minDepth, exteriorWall: "top", vehicleDoor: null });
     doors.push({ roomIndex, wall: "bottom", cx: x + width / 2, cy: y + depth, width: Math.min(DOOR_WIDTH, width), to: { kind: "circulation" } });
     windows.push({ roomIndex, wall: "top", cx: x + width / 2, cy: y, width: width * 0.5 });
+    // Comble EXACTEMENT l'écart entre le mur intérieur de cette pièce (moins
+    // profonde que la plus profonde de la rangée) et topCorridor, qui
+    // commence pile à emprise.y+WALL_EXT+rowMaxDepth — jamais une marge
+    // ajoutée en plus, qui chevauchait topCorridor de l'épaisseur d'une
+    // cloison (même défaut que packNeedsIntoFreeSpace, corrigé ici de la
+    // même façon).
     const depthGap = rowMaxDepth - depth;
-    if (depthGap > 1e-6) extraFillers.push({ x, y: y + depth, w: width, d: depthGap + WALL_INT });
+    if (depthGap > 1e-6) extraFillers.push({ x, y: y + depth, w: width, d: depthGap });
     cursorX += width + WALL_INT;
   });
   const rowWidth = cursorX - WALL_INT - (emprise.x + WALL_EXT);
@@ -1134,7 +1152,12 @@ export function computeReachableRooms(layout: Layout): Set<number> {
     while (segFrontier.length) {
       const i = segFrontier.pop()!;
       segments.forEach((s, j) => {
-        if (!segReached[j] && rectsAdjacent(segments[i], s)) markSeg(j);
+        // Deux segments de circulation ne se raccordent que par un contact
+        // RÉEL (tolérance numérique seulement, voir CIRCULATION_TOUCH_EPS) —
+        // jamais la tolérance d'épaisseur de mur, qui tolérait à tort un
+        // vide de 10 à 20 cm entre deux rectangles jamais réellement
+        // ouverts l'un sur l'autre.
+        if (!segReached[j] && rectsAdjacent(segments[i], s, CIRCULATION_TOUCH_EPS)) markSeg(j);
       });
       if (salonRect && !salonReached && rectsAdjacent(salonRect, segments[i])) markSalon();
       for (const d of usableDoors) {
@@ -1813,32 +1836,35 @@ function packNeedsIntoFreeSpace(
 // partagent un recouvrement réel sur un axe (horizontal ou vertical) et dont
 // l'écart sur l'autre axe reste court — jamais une circulation fictive
 // traversant une zone sans rapport. `null` si aucun recouvrement exploitable
-// ou si l'écart dépasse `maxGap`.
+// ou si l'écart dépasse `maxGap`. Le recouvrement exigé est AU MOINS une
+// largeur de porte (DOOR_WIDTH) : un chevauchement de quelques centimètres
+// ne représenterait pas un passage réellement praticable, seulement un
+// contact géométrique de complaisance.
 function straightBridge(a: Rect, b: Rect, maxGap: number): Rect | null {
   const xOverlap = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
-  if (xOverlap > 0.1) {
+  if (xOverlap >= DOOR_WIDTH - 1e-6) {
     const x0 = Math.max(a.x, b.x);
     const x1 = Math.min(a.x + a.w, b.x + b.w);
     if (a.y + a.d <= b.y + 1e-6) {
       const gap = b.y - (a.y + a.d);
-      if (gap > 1e-6 && gap <= maxGap) return { x: x0, y: a.y + a.d, w: x1 - x0, d: gap };
+      if (gap > CIRCULATION_TOUCH_EPS && gap <= maxGap) return { x: x0, y: a.y + a.d, w: x1 - x0, d: gap };
     }
     if (b.y + b.d <= a.y + 1e-6) {
       const gap = a.y - (b.y + b.d);
-      if (gap > 1e-6 && gap <= maxGap) return { x: x0, y: b.y + b.d, w: x1 - x0, d: gap };
+      if (gap > CIRCULATION_TOUCH_EPS && gap <= maxGap) return { x: x0, y: b.y + b.d, w: x1 - x0, d: gap };
     }
   }
   const yOverlap = Math.min(a.y + a.d, b.y + b.d) - Math.max(a.y, b.y);
-  if (yOverlap > 0.1) {
+  if (yOverlap >= DOOR_WIDTH - 1e-6) {
     const y0 = Math.max(a.y, b.y);
     const y1 = Math.min(a.y + a.d, b.y + b.d);
     if (a.x + a.w <= b.x + 1e-6) {
       const gap = b.x - (a.x + a.w);
-      if (gap > 1e-6 && gap <= maxGap) return { x: a.x + a.w, y: y0, w: gap, d: y1 - y0 };
+      if (gap > CIRCULATION_TOUCH_EPS && gap <= maxGap) return { x: a.x + a.w, y: y0, w: gap, d: y1 - y0 };
     }
     if (b.x + b.w <= a.x + 1e-6) {
       const gap = a.x - (b.x + b.w);
-      if (gap > 1e-6 && gap <= maxGap) return { x: b.x + b.w, y: y0, w: gap, d: y1 - y0 };
+      if (gap > CIRCULATION_TOUCH_EPS && gap <= maxGap) return { x: b.x + b.w, y: y0, w: gap, d: y1 - y0 };
     }
   }
   return null;
@@ -1870,7 +1896,10 @@ function connectGroupsToNetwork(
     changed = false;
     const stillPending: PackedGroup[] = [];
     for (const g of pendingGroups) {
-      if (connectedRects.some((t) => rectsAdjacent(g.corridor, t))) {
+      // Contact RÉEL seulement (voir CIRCULATION_TOUCH_EPS) : la tolérance
+      // d'épaisseur de mur acceptait à tort un vide de 10 à 20 cm entre deux
+      // segments comme "déjà raccordés", sans jonction dessinée.
+      if (connectedRects.some((t) => rectsAdjacent(g.corridor, t, CIRCULATION_TOUCH_EPS))) {
         connectedRects.push(g.corridor, ...g.fillers);
         changed = true;
         continue;
@@ -1942,6 +1971,16 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   // pièce verrouillée gardent l'emprise complète.
   const emprise: Rect = { ...layout.emprise };
   for (const r of lockedRooms) {
+    // `exteriorWall` est posé à la génération ou à la dernière régénération
+    // et peut être devenu STALE : une pièce verrouillée déplacée manuelle-
+    // ment (tryMoveRoom) garde l'ancienne valeur de ce champ sans que sa
+    // position actuelle touche encore réellement ce mur. Faire confiance au
+    // champ sans le revérifier contre le contour bâti ACTUEL repoussait
+    // l'emprise effective vers une position arbitraire (celle d'une pièce
+    // qui n'est plus du tout sur un bord), bloquant à tort tout le reste de
+    // l'espace libre. Revérifié ici par géométrie réelle (wallTouchesExterior,
+    // même fonction que independentVerify), jamais supposé.
+    if (r.exteriorWall && !wallTouchesExterior(roomRect(r), layout.footprint, r.exteriorWall)) continue;
     if (r.exteriorWall === "right") emprise.w = Math.min(emprise.w, r.x + r.w + WALL_EXT - emprise.x);
     if (r.exteriorWall === "bottom") emprise.d = Math.min(emprise.d, r.y + r.d + WALL_EXT - emprise.y);
     if (r.exteriorWall === "left") {
