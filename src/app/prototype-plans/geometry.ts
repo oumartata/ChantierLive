@@ -203,6 +203,14 @@ export interface PlacedRoom {
   // porte est retirée en même temps (voir parkRoom) : une liaison vers un
   // mur qui n'existe plus une fois la pièce hors du terrain serait fictive.
   parked?: boolean;
+  // Verrouillée pour une régénération : identité, position (x,y) ET
+  // dimensions (w,d) garanties EXACTEMENT inchangées par regenerateUnlocked
+  // (jamais une approximation). Ses portes/fenêtres existantes ne sont ni
+  // touchées ni supprimées par la régénération — seul un geste manuel de
+  // l'éditeur (ajout/suppression de porte, redimensionnement) peut encore
+  // les modifier, et seulement après déverrouillage pour position/taille.
+  // Bloque tryMoveRoom/resizeRoom/parkRoom tant qu'elle reste verrouillée.
+  locked?: boolean;
 }
 
 export interface Rect {
@@ -238,6 +246,14 @@ export interface Layout {
   // et le corridor central — jamais un chevauchement, jamais une pièce
   // "presque" reliée : soit le raccord existe et touche les deux, soit non.
   corridorFillers: Rect[];
+  // Espaces de circulation SUPPLÉMENTAIRES, identifiés indépendamment du
+  // corridor historique (ci-dessus) — généralisation nécessaire pour la
+  // régénération partielle (regenerateUnlocked) : les pièces régénérées
+  // peuvent recevoir leur PROPRE segment de circulation, distinct de celui
+  // qui dessert les pièces verrouillées. circulationSpaces() combine les
+  // deux ; computeReachableRooms traite chaque segment comme un espace
+  // identifié parmi d'autres, jamais un singleton supposé unique.
+  circulations: Rect[];
   // Cour d'entrée — espace dimensionné et accessible depuis la rue, JAMAIS le
   // simple reste du terrain (voir exteriorSpaces pour cela).
   courtyard: Rect | null;
@@ -355,6 +371,7 @@ function buildDoubleLoadedLayout(
     footprint: null,
     corridor: null,
     corridorFillers: [],
+    circulations: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: null,
@@ -528,6 +545,7 @@ function buildDoubleLoadedLayout(
     footprint: footprintOut,
     corridor: corridorOut,
     corridorFillers: corridorFillersOut,
+    circulations: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: entryDoorOut,
@@ -572,6 +590,7 @@ function buildGuidedLayout(
     footprint: null,
     corridor: null,
     corridorFillers: [],
+    circulations: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: null,
@@ -688,6 +707,7 @@ function buildGuidedLayout(
     footprint: combinedFootprint,
     corridor: lower.corridor,
     corridorFillers: [...lower.corridorFillers, ...extraFillers],
+    circulations: [],
     courtyard,
     streetDoor,
     entryDoor,
@@ -805,6 +825,7 @@ export function circulationSpaces(layout: Layout): Rect[] {
   const spaces: Rect[] = [];
   if (layout.corridor) spaces.push(layout.corridor);
   spaces.push(...layout.corridorFillers);
+  spaces.push(...(layout.circulations ?? []));
   return spaces;
 }
 
@@ -1169,7 +1190,7 @@ function roomBlocksAt(layout: Layout, excludeIndex: number, candidate: Rect): bo
 // surfaces sont recalculés après un déplacement réussi.
 export function tryMoveRoom(layout: Layout, roomIndex: number, newX: number, newY: number): Layout | null {
   const room = layout.rooms[roomIndex];
-  if (!room || !layout.emprise || room.parked) return null;
+  if (!room || !layout.emprise || room.parked || room.locked) return null;
   const candidate: Rect = { x: newX, y: newY, w: room.w, d: room.d };
   if (!rectWithin(candidate, layout.emprise)) return null;
   if (roomBlocksAt(layout, roomIndex, candidate)) return null;
@@ -1233,7 +1254,7 @@ function recalcOpeningForResize<T extends { wall: WallSide; cx: number; cy: numb
 // independentVerify, qui signale sans jamais corriger silencieusement.
 export function resizeRoom(layout: Layout, roomIndex: number, newX: number, newY: number, newW: number, newD: number): Layout | null {
   const room = layout.rooms[roomIndex];
-  if (!room || !layout.emprise || room.parked) return null;
+  if (!room || !layout.emprise || room.parked || room.locked) return null;
   if (newW < room.minW - 1e-6 || newD < room.minD - 1e-6) return null;
   if (newW <= 0 || newD <= 0) return null;
   const candidate: Rect = { x: newX, y: newY, w: newW, d: newD };
@@ -1262,7 +1283,9 @@ export function resizeRoom(layout: Layout, roomIndex: number, newX: number, newY
 // Geometry, independentVerify) sans qu'aucun autre élément du plan ne
 // bouge. Toujours réversible via l'historique Annuler/Rétablir, comme
 // n'importe quel autre commit de l'éditeur.
-export function parkRoom(layout: Layout, roomIndex: number): Layout {
+export function parkRoom(layout: Layout, roomIndex: number): Layout | null {
+  const room = layout.rooms[roomIndex];
+  if (!room || room.locked) return null;
   const next = cloneLayout(layout);
   const r = next.rooms[roomIndex];
   r.parked = true;
@@ -1276,6 +1299,246 @@ export function parkRoom(layout: Layout, roomIndex: number): Layout {
   // revérifiées sur leur propre mur au retour, jamais recréées ni perdues.
   next.doors = next.doors.filter((d) => d.roomIndex !== roomIndex);
   return recomputeDerivedGeometry(next);
+}
+
+// Verrouille une pièce pour une future régénération partielle
+// (regenerateUnlocked) : identité, position et dimensions garanties
+// inchangées tant qu'elle reste verrouillée — bloque déplacement,
+// redimensionnement et mise de côté (voir les gardes ci-dessus). Les
+// portes/fenêtres existantes ne sont PAS touchées par le verrouillage
+// lui-même : un geste manuel (ajout/suppression de porte) reste possible,
+// seule la position/taille est figée.
+export function lockRoom(layout: Layout, roomIndex: number): Layout {
+  const next = cloneLayout(layout);
+  next.rooms[roomIndex].locked = true;
+  return next;
+}
+
+export function unlockRoom(layout: Layout, roomIndex: number): Layout {
+  const next = cloneLayout(layout);
+  next.rooms[roomIndex].locked = false;
+  return next;
+}
+
+export interface RegenerationResult {
+  // Dispositions ADMISSIBLES — aucune contrainte obligatoire violée (revéri-
+  // fiées par independentVerify, jamais une confiance aveugle dans la
+  // construction) — triées par préférence (voir preferenceNote).
+  variants: Layout[];
+  // Une entrée par variante de `variants`, dans le même ordre — explique le
+  // compromis retenu (jamais un score opaque).
+  preferenceNotes: string[];
+  // Dispositions explorées mais écartées (contrainte obligatoire violée) ou
+  // configuration non prise en charge — jamais "projet impossible", toujours
+  // le motif précis.
+  failureReasons: string[];
+}
+
+// Régénère les pièces NON verrouillées et NON mises de côté, en conservant
+// EXACTEMENT les pièces verrouillées (identité, position, dimensions,
+// portes, fenêtres — jamais touchées). Portée EXACTE de ce moteur dans
+// cette tranche : seules les dispositions organisées en au plus deux
+// colonnes autour d'un unique corridor central, où les pièces verrouillées
+// de chaque colonne forment un bloc contigu depuis le haut, sont prises en
+// charge — toute autre configuration est refusée avec un motif précis,
+// jamais une tentative silencieuse qui déplacerait une pièce verrouillée.
+// Explore 2 ordres d'empilement par colonne (profondeur croissante/décrois-
+// sante) quand au moins deux pièces de profondeurs différentes doivent être
+// régénérées dans la même colonne — jamais un simple miroir gauche/droite.
+export function regenerateUnlocked(layout: Layout): RegenerationResult {
+  const failureReasons: string[] = [];
+  if (!layout.emprise || !layout.corridor || !layout.footprint) {
+    return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."] };
+  }
+  const emprise = layout.emprise;
+  const corridor = layout.corridor;
+  const lockedRooms = layout.rooms.filter((r) => r.locked && !r.parked);
+  const targetRooms = layout.rooms.map((r, i) => ({ r, i })).filter((x) => !x.r.locked && !x.r.parked);
+  if (targetRooms.length === 0) {
+    return {
+      variants: [],
+      preferenceNotes: [],
+      failureReasons: ["Aucune pièce non verrouillée à régénérer — verrouillez les pièces à conserver et laissez au moins une autre pièce déverrouillée."],
+    };
+  }
+
+  function sideOf(r: PlacedRoom): "left" | "right" | null {
+    if (r.x + r.w <= corridor.x + 1e-2) return "left";
+    if (r.x >= corridor.x + corridor.w - 1e-2) return "right";
+    return null;
+  }
+  const allPlaced = [...lockedRooms, ...targetRooms.map((x) => x.r)];
+  if (allPlaced.some((r) => sideOf(r) === null)) {
+    return {
+      variants: [],
+      preferenceNotes: [],
+      failureReasons: ["Disposition actuelle non organisée en deux colonnes autour d'un seul corridor : régénération non prise en charge pour cette configuration dans cette tranche."],
+    };
+  }
+
+  const lockedBySide = { left: [] as PlacedRoom[], right: [] as PlacedRoom[] };
+  for (const r of lockedRooms) lockedBySide[sideOf(r)!].push(r);
+  const targetIndicesBySide = { left: [] as number[], right: [] as number[] };
+  const targetNeedsBySide = { left: new Map<string, RoomNeed>(), right: new Map<string, RoomNeed>() };
+  for (const { r, i } of targetRooms) {
+    const side = sideOf(r)!;
+    targetIndicesBySide[side].push(i);
+    const existing = targetNeedsBySide[side].get(r.type);
+    if (existing) {
+      existing.targetWidth = Math.max(existing.targetWidth, r.w);
+      existing.targetDepth = Math.max(existing.targetDepth, r.d);
+      existing.minWidth = Math.min(existing.minWidth, r.minW);
+      existing.minDepth = Math.min(existing.minDepth, r.minD);
+    } else {
+      targetNeedsBySide[side].set(r.type, { type: r.type, label: r.label, count: 0, minWidth: r.minW, minDepth: r.minD, targetWidth: r.w, targetDepth: r.d });
+    }
+  }
+
+  // Les pièces verrouillées de chaque colonne doivent former un bloc
+  // contigu depuis le haut — seule disposition où "le reste de la colonne"
+  // est un espace rectangulaire simple à régénérer.
+  const lockedEndY = { left: emprise.y + WALL_EXT, right: emprise.y + WALL_EXT };
+  for (const side of ["left", "right"] as const) {
+    const locked = lockedBySide[side].slice().sort((a, b) => a.y - b.y);
+    let expectedY = emprise.y + WALL_EXT;
+    for (const r of locked) {
+      if (Math.abs(r.y - expectedY) > 1e-2) {
+        return {
+          variants: [],
+          preferenceNotes: [],
+          failureReasons: [
+            `Colonne ${side === "left" ? "gauche" : "droite"} : les pièces verrouillées n'occupent pas un bloc contigu depuis le haut de la colonne — régénération non prise en charge pour cette disposition.`,
+          ],
+        };
+      }
+      expectedY += r.d + WALL_INT;
+    }
+    lockedEndY[side] = locked.length > 0 ? expectedY - WALL_INT : emprise.y + WALL_EXT;
+  }
+  const lockedWidth = { left: null as number | null, right: null as number | null };
+  for (const side of ["left", "right"] as const) {
+    if (lockedBySide[side].length > 0) lockedWidth[side] = Math.max(...lockedBySide[side].map((r) => r.w));
+  }
+
+  // Profondeur cible ORIGINALE des pièces régénérées (avant régénération),
+  // pour noter honnêtement l'écart introduit par chaque variante — une
+  // préférence sert seulement à CLASSER des dispositions déjà admissibles,
+  // jamais à en exclure une qui respecterait toutes les contraintes
+  // obligatoires.
+  const originalDepth = { left: 0, right: 0 };
+  for (const { r } of targetRooms) originalDepth[sideOf(r)!] += r.d;
+
+  function buildVariant(order: "croissant" | "décroissant"): { layout: Layout; note: string } | { error: string } {
+    const next = cloneLayout(layout);
+    next.doors = next.doors.filter((d) => !targetRooms.some((t) => t.i === d.roomIndex));
+    next.windows = next.windows.filter((w) => !targetRooms.some((t) => t.i === w.roomIndex));
+    const newEndY = { left: lockedEndY.left, right: lockedEndY.right };
+    const usedTypesOrder: string[] = [];
+
+    for (const side of ["left", "right"] as const) {
+      const needs = [...targetNeedsBySide[side].values()];
+      if (needs.length === 0) continue;
+      const sized = needs.map((need) => ({ need, width: sizeFor(need.targetWidth, need.minWidth), depth: sizeFor(need.targetDepth, need.minDepth) }));
+      const naturalMaxWidth = sized.reduce((m, s) => Math.max(m, s.width), 0);
+      const colMaxWidth = lockedWidth[side] ?? naturalMaxWidth;
+      const tooWide = sized.find((s) => s.width > colMaxWidth + 1e-6);
+      if (tooWide) {
+        return {
+          error: `Colonne ${side === "left" ? "gauche" : "droite"} : largeur requise pour « ${tooWide.need.label} » (${tooWide.width.toFixed(2)} m) dépasse la largeur fixée par les pièces verrouillées (${colMaxWidth.toFixed(2)} m).`,
+        };
+      }
+      const ordered = [...sized].sort((a, b) => (order === "croissant" ? a.depth - b.depth : b.depth - a.depth));
+      usedTypesOrder.push(...ordered.map((s) => s.need.type));
+      let cursorY = lockedEndY[side] + (lockedBySide[side].length > 0 ? WALL_INT : 0);
+      const exteriorWall: WallSide = side === "left" ? "left" : "right";
+      const doorWall: WallSide = side === "left" ? "right" : "left";
+      for (const { need, width, depth } of ordered) {
+        const roomIndicesForType = targetIndicesBySide[side].filter((idx) => layout.rooms[idx].type === need.type);
+        for (const idx of roomIndicesForType) {
+          const x = side === "left" ? emprise.x + WALL_EXT : corridor.x + corridor.w + WALL_INT + (colMaxWidth - width);
+          const innerX = side === "left" ? x + width : x;
+          const room = next.rooms[idx];
+          room.x = x;
+          room.y = cursorY;
+          room.w = width;
+          room.d = depth;
+          room.minW = need.minWidth;
+          room.minD = need.minDepth;
+          room.exteriorWall = exteriorWall;
+          next.doors.push({ roomIndex: idx, wall: doorWall, cx: innerX, cy: cursorY + depth / 2, width: Math.min(DOOR_WIDTH, depth), to: { kind: "circulation" } });
+          next.windows.push({ roomIndex: idx, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + width, cy: cursorY + depth / 2, width: depth * 0.5 });
+          const gap = colMaxWidth - width;
+          if (gap > 1e-6) {
+            const fillerX = side === "left" ? x + width : corridor.x + corridor.w + WALL_INT;
+            next.circulations.push({ x: fillerX, y: cursorY, w: gap + WALL_INT, d: depth });
+          }
+          cursorY += depth + WALL_INT;
+        }
+      }
+      newEndY[side] = cursorY - WALL_INT;
+    }
+
+    // Retire les anciens raccords tombant dans la zone régénérée (identifiés
+    // par leur position en x, côté gauche ou droit du corridor) pour ne pas
+    // laisser de raccord fantôme pointant vers une position abandonnée.
+    next.corridorFillers = next.corridorFillers.filter((f) => {
+      const side: "left" | "right" | null = f.x + f.w <= corridor.x ? "left" : f.x >= corridor.x + corridor.w ? "right" : null;
+      if (!side || targetNeedsBySide[side].size === 0) return true;
+      return f.y < lockedEndY[side] - 1e-2;
+    });
+
+    // Le corridor historique peut avoir besoin d'être prolongé si une
+    // colonne régénérée réclame plus de profondeur que ce qu'il desservait
+    // jusqu'ici — ce prolongement est un espace de circulation à part
+    // entière (Layout.circulations), identifié séparément du corridor
+    // historique, jamais confondu avec lui.
+    const oldCorridorEnd = corridor.y + corridor.d;
+    const newEnd = Math.max(newEndY.left, newEndY.right, oldCorridorEnd);
+    if (newEnd > oldCorridorEnd + 1e-6) {
+      next.circulations.push({ x: corridor.x, y: oldCorridorEnd, w: corridor.w, d: newEnd - oldCorridorEnd });
+    }
+
+    const result = recomputeDerivedGeometry(next);
+    const deviation = Math.abs(newEndY.left - lockedEndY.left - originalDepth.left) + Math.abs(newEndY.right - lockedEndY.right - originalDepth.right);
+    const note =
+      deviation < 1e-2
+        ? `Ordre ${order} — même profondeur totale que l'origine pour les pièces régénérées.`
+        : `Ordre ${order} — profondeur totale des pièces régénérées modifiée de ${deviation.toFixed(2)} m par rapport à l'origine.`;
+    return { layout: result, note: `${note} (préférence : écart de profondeur minimal)` };
+  }
+
+  const candidates: { layout: Layout; note: string; deviation: number }[] = [];
+  for (const order of ["croissant", "décroissant"] as const) {
+    const built = buildVariant(order);
+    if ("error" in built) {
+      failureReasons.push(built.error);
+      continue;
+    }
+    const issues = independentVerify(built.layout);
+    const errors = issues.filter((i) => i.severity === "error");
+    if (errors.length > 0) {
+      failureReasons.push(`Ordre ${order} : ${errors.map((e) => e.message).join(" ")}`);
+      continue;
+    }
+    const deviationMatch = built.note.match(/modifiée de ([\d.]+) m/);
+    candidates.push({ layout: built.layout, note: built.note, deviation: deviationMatch ? parseFloat(deviationMatch[1]) : 0 });
+  }
+
+  // Écarte les doublons stricts (même ordre produit la même disposition si
+  // une seule pièce est régénérée par colonne) — jamais compté comme deux
+  // organisations distinctes.
+  const seen = new Set<string>();
+  const deduped: typeof candidates = [];
+  for (const c of candidates) {
+    const key = c.layout.rooms.map((r) => `${r.x.toFixed(2)}|${r.y.toFixed(2)}|${r.w.toFixed(2)}|${r.d.toFixed(2)}`).join(";");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(c);
+  }
+  deduped.sort((a, b) => a.deviation - b.deviation);
+  deduped.forEach((c, i) => (c.layout.variantLabel = `Régénération ${i + 1}`));
+
+  return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons };
 }
 
 // Replace une pièce mise de côté à la position donnée — exactement les

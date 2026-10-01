@@ -5,7 +5,15 @@
 // validateProjectFile) — jamais une confiance aveugle dans un JSON externe.
 import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, WallSide, Window } from "./geometry";
 
-export const PROJECT_FILE_VERSION = 1;
+// Historique : v1 (pièces/portes/fenêtres indépendantes, zone de rangement,
+// redimensionnement) ; v2 ajoute le verrouillage (PlacedRoom.locked) et les
+// circulations multiples identifiées (Layout.circulations) — les DEUX de
+// façon additive (champs optionnels ou absents par défaut côté v1), donc un
+// fichier/brouillon v1 reste chargeable tel quel (voir migrateLayoutV1ToV2)
+// : faire évoluer ce format ne doit jamais rendre une sauvegarde existante
+// illisible.
+export const PROJECT_FILE_VERSION = 2;
+const SUPPORTED_VERSIONS = [1, 2];
 
 export interface ProjectFile {
   version: number;
@@ -113,7 +121,8 @@ function isPlacedRoom(v: unknown): v is PlacedRoom {
     isFiniteNumber(r.minD) &&
     (r.exteriorWall === null || isWallSide(r.exteriorWall)) &&
     (r.vehicleDoor === null || isDoorGeometry(r.vehicleDoor)) &&
-    (r.parked === undefined || typeof r.parked === "boolean")
+    (r.parked === undefined || typeof r.parked === "boolean") &&
+    (r.locked === undefined || typeof r.locked === "boolean")
   );
 }
 
@@ -159,6 +168,7 @@ function validateLayout(v: unknown): { ok: true; value: Layout } | { ok: false; 
   if (l.footprint !== null && !isRect(l.footprint)) return { ok: false, error: "Contour bâti invalide." };
   if (l.corridor !== null && !isRect(l.corridor)) return { ok: false, error: "Corridor invalide." };
   if (!Array.isArray(l.corridorFillers) || !l.corridorFillers.every(isRect)) return { ok: false, error: "Raccords de circulation invalides." };
+  if (!Array.isArray(l.circulations) || !l.circulations.every(isRect)) return { ok: false, error: "Espaces de circulation invalides." };
   if (l.courtyard !== null && !isRect(l.courtyard)) return { ok: false, error: "Cour invalide." };
   if (l.streetDoor !== null && !isDoorGeometry(l.streetDoor)) return { ok: false, error: "Porte côté rue invalide." };
   if (l.entryDoor !== null && !isDoorGeometry(l.entryDoor)) return { ok: false, error: "Porte d'entrée invalide." };
@@ -183,16 +193,30 @@ function validateLayout(v: unknown): { ok: true; value: Layout } | { ok: false; 
   return { ok: true, value: l as unknown as Layout };
 }
 
+// Migration ADDITIVE uniquement : une sauvegarde v1 n'a jamais connu les
+// circulations multiples (Layout.circulations) ni le verrouillage
+// (PlacedRoom.locked, déjà optionnel donc lisible tel quel) — on complète
+// seulement ce qui manque, jamais une réinterprétation de ce qui existe.
+function migrateLayoutV1ToV2(layout: Record<string, unknown>): Record<string, unknown> {
+  if (Array.isArray(layout.circulations)) return layout;
+  return { ...layout, circulations: [] };
+}
+
 export function validateProjectFile(data: unknown): { ok: true; value: ProjectFile } | { ok: false; error: string } {
   if (!data || typeof data !== "object") return { ok: false, error: "Fichier invalide : structure JSON attendue." };
   const f = data as Record<string, unknown>;
   if (!isFiniteNumber(f.version)) return { ok: false, error: "Fichier invalide : numéro de version manquant." };
-  if (f.version !== PROJECT_FILE_VERSION) {
-    return { ok: false, error: `Version de fichier non prise en charge (${f.version}) — cet éditeur lit la version ${PROJECT_FILE_VERSION}.` };
+  if (!SUPPORTED_VERSIONS.includes(f.version)) {
+    return {
+      ok: false,
+      error: `Version de fichier non prise en charge (${f.version}) — cet éditeur lit les versions ${SUPPORTED_VERSIONS.join(", ")} (courante : ${PROJECT_FILE_VERSION}).`,
+    };
   }
   if (typeof f.savedAt !== "string") return { ok: false, error: "Fichier invalide : date d'enregistrement manquante." };
   if (typeof f.orientation !== "string") return { ok: false, error: "Fichier invalide : orientation manquante." };
-  const layoutResult = validateLayout(f.layout);
+  if (!f.layout || typeof f.layout !== "object") return { ok: false, error: "Géométrie absente ou invalide." };
+  const migratedLayout = f.version === 1 ? migrateLayoutV1ToV2(f.layout as Record<string, unknown>) : f.layout;
+  const layoutResult = validateLayout(migratedLayout);
   if (!layoutResult.ok) return { ok: false, error: `Géométrie invalide : ${layoutResult.error}` };
-  return { ok: true, value: { version: f.version, savedAt: f.savedAt, orientation: f.orientation, layout: layoutResult.value } };
+  return { ok: true, value: { version: PROJECT_FILE_VERSION, savedAt: f.savedAt, orientation: f.orientation, layout: layoutResult.value } };
 }

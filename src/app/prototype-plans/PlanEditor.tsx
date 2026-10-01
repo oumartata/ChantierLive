@@ -6,16 +6,20 @@ import {
   doorsOf,
   flipDoorSwing,
   independentVerify,
+  lockRoom,
   parkRoom,
   placeDoor,
   placeParkedRoom,
+  regenerateUnlocked,
   removeDoor,
   resizeRoom,
   tryMoveRoom,
+  unlockRoom,
   wallAdjacency,
   type Door,
   type Layout,
   type PlacedRoom,
+  type RegenerationResult,
   type VerificationIssue,
   type WallSide,
 } from "./geometry";
@@ -66,6 +70,10 @@ export function PlanEditor({
   const [dragRoomIndex, setDragRoomIndex] = useState<number | null>(null);
   const [resizingRoomIndex, setResizingRoomIndex] = useState<number | null>(null);
   const [resizePreview, setResizePreview] = useState<{ x: number; y: number; w: number; d: number; valid: boolean } | null>(null);
+  // Proposition de régénération en cours de comparaison — jamais appliquée
+  // au brouillon (history) tant que l'utilisateur ne choisit pas
+  // explicitement "Choisir cette disposition" (voir handleAcceptRegeneration).
+  const [regen, setRegen] = useState<{ base: Layout; result: RegenerationResult; selectedIndex: number } | null>(null);
   // Sauvegarde locale automatique initiale (à l'ouverture) puis après chaque
   // modification validée (voir saveNow, appelé par commit/undo/redo/import) —
   // jamais un geste séparé à retenir. Un échec (stockage plein, navigation
@@ -100,6 +108,8 @@ export function PlanEditor({
   // (voir geometry.ts), suivies séparément ici : le plan reste explicitement
   // "incomplet" tant que l'une d'elles n'est pas replacée.
   const parked = current.rooms.map((r, i) => ({ r, i })).filter((x) => x.r.parked);
+  const lockedCount = current.rooms.filter((r) => r.locked && !r.parked).length;
+  const unlockedCount = current.rooms.filter((r) => !r.locked && !r.parked).length;
 
   // Export — dérivé du MÊME `current` que le dessin interactif ci-dessous et
   // que la vérification : jamais une copie qui pourrait diverger. Les
@@ -298,7 +308,7 @@ export function PlanEditor({
       const dropTarget = document.elementFromPoint(e.clientX, e.clientY);
       if (parkZoneRef.current && dropTarget && parkZoneRef.current.contains(dropTarget)) {
         setPreviewState(null);
-        commit(parkRoom(current, drag.roomIndex), "");
+        commit(parkRoom(current, drag.roomIndex), "Pièce verrouillée : déverrouillez-la avant de la mettre de côté.");
         return;
       }
       if (!previewState) return;
@@ -352,7 +362,37 @@ export function PlanEditor({
     if (selected === null) return;
     const room = current.rooms[selected];
     if (!room || room.parked) return;
-    commit(parkRoom(current, selected), "");
+    commit(parkRoom(current, selected), "Pièce verrouillée : déverrouillez-la avant de la mettre de côté.");
+  }
+
+  function handleToggleLock() {
+    if (selected === null) return;
+    const room = current.rooms[selected];
+    if (!room || room.parked) return;
+    commit(room.locked ? unlockRoom(current, selected) : lockRoom(current, selected), "");
+  }
+
+  // Lance la régénération des pièces non verrouillées — le brouillon en
+  // cours d'édition (history/current) N'EST PAS modifié tant qu'un résultat
+  // n'a pas été explicitement choisi : `regen` ne stocke qu'une proposition
+  // à comparer, jamais un commit. Recherche bornée (2 ordres d'empilement
+  // par colonne au maximum) et synchrone — rien à geler ni à annuler en
+  // cours de calcul ; "Annuler" ci-dessous revient simplement au brouillon
+  // sans y toucher.
+  function handleRegenerate() {
+    const result = regenerateUnlocked(current);
+    setRegen({ base: current, result, selectedIndex: 0 });
+  }
+
+  function handleAcceptRegeneration() {
+    if (!regen || regen.result.variants.length === 0) return;
+    commit(regen.result.variants[regen.selectedIndex], "");
+    setRegen(null);
+    setSelected(null);
+  }
+
+  function handleCancelRegeneration() {
+    setRegen(null);
   }
 
   // Retour automatique simple (alternative au glisser-déposer) : tente
@@ -558,11 +598,27 @@ export function PlanEditor({
             ))
           : null}
         {selected !== null && !current.rooms[selected].parked ? (
+          <button
+            onClick={handleToggleLock}
+            className={`w-fit rounded border px-3 py-1 text-sm ${current.rooms[selected].locked ? "border-amber-600 bg-amber-100 text-amber-900" : "border-slate-400"}`}
+          >
+            {current.rooms[selected].locked ? "🔒 Déverrouiller" : "Verrouiller (pour une régénération)"}
+          </button>
+        ) : null}
+        {selected !== null && !current.rooms[selected].parked && !current.rooms[selected].locked ? (
           <button onClick={handleParkSelected} className="w-fit rounded border border-slate-400 px-3 py-1 text-sm">
             Mettre de côté
           </button>
         ) : null}
       </div>
+      {selected !== null && current.rooms[selected].locked ? (
+        <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
+          Pièce verrouillée : sa position et ses dimensions resteront EXACTEMENT inchangées lors d&apos;une régénération.
+          Ses portes et fenêtres actuelles ne sont ni touchées ni supprimées par la régénération ; vous pouvez encore les
+          modifier manuellement ici tant qu&apos;elle reste sélectionnée. Déplacement, redimensionnement et mise de côté
+          sont bloqués tant qu&apos;elle est verrouillée.
+        </p>
+      ) : null}
       {parked.length > 0 ? (
         <p className="rounded bg-orange-50 p-2 text-xs font-semibold text-orange-800">
           Plan incomplet — {parked.length} pièce(s) restant à placer : {parked.map(({ r }) => `${r.label} ${r.number}`).join(", ")}.
@@ -570,6 +626,21 @@ export function PlanEditor({
       ) : null}
       {flash ? <p className="rounded bg-red-50 p-2 text-xs text-red-700">{flash}</p> : null}
 
+      {lockedCount > 0 && unlockedCount > 0 ? (
+        <button onClick={handleRegenerate} className="w-fit rounded bg-indigo-700 px-3 py-2 text-sm font-semibold text-white">
+          Proposer de nouvelles dispositions pour les {unlockedCount} pièce(s) non verrouillée(s)
+        </button>
+      ) : null}
+
+      {regen ? (
+        <RegenerationPanel
+          regen={regen}
+          orientation={currentOrientation}
+          onSelect={(i) => setRegen((r) => (r ? { ...r, selectedIndex: i } : r))}
+          onAccept={handleAcceptRegeneration}
+          onCancel={handleCancelRegeneration}
+        />
+      ) : (
       <div className="flex flex-col gap-3 md:flex-row">
       <div className="overflow-auto rounded border border-slate-300 bg-white" style={{ maxHeight: "70vh" }}>
         <svg
@@ -626,19 +697,20 @@ export function PlanEditor({
                         ? resizePreview!.valid ? "#bbf7d0" : "#fecaca"
                         : isSelected ? "#dbeafe" : "#e2e8f0"
                   }
-                  stroke={isSelected ? "#1d4ed8" : "#1e293b"}
-                  strokeWidth={isSelected ? 3 : 2}
-                  style={{ cursor: tool === "move" ? "grab" : "pointer" }}
+                  stroke={r.locked ? "#b45309" : isSelected ? "#1d4ed8" : "#1e293b"}
+                  strokeWidth={r.locked ? 3 : isSelected ? 3 : 2}
+                  strokeDasharray={r.locked ? "6 2" : undefined}
+                  style={{ cursor: tool === "move" && !r.locked ? "grab" : "pointer" }}
                   onPointerDown={(e) => handleRoomPointerDown(e, i)}
                 />
                 <text x={rx + rw / 2} y={ry + rd / 2 - 4} fontSize={11} fontWeight={600} textAnchor="middle" fill="#0f172a" style={{ pointerEvents: "none" }}>
-                  {r.label} {r.number}
+                  {r.locked ? "🔒 " : ""}{r.label} {r.number}
                 </text>
                 <text x={rx + rw / 2} y={ry + rd / 2 + 11} fontSize={9} textAnchor="middle" fill="#334155" style={{ pointerEvents: "none" }}>
                   {(isResizePreview ? resizePreview!.w : r.w).toFixed(2)} × {(isResizePreview ? resizePreview!.d : r.d).toFixed(2)} m
                   {isResizePreview ? ` — ${(resizePreview!.w * resizePreview!.d).toFixed(1)} m²` : ""}
                 </text>
-                {tool === "resize" && isSelected && !r.parked ? (
+                {tool === "resize" && isSelected && !r.parked && !r.locked ? (
                   <ResizeHandles rx={rx} ry={ry} rw={rw} rd={rd} onPick={(corner, e) => handleResizeHandlePointerDown(e, i, corner)} />
                 ) : null}
                 {roomDoors.length === 0 ? (
@@ -692,6 +764,7 @@ export function PlanEditor({
         )}
       </div>
       </div>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <button onClick={handleExportSvg} className="rounded border border-slate-400 px-3 py-1 text-sm">Exporter en SVG</button>
@@ -713,9 +786,14 @@ export function PlanEditor({
       <canvas ref={canvasRef} className="hidden" />
 
       <div>
-        <h3 className="font-semibold">Vérification indépendante du brouillon</h3>
+        <h3 className="font-semibold">Anomalies géométriques (pièces placées)</h3>
         {issues.length === 0 ? (
-          <p className="text-sm text-green-700">Aucun problème détecté sur ce brouillon.</p>
+          <p className="text-sm text-green-700">
+            Aucune anomalie géométrique détectée sur les pièces placées.
+            {parked.length > 0
+              ? ` Cela ne signifie PAS que le plan est complet : ${parked.length} pièce(s) restent à placer (voir « Plan incomplet » ci-dessus).`
+              : ""}
+          </p>
         ) : (
           <ul className="mt-1 list-disc pl-5 text-sm">
             {issues.map((issue, i) => (
@@ -730,6 +808,88 @@ export function PlanEditor({
         </p>
       ) : null}
       <p className="text-xs font-semibold text-red-700">{STAMP}</p>
+    </div>
+  );
+}
+
+function RegenerationPanel({
+  regen,
+  orientation,
+  onSelect,
+  onAccept,
+  onCancel,
+}: {
+  regen: { base: Layout; result: RegenerationResult; selectedIndex: number };
+  orientation: string;
+  onSelect: (i: number) => void;
+  onAccept: () => void;
+  onCancel: () => void;
+}) {
+  const { result } = regen;
+  return (
+    <div className="flex flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-4">
+      <h3 className="font-semibold text-indigo-900">Comparer de nouvelles dispositions</h3>
+      <p className="text-xs text-indigo-800">
+        Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette disposition » —
+        « Annuler » vous y ramène exactement tel quel. Les pièces verrouillées restent identiques (position, dimensions,
+        portes, fenêtres) dans chaque proposition ci-dessous.
+      </p>
+      {result.variants.length === 0 ? (
+        <div className="rounded bg-red-50 p-3 text-sm text-red-900">
+          <p className="font-semibold">Aucune disposition trouvée respectant toutes les contraintes obligatoires.</p>
+          <p className="mt-1 text-xs">
+            Ceci ne signifie pas que le projet est architecturalement impossible — seulement que ce moteur, avec cet
+            algorithme borné (2 ordres d&apos;empilement explorés au maximum par colonne), n&apos;a pas trouvé de
+            disposition satisfaisante pour les pièces non verrouillées, compte tenu des pièces verrouillées conservées
+            telles quelles.
+          </p>
+          {result.failureReasons.length > 0 ? (
+            <ul className="mt-2 list-disc pl-5 text-xs">
+              {result.failureReasons.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-2">
+            {result.variants.map((v, i) => (
+              <button
+                key={i}
+                onClick={() => onSelect(i)}
+                className={`rounded border px-3 py-1 text-sm ${i === regen.selectedIndex ? "border-indigo-900 bg-indigo-900 text-white" : "border-indigo-400 bg-white"}`}
+              >
+                {v.variantLabel}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-slate-700">{result.preferenceNotes[regen.selectedIndex]}</p>
+          <div className="overflow-auto rounded border border-slate-300 bg-white p-2" style={{ maxHeight: "60vh" }}>
+            <div dangerouslySetInnerHTML={{ __html: renderSvg(result.variants[regen.selectedIndex], orientation) }} />
+          </div>
+          {result.failureReasons.length > 0 ? (
+            <details className="text-xs text-slate-600">
+              <summary className="cursor-pointer">{result.failureReasons.length} autre(s) exploration(s) écartée(s) — détails</summary>
+              <ul className="mt-1 list-disc pl-5">
+                {result.failureReasons.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ul>
+            </details>
+          ) : null}
+        </>
+      )}
+      <div className="flex gap-2">
+        {result.variants.length > 0 ? (
+          <button onClick={onAccept} className="rounded bg-indigo-900 px-3 py-2 text-sm font-semibold text-white">
+            Choisir cette disposition
+          </button>
+        ) : null}
+        <button onClick={onCancel} className="rounded border border-indigo-400 px-3 py-2 text-sm">
+          Annuler — garder le brouillon actuel
+        </button>
+      </div>
     </div>
   );
 }
