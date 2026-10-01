@@ -9,16 +9,18 @@ import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, WallSide, 
 // redimensionnement) ; v2 ajoute le verrouillage (PlacedRoom.locked) et les
 // circulations multiples identifiées (Layout.circulations) ; v3 ajoute
 // surfaces.nonAffectee (résiduel non affecté à l'intérieur du contour bâti,
-// voir geometry.ts/computeSurfaces) — TOUJOURS de façon additive (champs
+// voir geometry.ts/computeSurfaces) ; v4 ajoute Layout.exteriorPaths (trajet
+// extérieur réel reliant l'entrée au bâti, voir buildExteriorPath) et
+// surfaces.cheminementExterieur — TOUJOURS de façon additive (champs
 // optionnels ou absents par défaut côté version antérieure), donc un
 // fichier/brouillon plus ancien reste chargeable tel quel (voir les
 // fonctions migrateLayoutV*To V* ci-dessous) : faire évoluer ce format ne
 // doit jamais rendre une sauvegarde existante illisible. Une valeur migrée
-// à 0 pour nonAffectee est un placeholder honnête (jamais recalculée a
-// posteriori sans rouvrir le plan) — rouvrir puis ré-enregistrer le
-// brouillon la met à jour avec la vraie valeur.
-export const PROJECT_FILE_VERSION = 3;
-const SUPPORTED_VERSIONS = [1, 2, 3];
+// à 0/[] est un placeholder honnête (jamais recalculée a posteriori sans
+// rouvrir le plan) — rouvrir puis ré-enregistrer le brouillon la met à jour
+// avec la vraie valeur.
+export const PROJECT_FILE_VERSION = 4;
+const SUPPORTED_VERSIONS = [1, 2, 3, 4];
 
 export interface ProjectFile {
   version: number;
@@ -174,6 +176,7 @@ function validateLayout(v: unknown): { ok: true; value: Layout } | { ok: false; 
   if (l.corridor !== null && !isRect(l.corridor)) return { ok: false, error: "Corridor invalide." };
   if (!Array.isArray(l.corridorFillers) || !l.corridorFillers.every(isRect)) return { ok: false, error: "Raccords de circulation invalides." };
   if (!Array.isArray(l.circulations) || !l.circulations.every(isRect)) return { ok: false, error: "Espaces de circulation invalides." };
+  if (!Array.isArray(l.exteriorPaths) || !l.exteriorPaths.every(isRect)) return { ok: false, error: "Trajets extérieurs invalides." };
   if (l.courtyard !== null && !isRect(l.courtyard)) return { ok: false, error: "Cour invalide." };
   if (l.streetDoor !== null && !isDoorGeometry(l.streetDoor)) return { ok: false, error: "Porte côté rue invalide." };
   if (l.entryDoor !== null && !isDoorGeometry(l.entryDoor)) return { ok: false, error: "Porte d'entrée invalide." };
@@ -188,7 +191,7 @@ function validateLayout(v: unknown): { ok: true; value: Layout } | { ok: false; 
   if (!Array.isArray(l.exteriorSpaces)) return { ok: false, error: "Espaces extérieurs invalides." };
   if (!l.surfaces || typeof l.surfaces !== "object") return { ok: false, error: "Surfaces invalides." };
   const s = l.surfaces as Record<string, unknown>;
-  for (const key of ["terrain", "emprise", "cour", "batie", "utileHabitable", "circulation", "exterieure", "nonAffectee"]) {
+  for (const key of ["terrain", "emprise", "cour", "batie", "utileHabitable", "circulation", "cheminementExterieur", "exterieure", "nonAffectee"]) {
     if (!isFiniteNumber(s[key])) return { ok: false, error: `Surface « ${key} » invalide.` };
   }
   if (typeof l.accessSide !== "string" || !ACCESS_SIDES.includes(l.accessSide)) return { ok: false, error: "Façade d'accès invalide." };
@@ -216,6 +219,22 @@ function migrateLayoutV2ToV3(layout: Record<string, unknown>): Record<string, un
   return { ...layout, surfaces: { ...(surfaces ?? {}), nonAffectee: 0 } };
 }
 
+// v3 ne connaissait pas le trajet extérieur (toute la circulation était
+// supposée toucher directement le bâti) : [] est un placeholder honnête,
+// jamais une affirmation qu'un tel trajet existe ou est inutile — rouvrir
+// puis ré-enregistrer le recalcule réellement si besoin.
+function migrateLayoutV3ToV4(layout: Record<string, unknown>): Record<string, unknown> {
+  const surfaces = layout.surfaces as Record<string, unknown> | undefined;
+  const hasPaths = Array.isArray(layout.exteriorPaths);
+  const hasSurface = surfaces && typeof surfaces.cheminementExterieur === "number";
+  if (hasPaths && hasSurface) return layout;
+  return {
+    ...layout,
+    exteriorPaths: hasPaths ? layout.exteriorPaths : [],
+    surfaces: { ...(surfaces ?? {}), cheminementExterieur: hasSurface ? surfaces!.cheminementExterieur : 0 },
+  };
+}
+
 export function validateProjectFile(data: unknown): { ok: true; value: ProjectFile } | { ok: false; error: string } {
   if (!data || typeof data !== "object") return { ok: false, error: "Fichier invalide : structure JSON attendue." };
   const f = data as Record<string, unknown>;
@@ -232,6 +251,7 @@ export function validateProjectFile(data: unknown): { ok: true; value: ProjectFi
   let migratedLayout = f.layout as Record<string, unknown>;
   if (f.version === 1) migratedLayout = migrateLayoutV1ToV2(migratedLayout);
   if (f.version === 1 || f.version === 2) migratedLayout = migrateLayoutV2ToV3(migratedLayout);
+  if (f.version === 1 || f.version === 2 || f.version === 3) migratedLayout = migrateLayoutV3ToV4(migratedLayout);
   const layoutResult = validateLayout(migratedLayout);
   if (!layoutResult.ok) return { ok: false, error: `Géométrie invalide : ${layoutResult.error}` };
   return { ok: true, value: { version: PROJECT_FILE_VERSION, savedAt: f.savedAt, orientation: f.orientation, layout: layoutResult.value } };

@@ -470,7 +470,10 @@ export function PrototypeClient() {
                     ) : null}
                     <tr><td>Union pièces + circulations (hors murs)</td><td>{selected.surfaces.batie.toFixed(1)} m²</td></tr>
                     <tr><td>Surface utile habitable</td><td>{selected.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
-                    <tr><td>Circulation (union réelle)</td><td>{selected.surfaces.circulation.toFixed(1)} m²</td></tr>
+                    <tr><td>Circulation intérieure (union réelle)</td><td>{selected.surfaces.circulation.toFixed(1)} m²</td></tr>
+                    {selected.surfaces.cheminementExterieur > 0.05 ? (
+                      <tr><td>Cheminement extérieur (entrée → bâti)</td><td>{selected.surfaces.cheminementExterieur.toFixed(1)} m²</td></tr>
+                    ) : null}
                     {selected.surfaces.nonAffectee > 0.05 ? (
                       <tr><td>Résiduel non affecté (dans le contour englobant)</td><td>{selected.surfaces.nonAffectee.toFixed(1)} m²</td></tr>
                     ) : null}

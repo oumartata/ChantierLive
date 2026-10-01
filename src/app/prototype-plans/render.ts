@@ -178,6 +178,16 @@ export function renderSvg(layout: Layout, orientation: string, scalePxPerMeter =
   for (const extra of layout.circulations ?? []) {
     parts.push(`<rect x="${X(extra.x)}" y="${Y(extra.y)}" width="${extra.w * scalePxPerMeter}" height="${extra.d * scalePxPerMeter}" fill="#fef9c3" stroke="#eab308" stroke-width="1" />`);
   }
+  // Trajet(s) extérieur(s) réel(s) (Layout.exteriorPaths) reliant l'entrée
+  // au bâti — couleur et pointillé distincts de la circulation intérieure :
+  // jamais confondu avec elle au premier coup d'oeil, même si les deux
+  // comptent pour l'accessibilité du graphe.
+  for (const path of layout.exteriorPaths ?? []) {
+    parts.push(
+      `<rect x="${X(path.x)}" y="${Y(path.y)}" width="${path.w * scalePxPerMeter}" height="${path.d * scalePxPerMeter}" fill="#dcfce7" stroke="#16a34a" stroke-width="1" stroke-dasharray="4 2" />`
+    );
+    parts.push(`<text x="${X(path.x) + 3}" y="${Y(path.y) + 10}" font-size="7" fill="#166534">Chemin d&apos;entrée</text>`);
+  }
 
   // Une pièce mise de côté (zone de rangement) n'occupe aucune place réelle
   // sur le terrain tant qu'elle n'est pas replacée — jamais dessinée ici.

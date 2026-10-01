@@ -213,38 +213,126 @@ try {
       record("Retour arrière — aucun chevauchement entre pièces/corridors du résultat", !overlapFound);
     }
 
-    // 8) COMPACITÉ — la fixture ci-dessus (plans-salon-regenerated.json) EST
-    // elle-même la disposition "historique" étalée du lot précédent :
-    // contour bâti 10.9×19.5 m = 212.5 m² pour seulement 51.1 m² de pièces
-    // (chambre verrouillée comprise), déjà vérifiée admissible par
-    // ailleurs (contrôles 1-7 ci-dessus). Elle sert ici de point de départ
-    // CONNU pour prouver que le moteur RÉEL (jamais une réponse codée en
-    // dur) peut reconstruire une disposition plus compacte qui quitte ce
-    // contour historique, tout en respectant le même terrain, programme,
-    // dimensions et le même verrou (position, dimensions, ouvertures).
-    const spreadFootprintArea = base.footprint.w * base.footprint.d;
-    const compactRegen = g.regenerateUnlocked(base);
-    record("Compacité — au moins une disposition admissible retrouvée depuis la fixture étalée", compactRegen.variants.length > 0);
-    if (compactRegen.variants.length > 0) {
-      const best = compactRegen.variants[0];
-      const bestFootprintArea = best.footprint.w * best.footprint.d;
-      // Seuil large (60 % du contour historique) : prouve une compacité
-      // réelle sans exiger LE résultat exact d'une exécution précédente,
-      // qui peut varier avec le budget de recherche ou l'ordre interne.
+    // 8) COMPACITÉ — RÉVISÉ (lot sur l'entrée non reliée, après
+    // scenario2.projet(4).json) : la revendication précédente de ce test
+    // ("212,5 -> 103,0 m², trouvé par le moteur") reposait sur le MÊME bug
+    // que celui du lot suivant (independentVerify sortait en silence pour
+    // tout candidat corridor=null) — ce contour "compact" n'avait jamais
+    // été réellement vérifié, et un examen direct montre qu'il souffrait
+    // lui aussi d'une entrée non reliée. Ce test ne revendique donc plus
+    // une compacité garantie : il vérifie que depuis la disposition de base
+    // RÉELLE (scripts/fixtures/plans-scenario2-pre-regen.json, construite
+    // par la même séquence que le scénario de référence), le moteur
+    // retrouve une disposition admissible — ET que si une disposition plus
+    // compacte existe parmi les candidats explorés, elle a RÉELLEMENT une
+    // entrée reliée (jamais un gain non vérifié présenté comme acquis).
+    const pathBase = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-scenario2-pre-regen.json"), "utf8"));
+    const pathRegen = g.regenerateUnlocked(pathBase);
+    record("Compacité — au moins une disposition admissible retrouvée depuis la base réelle", pathRegen.variants.length > 0);
+    if (pathRegen.variants.length > 0) {
+      const best = pathRegen.variants[0];
+      record("Compacité — la disposition retrouvée reste admissible (0 erreur)", g.independentVerify(best).filter((i) => i.severity === "error").length === 0);
       record(
-        "Compacité — le contour bâti retrouvé est réellement plus compact que le contour historique",
-        bestFootprintArea < spreadFootprintArea * 0.6,
-        `historique ${spreadFootprintArea.toFixed(1)} m² -> retrouvé ${bestFootprintArea.toFixed(1)} m²`
+        "Compacité — l'entrée débouche réellement sur la disposition retrouvée (graphe)",
+        (() => {
+          const reach = g.computeReachableRooms(best);
+          return best.rooms.every((r, i) => r.parked || reach.has(i));
+        })()
       );
-      const lockedIdx = base.rooms.findIndex((r) => r.locked);
-      const lockedBefore = base.rooms[lockedIdx];
+      const lockedIdx = pathBase.rooms.findIndex((r) => r.locked);
+      const lockedBefore = pathBase.rooms[lockedIdx];
       const lockedAfter = best.rooms[lockedIdx];
       record(
         "Compacité — la pièce verrouillée garde exactement sa position et ses dimensions",
         lockedBefore.x === lockedAfter.x && lockedBefore.y === lockedAfter.y && lockedBefore.w === lockedAfter.w && lockedBefore.d === lockedAfter.d
       );
-      record("Compacité — la disposition retrouvée reste admissible (0 erreur)", g.independentVerify(best).filter((i) => i.severity === "error").length === 0);
     }
+
+    // 9) ENTRÉE RÉELLEMENT RELIÉE — défaut signalé sur scenario2.projet(4).json
+    // (lot 1a65f41) : independentVerify exigeait `layout.corridor` non nul
+    // AVANT tout contrôle, donc sortait en silence (0 erreur, feasible=true)
+    // pour toute disposition "reconstruire entièrement la circulation"
+    // (corridor=null par conception) — y compris quand l'entrée (x=7.4,
+    // y=3) ne touchait plus RIEN du bâti reconstruit (contour x=2.3,
+    // y=12.3, w=10.1, d=10.2, à ~9 m de l'entrée) et qu'un raccord devant
+    // la chambre verrouillée s'arrêtait pile à la tolérance de mur
+    // (0.32 m), sans chevauchement réel avec sa porte.
+    const faultyEntry = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-scenario2-faulty-entry.projet.json"), "utf8")).layout;
+    record("Entrée reliée — corridor=null n'empêche plus de vérifier", g.independentVerify(faultyEntry).length > 0);
+    record("Entrée reliée — fichier fautif signalé comme inaccessible", isFullyAccessible(faultyEntry) === false);
+    record(
+      "Entrée reliée — erreur explicite sur l'entrée elle-même",
+      g.independentVerify(faultyEntry).some((i) => i.message.includes("entrée") && i.severity === "error")
+    );
+
+    // Un trajet extérieur réel (Layout.exteriorPaths) doit rétablir l'accès
+    // dès que le graphe le reconnaît comme un espace praticable — testé ici
+    // sur le graphe lui-même (computeReachableRooms), indépendamment de la
+    // question géométrique séparée (traverse-t-il une pièce ? déjà couverte
+    // par buildExteriorPath et par le contrôle de chevauchement ajouté à
+    // independentVerify) : la chambre verrouillée (x=7.1..10.3, y=12.5..15.7)
+    // occupe justement l'alignement vertical direct de cette entrée, donc le
+    // moteur réel refuse honnêtement un trajet tout droit ici (vérifié par
+    // ailleurs sur le scénario complet) — un trajet qui contournerait cette
+    // pièce est HORS de la portée (volontairement simple) de ce correctif.
+    const nearestTarget = faultyEntry.circulations.find((c) => c.x <= 7.4 && c.x + c.w >= 7.4) ?? faultyEntry.circulations[0];
+    const exteriorPath = { x: 7.4 - 0.6, y: 3, w: 1.2, d: nearestTarget.y - 3 };
+    const withPath = JSON.parse(JSON.stringify(faultyEntry));
+    withPath.exteriorPaths = [exteriorPath];
+    // Ce fichier porte AUSSI le second défaut signalé (32 cm entre la porte
+    // de Chambre 1 et le raccord qui la dessert, point 3) — indépendant du
+    // trajet d'entrée et déjà expliqué séparément (near-miss correctement
+    // refusé par le contrôle de porte existant, pas un bug distinct à
+    // corriger ici). Rallongé de 0.4 m ici pour ISOLER la seule question de
+    // ce test : le trajet d'entrée restaure-t-il bien l'accès au RESTE du
+    // réseau ?
+    const chambre1FillerIdx = withPath.circulations.findIndex((c) => Math.abs(c.x - 6.95) < 1e-6 && Math.abs(c.y - 17.7) < 1e-6);
+    if (chambre1FillerIdx >= 0) withPath.circulations[chambre1FillerIdx].d += 0.4;
+    const reachableWithPath = g.computeReachableRooms(withPath);
+    const pathFixesIt = withPath.rooms.every((r, i) => r.parked || reachableWithPath.has(i));
+    record("Entrée reliée — un trajet extérieur réel rétablit l'accès complet (graphe)", pathFixesIt === true);
+
+    // Retirer le trajet (ou l'entrée elle-même) doit re-couper l'accès —
+    // jamais un gain qui survivrait à la disparition de ce qui le prouvait.
+    if (pathFixesIt) {
+      const withoutPath = JSON.parse(JSON.stringify(withPath));
+      withoutPath.exteriorPaths = [];
+      const reachWithoutPath = g.computeReachableRooms(withoutPath);
+      record(
+        "Entrée reliée — supprimer le trajet extérieur recoupe l'accès",
+        !withoutPath.rooms.every((r, i) => r.parked || reachWithoutPath.has(i))
+      );
+      const withoutEntry = JSON.parse(JSON.stringify(withPath));
+      withoutEntry.entryDoor = null;
+      const reachWithoutEntry = g.computeReachableRooms(withoutEntry);
+      record(
+        "Entrée reliée — supprimer l'ouverture d'entrée recoupe l'accès",
+        !withoutEntry.rooms.every((r, i) => r.parked || reachWithoutEntry.has(i))
+      );
+    }
+
+    // Une circulation isolée (corridor=null, aucun trajet extérieur, aucun
+    // contact réel avec l'entrée) doit rester inaccessible — jamais
+    // "accessible par défaut" simplement parce que corridor=null.
+    const isolatedReach = g.computeReachableRooms(faultyEntry);
+    record(
+      "Entrée reliée — circulation isolée avec corridor=null reste inaccessible",
+      !faultyEntry.rooms.every((r, i) => r.parked || isolatedReach.has(i))
+    );
+
+    // La pièce verrouillée garde ses dimensions et ouvertures à l'identique
+    // tout au long (fichier fautif, avec trajet, sans trajet).
+    const lockedFaultyIdx = faultyEntry.rooms.findIndex((r) => r.locked);
+    const lockedFaulty = faultyEntry.rooms[lockedFaultyIdx];
+    const lockedWithPath = withPath.rooms[lockedFaultyIdx];
+    record(
+      "Entrée reliée — la pièce verrouillée garde exactement sa position, ses dimensions et ses ouvertures",
+      lockedFaulty.x === lockedWithPath.x &&
+        lockedFaulty.y === lockedWithPath.y &&
+        lockedFaulty.w === lockedWithPath.w &&
+        lockedFaulty.d === lockedWithPath.d &&
+        JSON.stringify(faultyEntry.doors.filter((d) => d.roomIndex === lockedFaultyIdx)) === JSON.stringify(withPath.doors.filter((d) => d.roomIndex === lockedFaultyIdx))
+    );
 
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;

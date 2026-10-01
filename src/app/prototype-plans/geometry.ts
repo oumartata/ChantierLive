@@ -265,6 +265,17 @@ export interface Layout {
   // deux ; computeReachableRooms traite chaque segment comme un espace
   // identifié parmi d'autres, jamais un singleton supposé unique.
   circulations: Rect[];
+  // Trajet(s) EXTÉRIEUR(S) réels reliant l'entrée du bâti (entryDoor, fixée
+  // par l'utilisateur/le terrain — l'accès à la PARCELLE) à une ouverture
+  // réelle du bâti lorsque celui-ci ne la touche plus directement (ex. un
+  // contour bâti reconstruit plus compact, éloigné de l'entrée historique).
+  // Largeur réelle (CORRIDOR_WIDTH), jamais une ligne ni un chevauchement
+  // de pièce/mur — voir buildExteriorPath. Compté séparément de
+  // `circulation` dans les surfaces (jamais fusionné, jamais compté deux
+  // fois) mais inclus dans circulationSpaces() pour l'accessibilité : un
+  // trajet extérieur réellement praticable relie bel et bien l'entrée au
+  // reste du réseau.
+  exteriorPaths: Rect[];
   // Cour d'entrée — espace dimensionné et accessible depuis la rue, JAMAIS le
   // simple reste du terrain (voir exteriorSpaces pour cela).
   courtyard: Rect | null;
@@ -290,6 +301,11 @@ export interface Layout {
     batie: number;
     utileHabitable: number;
     circulation: number;
+    // Union réelle des trajets extérieurs (Layout.exteriorPaths) reliant
+    // l'entrée au bâti — JAMAIS fondue dans `circulation` (intérieure au
+    // contour bâti) ni comptée une seconde fois dans `exterieure`
+    // (explicitement soustraite de ce résidu, voir computeSurfaces).
+    cheminementExterieur: number;
     exterieure: number;
     // Portion du rectangle englobant (footprint) qui n'est ni une pièce ni
     // une circulation — jamais fondue dans `batie` ou `exterieure` : un
@@ -400,6 +416,7 @@ function buildDoubleLoadedLayout(
     corridor: null,
     corridorFillers: [],
     circulations: [],
+    exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: null,
@@ -407,7 +424,7 @@ function buildDoubleLoadedLayout(
     doors: [],
     windows: [],
     exteriorSpaces: [],
-    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
   });
 
   if (empriseW <= 0 || empriseD <= 0) {
@@ -574,6 +591,7 @@ function buildDoubleLoadedLayout(
     corridor: corridorOut,
     corridorFillers: corridorFillersOut,
     circulations: [],
+    exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: entryDoorOut,
@@ -581,7 +599,7 @@ function buildDoubleLoadedLayout(
     doors: doorsOut,
     windows: windowsOut,
     exteriorSpaces: computeExteriorSpaces(terrainOut, empriseOut, footprintOut, input.accessSide),
-    surfaces: computeSurfaces(terrainOut, empriseOut, footprintOut, corridorOut, corridorFillersOut, [], roomsOut, null),
+    surfaces: computeSurfaces(terrainOut, empriseOut, footprintOut, corridorOut, corridorFillersOut, [], roomsOut, null, []),
   };
 }
 
@@ -619,6 +637,7 @@ function buildGuidedLayout(
     corridor: null,
     corridorFillers: [],
     circulations: [],
+    exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: null,
@@ -626,7 +645,7 @@ function buildGuidedLayout(
     doors: [],
     windows: [],
     exteriorSpaces: [],
-    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
   });
 
   const needsGuidedLayout = input.entryMode === "courtyard" || (input.centralSalon && salonNeed);
@@ -757,6 +776,7 @@ function buildGuidedLayout(
     corridor: lower.corridor,
     corridorFillers: [...lower.corridorFillers, ...extraFillers],
     circulations: [],
+    exteriorPaths: [],
     courtyard,
     streetDoor,
     entryDoor,
@@ -764,7 +784,7 @@ function buildGuidedLayout(
     doors,
     windows,
     exteriorSpaces: computeExteriorSpaces(terrain, realEmprise, combinedFootprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, [...lower.corridorFillers, ...extraFillers], [], rooms, courtyard),
+    surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, [...lower.corridorFillers, ...extraFillers], [], rooms, courtyard, []),
   };
 }
 
@@ -806,6 +826,7 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     corridor: null,
     corridorFillers: [],
     circulations: [],
+    exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
     entryDoor: null,
@@ -813,7 +834,7 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     doors: [],
     windows: [],
     exteriorSpaces: [],
-    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
   });
 
   if (input.accessSide !== "left") {
@@ -953,6 +974,7 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     corridor: topCorridor,
     corridorFillers: extraFillers,
     circulations: junction ? [bottomCorridor, junction] : [bottomCorridor],
+    exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
     entryDoor,
@@ -960,7 +982,7 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     doors,
     windows,
     exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, extraFillers, junction ? [bottomCorridor, junction] : [bottomCorridor], rooms, null),
+    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, extraFillers, junction ? [bottomCorridor, junction] : [bottomCorridor], rooms, null, []),
   };
 }
 
@@ -1052,7 +1074,8 @@ function computeSurfaces(
   fillers: Rect[],
   circulations: Rect[],
   rooms: PlacedRoom[],
-  courtyard: Rect | null
+  courtyard: Rect | null,
+  exteriorPaths: Rect[]
 ) {
   const habitable = rooms.reduce((s, r) => s + r.w * r.d, 0);
   const circulationRects = [...(corridor ? [corridor] : []), ...fillers, ...circulations];
@@ -1066,6 +1089,11 @@ function computeSurfaces(
   const nonAffectee = Math.max(0, footprintArea - batie);
   const empriseArea = emprise.w * emprise.d;
   const courArea = courtyard ? courtyard.w * courtyard.d : 0;
+  // Union réelle des trajets extérieurs (voir buildExteriorPath) — JAMAIS
+  // mêlée à `circulation` (strictement intérieure au contour bâti) ; son
+  // aire est retirée du résidu extérieur ci-dessous pour ne jamais la
+  // compter deux fois (une fois ici, une fois dans l'ancien "reste flou").
+  const cheminementExterieur = rectsUnionArea(exteriorPaths);
   return {
     terrain: terrain.w * terrain.d,
     emprise: empriseArea,
@@ -1077,8 +1105,9 @@ function computeSurfaces(
     // englobant (footprint), pas sur `batie` : c'est la limite du contour
     // bâti vis-à-vis de l'emprise qui définit l'espace véritablement
     // extérieur, indépendamment des éventuels résidus internes (nonAffectee).
-    exterieure: Math.max(0, empriseArea - footprintArea - courArea),
+    exterieure: Math.max(0, empriseArea - footprintArea - courArea - cheminementExterieur),
     circulation,
+    cheminementExterieur,
     nonAffectee,
   };
 }
@@ -1143,6 +1172,10 @@ export function circulationSpaces(layout: Layout): Rect[] {
   if (layout.corridor) spaces.push(layout.corridor);
   spaces.push(...layout.corridorFillers);
   spaces.push(...(layout.circulations ?? []));
+  // Un trajet extérieur réel (voir Layout.exteriorPaths) fait partie du
+  // réseau praticable au même titre qu'un corridor intérieur — une porte
+  // qui débouche dessus est réellement reliée, jamais un cas à part.
+  spaces.push(...(layout.exteriorPaths ?? []));
   return spaces;
 }
 
@@ -1271,7 +1304,15 @@ export function computeReachableRooms(layout: Layout): Set<number> {
 
 export function independentVerify(layout: Layout): VerificationIssue[] {
   const issues: VerificationIssue[] = [];
-  if (!layout.feasible || !layout.footprint || !layout.emprise || !layout.corridor) return issues;
+  // `layout.corridor` peut légitimement être `null` (circulation entièrement
+  // reconstruite dans Layout.circulations, voir "reconstruire entièrement
+  // la circulation") : l'exiger ici faisait sortir cette fonction en
+  // silence, AVANT tout contrôle, pour une disposition par ailleurs
+  // complète — aucune erreur n'était jamais signalée (ni chevauchement, ni
+  // accessibilité depuis l'entrée), quelle que soit la réalité du terrain.
+  // Seule l'absence de footprint/emprise, ou un échec déjà déclaré en
+  // amont, justifie de ne rien vérifier ici.
+  if (!layout.feasible || !layout.footprint || !layout.emprise) return issues;
 
   // Une pièce mise de côté (zone de rangement) est volontairement hors du
   // terrain : son incomplétude est signalée séparément (compteur de pièces
@@ -1285,10 +1326,16 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
       issues.push({ severity: "error", message: `« ${r.label} ${r.number} » sort de l'emprise disponible.` });
     }
   }
-  // 2) Aucun chevauchement : pièce-pièce, pièce-corridor, pièce-raccord.
+  // 2) Aucun chevauchement : pièce-pièce, pièce-corridor, pièce-raccord,
+  // pièce-circulation — un besoin posé par erreur sur une circulation déjà
+  // en place (ou l'inverse) ne doit jamais passer inaperçu ici, corridor
+  // null ou pas.
   const allBlocks: { label: string; rect: Rect }[] = [
     ...activeRooms.map((r) => ({ label: `${r.label} ${r.number}`, rect: roomRect(r) })),
-    { label: "corridor", rect: layout.corridor },
+    ...(layout.corridor ? [{ label: "corridor", rect: layout.corridor }] : []),
+    ...layout.corridorFillers.map((f, i) => ({ label: `raccord ${i + 1}`, rect: f })),
+    ...layout.circulations.map((c, i) => ({ label: `circulation ${i + 1}`, rect: c })),
+    ...(layout.exteriorPaths ?? []).map((p, i) => ({ label: `cheminement extérieur ${i + 1}`, rect: p })),
   ];
   for (let i = 0; i < allBlocks.length; i++) {
     for (let j = i + 1; j < allBlocks.length; j++) {
@@ -1572,7 +1619,7 @@ function recomputeDerivedGeometry(layout: Layout): Layout {
   next.footprint = footprint;
   if (next.emprise) {
     next.exteriorSpaces = computeExteriorSpaces(next.terrain, next.emprise, footprint, next.accessSide);
-    next.surfaces = computeSurfaces(next.terrain, next.emprise, footprint, next.corridor, next.corridorFillers, next.circulations, activeRooms, next.courtyard);
+    next.surfaces = computeSurfaces(next.terrain, next.emprise, footprint, next.corridor, next.corridorFillers, next.circulations, activeRooms, next.courtyard, next.exteriorPaths);
   }
   return next;
 }
@@ -1583,7 +1630,9 @@ function recomputeDerivedGeometry(layout: Layout): Layout {
 // terrain. Partagé par tryMoveRoom et placeParkedRoom pour ne jamais avoir
 // deux définitions de "chevauchement" qui pourraient diverger.
 function roomBlocksAt(layout: Layout, excludeIndex: number, candidate: Rect): boolean {
-  const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers, ...layout.circulations].filter((r): r is Rect => r !== null);
+  const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers, ...layout.circulations, ...(layout.exteriorPaths ?? [])].filter(
+    (r): r is Rect => r !== null
+  );
   if (blockers.some((b) => rectsOverlap(candidate, b))) return true;
   for (let i = 0; i < layout.rooms.length; i++) {
     if (i === excludeIndex || layout.rooms[i].parked) continue;
@@ -2201,6 +2250,49 @@ function straightBridge(a: Rect, b: Rect, maxGap: number): Rect | null {
   return null;
 }
 
+// Trajet extérieur RÉEL (largeur CORRIDOR_WIDTH, jamais une ligne) reliant
+// l'entrée du bâti (son point fixe, entryDoor — l'accès à la PARCELLE,
+// jamais déplacé ici) à la circulation du bâti quand celui-ci ne la touche
+// plus directement (ex. contour reconstruit plus compact). Part de
+// l'entrée tout droit, dans le sens où elle ouvre déjà (même convention
+// que doorInsideProbe), sur la distance EXACTE qui sépare l'entrée de la
+// cible la plus proche dont l'étendue transversale recouvre réellement
+// celle de l'entrée — jamais un trajet plus long que nécessaire, jamais un
+// trajet qui dépasse sa cible. Refusé (null) si ce segment traverserait un
+// obstacle réel (une pièce, un mur) ou sortirait de l'emprise : jamais un
+// passage fictif à travers du bâti pour "prouver" une liaison.
+function buildExteriorPath(entryDoor: DoorGeometry, targets: Rect[], obstacles: Rect[], bounds: Rect): Rect | null {
+  const width = CORRIDOR_WIDTH;
+  const half = width / 2;
+  const axis: "x" | "y" = entryDoor.wall === "left" || entryDoor.wall === "right" ? "x" : "y";
+  const sign = entryDoor.wall === "right" || entryDoor.wall === "bottom" ? -1 : 1;
+  const crossMin = axis === "x" ? entryDoor.cy - half : entryDoor.cx - half;
+  const crossMax = crossMin + width;
+  const startAlong = axis === "x" ? entryDoor.cx : entryDoor.cy;
+
+  let bestLength: number | null = null;
+  for (const t of targets) {
+    const tCrossMin = axis === "x" ? t.y : t.x;
+    const tCrossMax = axis === "x" ? t.y + t.d : t.x + t.w;
+    if (tCrossMax <= crossMin + 1e-6 || tCrossMin >= crossMax - 1e-6) continue; // aucun recouvrement transversal réel avec cette cible
+    const tAlongStart = axis === "x" ? t.x : t.y;
+    const tAlongEnd = axis === "x" ? t.x + t.w : t.y + t.d;
+    const tNear = sign > 0 ? tAlongStart : tAlongEnd;
+    const length = sign > 0 ? tNear - startAlong : startAlong - tNear;
+    if (length > 1e-6 && (bestLength === null || length < bestLength)) bestLength = length;
+  }
+  if (bestLength === null) return null;
+
+  const rect: Rect =
+    axis === "x"
+      ? { x: sign > 0 ? startAlong : startAlong - bestLength, y: crossMin, w: bestLength, d: width }
+      : { x: crossMin, y: sign > 0 ? startAlong : startAlong - bestLength, w: width, d: bestLength };
+
+  if (!rectWithin(rect, bounds, 1e-2)) return null;
+  if (obstacles.some((o) => rectsOverlap(rect, o))) return null;
+  return rect;
+}
+
 // Un groupe posé par packNeedsIntoFreeSpace n'est utilisable que s'il se
 // raccorde RÉELLEMENT (directement ou via un autre groupe déjà raccordé) au
 // réseau de circulation déjà fixe de la disposition de base — celui-ci est
@@ -2364,6 +2456,16 @@ function pruneUnneededCirculation(layout: Layout): Layout {
     for (let i = 0; i < current.circulations.length && !changed; i++) {
       const candidate = cloneLayout(current);
       candidate.circulations = current.circulations.filter((_, j) => j !== i);
+      const recomputed = recomputeDerivedGeometry(candidate);
+      if (stillFullyValid(recomputed)) {
+        current = recomputed;
+        changed = true;
+      }
+    }
+    if (changed) continue;
+    for (let i = 0; i < (current.exteriorPaths ?? []).length && !changed; i++) {
+      const candidate = cloneLayout(current);
+      candidate.exteriorPaths = current.exteriorPaths.filter((_, j) => j !== i);
       const recomputed = recomputeDerivedGeometry(candidate);
       if (stillFullyValid(recomputed)) {
         current = recomputed;
@@ -2663,6 +2765,22 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     next.corridor = mode.keepCorridor;
     next.corridorFillers = [...mode.keepFillers, ...corridorFillers];
     next.circulations = [...mode.keepCirculations, ...corridors, ...bridges];
+    // L'entrée (son point FIXE, jamais déplacé — l'accès à la PARCELLE,
+    // distinct de l'accès au bâti) doit réellement déboucher sur CE réseau.
+    // Un bâti reconstruit plus compact peut s'en être éloigné : dans ce cas,
+    // tente un trajet extérieur réel (largeur réelle, sans traverser aucune
+    // pièce ni aucun mur — voir buildExteriorPath) avant de conclure.
+    // Jamais un vide validé par une tolérance générale.
+    if (layout.entryDoor && !circulationSpaces(next).some((s) => rectsOverlap(entryProbe!, s))) {
+      const pathObstacles = [...next.rooms.filter((r) => !r.parked).map(roomRect), ...(next.courtyard ? [next.courtyard] : [])];
+      const path = buildExteriorPath(layout.entryDoor, circulationSpaces(next), pathObstacles, emprise);
+      if (!path) {
+        return {
+          error: `${label} : l'entrée ne débouche plus réellement sur le bâti reconstruit et aucun trajet extérieur praticable (largeur réelle, sans traverser de pièce ni de mur) n'a été trouvé — rejeté plutôt que proposé comme accessible.`,
+        };
+      }
+      next.exteriorPaths = [...next.exteriorPaths, path];
+    }
     const built = recomputeDerivedGeometry(next);
     const pruned = pruneUnneededCirculation(built);
     return {

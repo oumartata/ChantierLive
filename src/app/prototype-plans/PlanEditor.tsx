@@ -807,7 +807,10 @@ export function PlanEditor({
             ) : null}
             <tr><td>Union pièces + circulations (hors murs)</td><td>{current.surfaces.batie.toFixed(1)} m²</td></tr>
             <tr><td>Surface utile habitable</td><td>{current.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
-            <tr><td>Circulation (union réelle)</td><td>{current.surfaces.circulation.toFixed(1)} m²</td></tr>
+            <tr><td>Circulation intérieure (union réelle)</td><td>{current.surfaces.circulation.toFixed(1)} m²</td></tr>
+            {current.surfaces.cheminementExterieur > 0.05 ? (
+              <tr><td>Cheminement extérieur (entrée → bâti)</td><td>{current.surfaces.cheminementExterieur.toFixed(1)} m²</td></tr>
+            ) : null}
             {current.surfaces.nonAffectee > 0.05 ? (
               <tr><td>Résiduel non affecté (dans le contour englobant)</td><td>{current.surfaces.nonAffectee.toFixed(1)} m²</td></tr>
             ) : null}

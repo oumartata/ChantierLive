@@ -1,0 +1,249 @@
+{
+ "variantLabel": "Variante 1",
+ "feasible": true,
+ "failureReasons": [],
+ "rejected": false,
+ "rejectionReasons": [],
+ "accessSide": "front",
+ "terrain": {
+  "x": 0,
+  "y": 0,
+  "w": 15,
+  "d": 24.5
+ },
+ "emprise": {
+  "x": 2,
+  "y": 3,
+  "w": 11,
+  "d": 19.5
+ },
+ "footprint": {
+  "x": 2,
+  "y": 3,
+  "w": 7.199999999999999,
+  "d": 19.5
+ },
+ "corridor": {
+  "x": 6.8,
+  "y": 3.2,
+  "w": 1.2,
+  "d": 15.8
+ },
+ "corridorFillers": [
+  {
+   "x": 5.4,
+   "y": 3.2,
+   "w": 1.4,
+   "d": 3.2
+  },
+  {
+   "x": 5.4,
+   "y": 6.5,
+   "w": 1.4,
+   "d": 3.2
+  },
+  {
+   "x": 5.2,
+   "y": 13.9,
+   "w": 1.6,
+   "d": 3
+  },
+  {
+   "x": 4,
+   "y": 17,
+   "w": 2.8000000000000003,
+   "d": 2
+  }
+ ],
+ "circulations": [],
+ "exteriorPaths": [],
+ "courtyard": null,
+ "streetDoor": null,
+ "entryDoor": {
+  "wall": "top",
+  "cx": 7.3999999999999995,
+  "cy": 3,
+  "width": 0.9
+ },
+ "rooms": [
+  {
+   "type": "chambre",
+   "label": "Chambre",
+   "number": 1,
+   "x": 5.8,
+   "y": 19.1,
+   "w": 3.2,
+   "d": 3.2,
+   "minW": 3,
+   "minD": 3,
+   "exteriorWall": "bottom",
+   "vehicleDoor": null,
+   "locked": true
+  },
+  {
+   "type": "chambre",
+   "label": "Chambre",
+   "number": 2,
+   "x": 2.2,
+   "y": 6.5,
+   "w": 3.2,
+   "d": 3.2,
+   "minW": 3,
+   "minD": 3,
+   "exteriorWall": "left",
+   "vehicleDoor": null
+  },
+  {
+   "type": "salon",
+   "label": "Salon",
+   "number": 1,
+   "x": 2.2,
+   "y": 9.8,
+   "w": 4.5,
+   "d": 4,
+   "minW": 3.8,
+   "minD": 3.8,
+   "exteriorWall": "left",
+   "vehicleDoor": null
+  },
+  {
+   "type": "cuisine",
+   "label": "Cuisine",
+   "number": 1,
+   "x": 2.2,
+   "y": 13.9,
+   "w": 3,
+   "d": 3,
+   "minW": 2.5,
+   "minD": 2.5,
+   "exteriorWall": "left",
+   "vehicleDoor": null
+  },
+  {
+   "type": "sanitaire",
+   "label": "Sanitaire",
+   "number": 1,
+   "x": 2.2,
+   "y": 17,
+   "w": 1.8,
+   "d": 2,
+   "minW": 1.5,
+   "minD": 1.8,
+   "exteriorWall": "left",
+   "vehicleDoor": null
+  }
+ ],
+ "doors": [
+  {
+   "roomIndex": 1,
+   "wall": "right",
+   "cx": 5.4,
+   "cy": 8.1,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  },
+  {
+   "roomIndex": 2,
+   "wall": "right",
+   "cx": 6.7,
+   "cy": 11.8,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  },
+  {
+   "roomIndex": 3,
+   "wall": "right",
+   "cx": 5.2,
+   "cy": 15.4,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  },
+  {
+   "roomIndex": 4,
+   "wall": "right",
+   "cx": 4,
+   "cy": 18,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   }
+  },
+  {
+   "roomIndex": 0,
+   "wall": "top",
+   "cx": 7.4,
+   "cy": 19.1,
+   "width": 0.9,
+   "to": {
+    "kind": "circulation"
+   },
+   "flip": false
+  }
+ ],
+ "windows": [
+  {
+   "roomIndex": 1,
+   "wall": "left",
+   "cx": 2.2,
+   "cy": 8.1,
+   "width": 1.6
+  },
+  {
+   "roomIndex": 2,
+   "wall": "left",
+   "cx": 2.2,
+   "cy": 11.8,
+   "width": 2
+  },
+  {
+   "roomIndex": 3,
+   "wall": "left",
+   "cx": 2.2,
+   "cy": 15.4,
+   "width": 1.5
+  },
+  {
+   "roomIndex": 4,
+   "wall": "left",
+   "cx": 2.2,
+   "cy": 18,
+   "width": 1
+  },
+  {
+   "roomIndex": 0,
+   "wall": "bottom",
+   "cx": 7.4,
+   "cy": 22.3,
+   "width": 1.6
+  }
+ ],
+ "exteriorSpaces": [
+  {
+   "label": "Espace extérieur non bâti (latéral droit)",
+   "rect": {
+    "x": 9.2,
+    "y": 3,
+    "w": 3.8000000000000007,
+    "d": 19.5
+   },
+   "accessFrom": "façade latérale"
+  }
+ ],
+ "surfaces": {
+  "terrain": 367.5,
+  "emprise": 214.5,
+  "cour": 0,
+  "batie": 89.4,
+  "utileHabitable": 51.080000000000005,
+  "exterieure": 74.10000000000002,
+  "circulation": 38.32,
+  "cheminementExterieur": 0,
+  "nonAffectee": 50.99999999999997
+ }
+}
