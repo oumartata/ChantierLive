@@ -799,20 +799,22 @@ export function PlanEditor({
             {current.surfaces.cour > 0 ? (
               <tr><td>Cour d&apos;entrée</td><td>{current.surfaces.cour.toFixed(1)} m²</td></tr>
             ) : null}
-            <tr><td>Surface bâtie (pièces + circulation réelles)</td><td>{current.surfaces.batie.toFixed(1)} m²</td></tr>
+            <tr><td>Union pièces + circulations (hors murs)</td><td>{current.surfaces.batie.toFixed(1)} m²</td></tr>
             <tr><td>Surface utile habitable</td><td>{current.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
-            <tr><td>Circulation</td><td>{current.surfaces.circulation.toFixed(1)} m²</td></tr>
+            <tr><td>Circulation (union réelle)</td><td>{current.surfaces.circulation.toFixed(1)} m²</td></tr>
             {current.surfaces.nonAffectee > 0.05 ? (
-              <tr><td>Résiduel non affecté (dans le contour bâti)</td><td>{current.surfaces.nonAffectee.toFixed(1)} m²</td></tr>
+              <tr><td>Résiduel non affecté (dans le contour englobant)</td><td>{current.surfaces.nonAffectee.toFixed(1)} m²</td></tr>
             ) : null}
-            <tr><td>Espaces extérieurs non bâtis (hors cour)</td><td>{current.surfaces.exterieure.toFixed(1)} m²</td></tr>
+            <tr><td>Espaces extérieurs hors contour (hors cour)</td><td>{current.surfaces.exterieure.toFixed(1)} m²</td></tr>
           </tbody>
         </table>
         <p className="mt-1 text-xs text-slate-500">
-          Cour, bâti (union réelle des pièces et circulations, jamais le rectangle englobant), résiduel non affecté et
-          reste de l&apos;emprise sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible, jamais une
-          surface comptée deux fois. Recalculées après chaque déplacement, redimensionnement ou régénération — jamais
-          figées depuis la génération initiale.
+          « Union pièces + circulations » est l&apos;union géométrique réelle des pièces et des circulations (jamais un
+          chevauchement compté deux fois, jamais le rectangle englobant) — elle ne compte PAS l&apos;épaisseur des murs
+          et n&apos;est donc pas une surface bâtie complète au sens réglementaire. Cour, cette union, résiduel non
+          affecté et espaces extérieurs sont mutuellement exclusifs : leur somme égale l&apos;emprise disponible.
+          Recalculées après chaque déplacement, redimensionnement ou régénération — jamais figées depuis la génération
+          initiale.
         </p>
       </div>
 

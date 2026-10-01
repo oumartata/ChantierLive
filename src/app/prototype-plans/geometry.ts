@@ -1027,14 +1027,14 @@ function computeSurfaces(
   terrain: Rect,
   emprise: Rect,
   footprint: Rect,
-  corridor: Rect,
+  corridor: Rect | null,
   fillers: Rect[],
   circulations: Rect[],
   rooms: PlacedRoom[],
   courtyard: Rect | null
 ) {
   const habitable = rooms.reduce((s, r) => s + r.w * r.d, 0);
-  const circulationRects = [corridor, ...fillers, ...circulations];
+  const circulationRects = [...(corridor ? [corridor] : []), ...fillers, ...circulations];
   const circulation = rectsUnionArea(circulationRects);
   const batie = rectsUnionArea([...circulationRects, ...rooms.map(roomRect)]);
   const footprintArea = footprint.w * footprint.d;
@@ -1504,7 +1504,6 @@ export function cloneLayout(layout: Layout): Layout {
 // l'emprise constructible.
 function recomputeDerivedGeometry(layout: Layout): Layout {
   const next = cloneLayout(layout);
-  if (!next.corridor) return next;
   // Une pièce mise de côté (parked) n'occupe aucune place réelle : exclue du
   // contour bâti et des surfaces, jamais comptée comme si elle était posée.
   const activeRooms = next.rooms.filter((r) => !r.parked);
@@ -1513,7 +1512,12 @@ function recomputeDerivedGeometry(layout: Layout): Layout {
   // l'étendue corridor+raccords+pièces pouvait laisser un contour bâti trop
   // étroit, et surfaces.circulation sous-évaluait systématiquement (repéré
   // par un écart mesuré entre cette valeur et l'union réelle exportée).
-  const rects: Rect[] = [next.corridor, ...next.corridorFillers, ...next.circulations, ...activeRooms.map(roomRect)];
+  // `next.corridor` peut désormais être `null` (circulation entièrement
+  // reconstruite par regenerateUnlocked, voir "reconstruire entièrement la
+  // circulation") : seule l'absence TOTALE de tout élément bâti justifie
+  // l'arrêt précoce, jamais la seule absence du corridor historique.
+  const rects: Rect[] = [...(next.corridor ? [next.corridor] : []), ...next.corridorFillers, ...next.circulations, ...activeRooms.map(roomRect)];
+  if (rects.length === 0) return next;
   const minX = Math.min(...rects.map((r) => r.x)) - WALL_EXT;
   const minY = Math.min(...rects.map((r) => r.y)) - WALL_EXT;
   const maxX = Math.max(...rects.map((r) => r.x + r.w)) + WALL_EXT;
@@ -1533,7 +1537,7 @@ function recomputeDerivedGeometry(layout: Layout): Layout {
 // terrain. Partagé par tryMoveRoom et placeParkedRoom pour ne jamais avoir
 // deux définitions de "chevauchement" qui pourraient diverger.
 function roomBlocksAt(layout: Layout, excludeIndex: number, candidate: Rect): boolean {
-  const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers].filter((r): r is Rect => r !== null);
+  const blockers: Rect[] = [layout.corridor, layout.courtyard, ...layout.corridorFillers, ...layout.circulations].filter((r): r is Rect => r !== null);
   if (blockers.some((b) => rectsOverlap(candidate, b))) return true;
   for (let i = 0; i < layout.rooms.length; i++) {
     if (i === excludeIndex || layout.rooms[i].parked) continue;
@@ -2018,6 +2022,62 @@ function compareLayoutQuality(a: Layout, b: Layout): number {
   return sa.nonAffectee - sb.nonAffectee;
 }
 
+// Une fois une disposition déjà ADMISSIBLE (aucune contrainte obligatoire
+// violée), tente de retirer UN PAR UN les segments de circulation (corridor
+// principal compris, raccords, circulations secondaires — jamais une pièce,
+// une porte ou une fenêtre) et ne garde chaque retrait QUE si le contrôle
+// indépendant confirme qu'aucune pièce active n'en devient moins accessible.
+// "Les circulations existantes ne doivent pas toutes rester figées" : un
+// segment qui ne dessert réellement aucun accès est un branchement ou un
+// élargissement superflu, jamais une garantie en soi — mais un segment dont
+// le retrait casse l'accès d'une pièce (verrouillée ou non) reste, lui,
+// nécessaire et n'est jamais supprimé en silence.
+function pruneUnneededCirculation(layout: Layout): Layout {
+  let current = layout;
+  const activeIndices = current.rooms.map((_, i) => i).filter((i) => !current.rooms[i].parked);
+  const stillFullyValid = (l: Layout): boolean => {
+    if (independentVerify(l).some((issue) => issue.severity === "error")) return false;
+    const windowsOk = l.rooms.every((r) => r.parked || !REQUIRE_EXTERIOR_TYPES.has(r.type) || !l.footprint || hasExteriorTouch(r, l.footprint));
+    if (!windowsOk) return false;
+    const reachable = computeReachableRooms(l);
+    return activeIndices.every((i) => reachable.has(i));
+  };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    if (current.corridor) {
+      const candidate = cloneLayout(current);
+      candidate.corridor = null;
+      const recomputed = recomputeDerivedGeometry(candidate);
+      if (stillFullyValid(recomputed)) {
+        current = recomputed;
+        changed = true;
+        continue;
+      }
+    }
+    for (let i = 0; i < current.corridorFillers.length && !changed; i++) {
+      const candidate = cloneLayout(current);
+      candidate.corridorFillers = current.corridorFillers.filter((_, j) => j !== i);
+      const recomputed = recomputeDerivedGeometry(candidate);
+      if (stillFullyValid(recomputed)) {
+        current = recomputed;
+        changed = true;
+      }
+    }
+    if (changed) continue;
+    for (let i = 0; i < current.circulations.length && !changed; i++) {
+      const candidate = cloneLayout(current);
+      candidate.circulations = current.circulations.filter((_, j) => j !== i);
+      const recomputed = recomputeDerivedGeometry(candidate);
+      if (stillFullyValid(recomputed)) {
+        current = recomputed;
+        changed = true;
+      }
+    }
+  }
+  return current;
+}
+
 // Régénère les pièces NON verrouillées et NON mises de côté, en conservant
 // EXACTEMENT les pièces verrouillées (identité, position, dimensions,
 // portes, fenêtres — jamais touchées) et les dimensions INDIVIDUELLES
@@ -2027,13 +2087,18 @@ function compareLayoutQuality(a: Layout, b: Layout): number {
 // GÉNÉRALISATION de ce lot : les pièces verrouillées comptent comme des
 // obstacles fixes à leur position RÉELLE, quelle qu'elle soit dans l'emprise
 // — les deux bandes gauche/droite d'un corridor central unique ne sont PLUS
-// une condition d'admissibilité (voir packNeedsIntoFreeSpace). Le corridor,
-// les raccords et les circulations déjà en place (d'une disposition droite
-// OU en L — peu importe le générateur d'origine) sont eux aussi traités
-// comme des obstacles fixes : jamais redessinés, pour que les portes des
-// pièces verrouillées qui s'y appuient restent valides. Seul l'espace
-// réellement libre autour de tout cela reçoit les pièces à régénérer, avec
-// leur propre segment de circulation neuf (ajouté à Layout.circulations).
+// une condition d'admissibilité (voir packNeedsIntoFreeSpace). Les seuls
+// INVARIANTS réels sont les pièces verrouillées (position, dimensions,
+// portes, fenêtres), l'entrée du bâti et la cour — le corridor, les
+// raccords et les circulations existantes sont, eux, RECONSTRUCTIBLES :
+// appartenir à la même composante connexe qu'un accès verrouillé prouve
+// seulement qu'un retrait n'est pas sûr ISOLÉMENT, jamais qu'un segment est
+// nécessaire tel quel. Deux stratégies sont tentées : préserver le réseau
+// existant comme obstacle fixe (repli sûr, comportement historique), et le
+// reconstruire entièrement autour de l'entrée réelle et des portes
+// verrouillées, avec la largeur réelle du corridor (jamais une ligne de
+// connexion). Le résultat de chacune est ensuite élagué (voir
+// pruneUnneededCirculation) avant classement par qualité.
 //
 // Recherche BORNÉE et NON EXHAUSTIVE (2 ordres de remplissage par aire
 // croissante/décroissante, remplissage glouton en un seul passage, aucun
@@ -2107,73 +2172,55 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     };
   }
 
-  // Le corridor principal et ses raccords restent TOUJOURS fixes (la
-  // "colonne vertébrale" de la circulation). Les segments supplémentaires
-  // (Layout.circulations) sont RECONSTRUCTIBLES s'ils ne desservent aucune
-  // pièce verrouillée : "les circulations existantes ne doivent pas toutes
-  // rester figées" — mais jamais au prix d'un accès réel. Un segment est
-  // PROTÉGÉ seulement s'il est réellement touché par la porte d'une pièce
-  // verrouillée (même critère géométrique que le graphe d'accessibilité,
-  // jamais une hypothèse) ; les autres peuvent être écartés pour laisser la
-  // recherche les redessiner ailleurs, plus compacts.
+  // INVARIANTS stricts, jamais touchés par aucun mode : position et
+  // dimensions des pièces verrouillées, leurs portes et fenêtres déjà
+  // posées, le point d'entrée du bâti, la cour. Le seuil immédiat de chaque
+  // porte verrouillée donnant sur une circulation est réservé (jamais
+  // obstrué par une nouvelle pièce) pour qu'une pièce verrouillée garde un
+  // accès réellement praticable, quel que soit le tracé retenu autour.
   const lockedIndexSet = new Set(layout.rooms.map((_, i) => i).filter((i) => layout.rooms[i].locked && !layout.rooms[i].parked));
   const lockedCirculationDoors = layout.doors.filter((d) => lockedIndexSet.has(d.roomIndex) && d.to.kind === "circulation" && d.width >= DOOR_WIDTH - 1e-6);
-  // Un segment touché directement par la porte d'une pièce verrouillée ne
-  // suffit pas à lui seul : le retirer NE romprait rien, mais retirer un
-  // autre segment qui le RELIE au corridor fixe romprait bel et bien son
-  // accès réel. Protéger toute la composante connexe (réseau de circulation
-  // + corridor + raccords, contact réel CIRCULATION_TOUCH_EPS) qui contient
-  // un tel segment touché — jamais seulement le segment isolé — sinon la
-  // recherche "reconstruire" peut couper l'entrée de TOUTES les pièces en
-  // ne gardant que le segment touché, orphelin, sans le chemin qui le relie
-  // au corridor (observé : échec total d'accessibilité, pas un cas isolé).
-  // Une composante qui ne contient AUCUN segment touché par une porte
-  // verrouillée reste réellement superflue et demeure écartable.
-  const anchorNodes: Rect[] = [...(layout.corridor ? [layout.corridor] : []), ...layout.corridorFillers];
-  const networkNodes: Rect[] = [...anchorNodes, ...layout.circulations];
-  const touchedDirectly = new Set<number>();
-  layout.circulations.forEach((rect, i) => {
-    if (lockedCirculationDoors.some((d) => rectsOverlap(doorOutsideProbe(d), rect))) touchedDirectly.add(i);
-  });
-  const visited = new Array(networkNodes.length).fill(false);
-  const protectedCirculationIdx = new Set<number>();
-  for (let seed = 0; seed < networkNodes.length; seed++) {
-    if (visited[seed]) continue;
-    const stack = [seed];
-    visited[seed] = true;
-    const comp: number[] = [];
-    while (stack.length > 0) {
-      const cur = stack.pop()!;
-      comp.push(cur);
-      for (let j = 0; j < networkNodes.length; j++) {
-        if (!visited[j] && rectsAdjacent(networkNodes[cur], networkNodes[j], CIRCULATION_TOUCH_EPS)) {
-          visited[j] = true;
-          stack.push(j);
-        }
-      }
-    }
-    const hasLockedTouch = comp.some((idx) => idx >= anchorNodes.length && touchedDirectly.has(idx - anchorNodes.length));
-    if (hasLockedTouch) {
-      for (const idx of comp) if (idx >= anchorNodes.length) protectedCirculationIdx.add(idx - anchorNodes.length);
-    }
-  }
-  const protectedCirculations = layout.circulations.filter((_, i) => protectedCirculationIdx.has(i));
-  const discardableCirculations = layout.circulations.filter((_, i) => !protectedCirculationIdx.has(i));
+  const lockedDoorProbes = lockedCirculationDoors.map((d) => doorOutsideProbe(d));
+  const entryProbe = layout.entryDoor ? doorInsideProbe(layout.entryDoor) : null;
+  const fixedObstacles: Rect[] = [...lockedRooms.map(roomRect), ...(layout.courtyard ? [layout.courtyard] : [])];
 
-  const fixedObstacles: Rect[] = [
-    ...lockedRooms.map(roomRect),
-    ...(layout.corridor ? [layout.corridor] : []),
-    ...layout.corridorFillers,
-    ...(layout.courtyard ? [layout.courtyard] : []),
-  ];
-  // Mode "préserver" (comportement historique) : toute circulation déjà en
-  // place reste un obstacle fixe. Mode "reconstruire" : seuls les segments
-  // protégés le restent, le reste de l'espace redevient libre — tentés tous
-  // les deux, jamais un seul supposé meilleur a priori.
-  const obstacleModes: { name: string; obstacles: Rect[]; baseCirculations: Rect[] }[] = [
-    { name: "préserver la circulation existante", obstacles: [...fixedObstacles, ...layout.circulations], baseCirculations: layout.circulations },
-    ...(discardableCirculations.length > 0
-      ? [{ name: "reconstruire la circulation non protégée", obstacles: [...fixedObstacles, ...protectedCirculations], baseCirculations: protectedCirculations }]
+  type ObstacleMode = {
+    name: string;
+    obstacles: Rect[];
+    networkAnchors: Rect[];
+    keepCorridor: Rect | null;
+    keepFillers: Rect[];
+    keepCirculations: Rect[];
+  };
+  // Mode "préserver" (repli sûr, comportement historique) : le réseau
+  // existant reste un obstacle fixe et le point de départ du nouveau réseau.
+  // Mode "reconstruire" : seules les pièces verrouillées, la cour et le
+  // seuil de leurs portes restent fixes — corridor, raccords et
+  // circulations sont entièrement redessinés à partir de l'entrée réelle et
+  // de ces portes, avec la largeur réelle du corridor (jamais une simple
+  // ligne de connexion). Les deux sont toujours tentées, jamais une seule
+  // supposée meilleure a priori ; chaque résultat admissible est ensuite
+  // élagué (pruneUnneededCirculation) avant classement par qualité.
+  const obstacleModes: ObstacleMode[] = [
+    {
+      name: "préserver la circulation existante",
+      obstacles: [...fixedObstacles, ...(layout.corridor ? [layout.corridor] : []), ...layout.corridorFillers, ...layout.circulations],
+      networkAnchors: [...(layout.corridor ? [layout.corridor] : []), ...layout.corridorFillers, ...layout.circulations],
+      keepCorridor: layout.corridor,
+      keepFillers: layout.corridorFillers,
+      keepCirculations: layout.circulations,
+    },
+    ...(entryProbe
+      ? [
+          {
+            name: "reconstruire entièrement la circulation",
+            obstacles: [...fixedObstacles, ...lockedDoorProbes],
+            networkAnchors: [entryProbe, ...lockedDoorProbes],
+            keepCorridor: null,
+            keepFillers: [],
+            keepCirculations: [],
+          },
+        ]
       : []),
   ];
 
@@ -2187,10 +2234,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     minD: r.minD,
   }));
 
-  function attempt(
-    order: "aire décroissante" | "aire croissante",
-    mode: { name: string; obstacles: Rect[]; baseCirculations: Rect[] }
-  ): { layout: Layout; note: string; newCirculationArea: number } | { error: string } {
+  function attempt(order: "aire décroissante" | "aire croissante", mode: ObstacleMode): { layout: Layout; note: string } | { error: string } {
     const label = `Ordre ${order}, ${mode.name}`;
     const ordered = [...needs].sort((a, b) => (order === "aire décroissante" ? b.width * b.depth - a.width * a.depth : a.width * a.depth - b.width * b.depth));
     const { placements, corridors, corridorFillers, leftover, groups } = packNeedsIntoFreeSpace(emprise, mode.obstacles, ordered);
@@ -2199,8 +2243,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         error: `${label} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
       };
     }
-    const fixedNetwork: Rect[] = [...(layout.corridor ? [layout.corridor] : []), ...layout.corridorFillers, ...mode.baseCirculations];
-    const { bridges, strandedNeeds } = connectGroupsToNetwork(fixedNetwork, groups, mode.obstacles);
+    const { bridges, strandedNeeds } = connectGroupsToNetwork(mode.networkAnchors, groups, mode.obstacles);
     if (strandedNeeds.length > 0) {
       return {
         error: `${label} : ${strandedNeeds.map((n) => `« ${n.label} »`).join(", ")} seraient posées sur un segment de circulation réellement coupé du reste du logement (aucune jonction praticable trouvée) — rejeté plutôt que proposé comme accessible.`,
@@ -2238,22 +2281,22 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
         width: (outerVertical ? p.d : p.w) * 0.5,
       });
     }
-    // Mode "reconstruire" : seuls les segments protégés (mode.baseCirculations)
-    // sont repris — les autres segments de l'ancienne Layout.circulations ne
-    // sont PAS recopiés ici, laissés de côté plutôt que conservés comme
-    // raccords sans destination.
-    next.circulations = [...mode.baseCirculations, ...corridors, ...bridges];
-    next.corridorFillers = [...next.corridorFillers, ...corridorFillers];
-    const result = recomputeDerivedGeometry(next);
-    const newCirculationArea = corridors.reduce((s, c) => s + c.w * c.d, 0) + corridorFillers.reduce((s, f) => s + f.w * f.d, 0) + bridges.reduce((s, b) => s + b.w * b.d, 0);
+    // Mode "reconstruire" : rien de l'ancien réseau n'est recopié ici
+    // (keepCorridor/keepFillers/keepCirculations sont vides) — seuls les
+    // nouveaux tracés, posés autour des seuls invariants réels, composent
+    // la circulation du candidat.
+    next.corridor = mode.keepCorridor;
+    next.corridorFillers = [...mode.keepFillers, ...corridorFillers];
+    next.circulations = [...mode.keepCirculations, ...corridors, ...bridges];
+    const built = recomputeDerivedGeometry(next);
+    const pruned = pruneUnneededCirculation(built);
     return {
-      layout: result,
-      note: `${label} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés. Circulation totale : ${result.surfaces.circulation.toFixed(2)} m², résiduel non affecté : ${result.surfaces.nonAffectee.toFixed(2)} m².`,
-      newCirculationArea,
+      layout: pruned,
+      note: `${label} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés. Circulation totale : ${pruned.surfaces.circulation.toFixed(2)} m², résiduel non affecté : ${pruned.surfaces.nonAffectee.toFixed(2)} m².`,
     };
   }
 
-  const candidates: { layout: Layout; note: string; newCirculationArea: number }[] = [];
+  const candidates: { layout: Layout; note: string }[] = [];
   for (const mode of obstacleModes) {
   for (const order of ["aire décroissante", "aire croissante"] as const) {
     const built = attempt(order, mode);
