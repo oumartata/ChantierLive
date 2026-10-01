@@ -2063,6 +2063,17 @@ export function packNeedsIntoFreeSpace(
         if (justConsumed.some((c) => rectsOverlap(other, c))) next.push(...computeFreeRects(other, justConsumed));
         else next.push(other);
       }
+      // `fr` n'est JAMAIS entièrement consommé par une seule rangée : packInto
+      // ne pose qu'UN groupe, large de son `maxCross` (la pièce la plus
+      // profonde du groupe), jamais toute la profondeur transversale
+      // disponible — et peut aussi ne remplir qu'une partie de la longueur
+      // de `fr`. La part restante (profondeur inutilisée, longueur inutilisée,
+      // ou les deux) est RÉINJECTÉE ici dans `pending` pour une rangée
+      // suivante dans ce même rectangle, au lieu d'être perdue en jetant
+      // `fr` après un seul passage (c'était la cause dominante des échecs de
+      // placement mesurés : un grand rectangle libre, assez profond pour
+      // plusieurs rangées, n'en recevait jamais qu'une seule).
+      next.push(...computeFreeRects(fr, justConsumed));
       pending = next;
     }
   }
@@ -2262,8 +2273,13 @@ export function backtrackPackNeedsIntoFreeSpace(
         anyFit = true;
         nodesExplored++;
         const placedIdx = new Set(fit.placed.map((p) => p.need.idx));
+        // `fr` n'est jamais entièrement consommé par un seul groupe (même
+        // raison que dans packNeedsIntoFreeSpace : une rangée n'utilise que
+        // sa propre profondeur transversale, parfois pas toute sa longueur)
+        // — sa part restante est réinjectée ici, jamais perdue en l'excluant
+        // définitivement de `pending` (restPending) comme avant.
         search({
-          pending: reclip(restPending, fit.consumed),
+          pending: [...reclip(restPending, fit.consumed), ...computeFreeRects(fr, fit.consumed)],
           remaining: state.remaining.filter((n) => !placedIdx.has(n.idx)),
           placements: [...state.placements, ...fit.placed],
           corridors: [...state.corridors, fit.corridor],

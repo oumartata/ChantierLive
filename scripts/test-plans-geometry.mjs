@@ -220,45 +220,29 @@ try {
       record("Retour arrière — aucun chevauchement entre pièces/corridors du résultat", !overlapFound);
     }
 
-    // 7bis) CIRCULATION RÉSERVÉE D'ABORD — cas déterministe où le placement
-    // en colonnes (un seul rectangle libre, qu'il soit rempli par un ordre
-    // fixe OU par le retour arrière) échoue structurellement, alors que
-    // réserver un petit réseau de circulation AVANT de poser les pièces
-    // réussit. Emprise 10×12 m SANS obstacle verrouillé : un seul rectangle
-    // libre (l'emprise entière). `packInto`/`fitGroupIntoFreeRect` ne posent
-    // qu'UNE SEULE rangée par rectangle libre (le long d'un bord, avec un
-    // seul corridor) — jamais une deuxième rangée dans la profondeur
-    // restante du MÊME rectangle, même quand cette profondeur est largement
-    // suffisante. Avec 4 besoins identiques (3×3 m), la capacité d'une
-    // rangée le long du bord de 10 m est de 3 (3×(3+0.1 mur) = 9,3 m ≤ 9,8 m
-    // utiles ; la 4ᵉ dépasse). Le 4ᵉ besoin reste donc TOUJOURS sans place :
-    // ni un ordre différent (besoins identiques, l'ordre ne change rien), ni
-    // le retour arrière (un seul rectangle libre, donc `BACKTRACK_FR_BRANCHING`
-    // ne lui trouve aucune alternative, et une fois ce rectangle consommé
-    // par une rangée il n'est jamais réexaminé pour une seconde — voir
-    // `search`/`reclip` dans backtrackPackNeedsIntoFreeSpace) ne peut
-    // dépasser cette capacité de 3. En revanche, réserver D'ABORD un spine de
-    // circulation (largeur réelle CORRIDOR_WIDTH) qui traverse toute la
-    // largeur à mi-profondeur scinde ce même rectangle en DEUX rectangles
-    // libres (haut et bas), chacun avec sa propre rangée/son propre
-    // corridor — capacité 3+3=6 ≥ 4, donc les 4 besoins tiennent, retrouvé
-    // par le simple appel glouton (`packNeedsIntoFreeSpace`), sans même avoir
-    // besoin du retour arrière. C'est exactement le mécanisme intégré dans
-    // `spineObstacleModes`/`candidateCirculationSpines` (le spine est ajouté
-    // aux obstacles AVANT l'appel à ces mêmes fonctions, inchangées).
+    // 7bis) CIRCULATION RÉSERVÉE D'ABORD — RÉVISÉ (lot "replacer les pièces
+    // sans subir les anciens couloirs") : la version précédente de ce test
+    // affirmait que le placement en colonnes bloquait TOUJOURS un besoin sur
+    // 4 dans cette emprise 10×12 m SANS obstacle verrouillé, parce que
+    // `packNeedsIntoFreeSpace`/`backtrackPackNeedsIntoFreeSpace` ne posaient
+    // qu'UNE SEULE rangée par rectangle libre, sans jamais réexaminer la
+    // profondeur restante. Ce défaut précis est corrigé (voir le lot
+    // courant : la part non consommée d'un rectangle libre est désormais
+    // réinjectée dans les candidats, dans les DEUX fonctions) — le placement
+    // en colonnes seul retrouve maintenant aussi les 4 besoins, vérifié
+    // explicitement ci-dessous (plus une affirmation d'échec obsolète). Le
+    // spine reste néanmoins vérifié pour lui-même : un mécanisme compatible
+    // et correct (aucun chevauchement), utile pour d'autres configurations
+    // (régions véritablement disjointes, pas seulement une profondeur
+    // inutilisée dans un même rectangle) même s'il n'est plus seul à
+    // résoudre CE cas précis.
     const spineEmprise = { x: 0, y: 0, w: 10, d: 12 };
     const spineNeeds = [mkNeed(0, "A", 3, 3), mkNeed(1, "B", 3, 3), mkNeed(2, "C", 3, 3), mkNeed(3, "D", 3, 3)];
     const columnOnly = g.packNeedsIntoFreeSpace(spineEmprise, [], spineNeeds);
     record(
-      "Circulation réservée d'abord — préalable : le placement en colonnes (ordre fixe) bloque un besoin sur 4",
-      columnOnly.leftover.length === 1 && columnOnly.leftover[0].label === "D",
-      `placés: ${columnOnly.placements.map((p) => p.need.label).join(",")} | reste: ${columnOnly.leftover.map((n) => n.label).join(",")}`
-    );
-    const columnBacktrack = g.backtrackPackNeedsIntoFreeSpace(spineEmprise, [], spineNeeds, 400, 150, 4);
-    record(
-      "Circulation réservée d'abord — préalable : le retour arrière seul (sans spine) ne trouve aucune disposition complète non plus",
-      columnBacktrack.complete.length === 0,
-      `${columnBacktrack.nodesExplored} noeud(s), ${columnBacktrack.deadEnds} impasse(s)`
+      "Circulation réservée d'abord — la réinjection de l'espace restant fait désormais tenir les 4 besoins sans même réserver de spine",
+      columnOnly.leftover.length === 0,
+      `placés: ${columnOnly.placements.map((p) => p.need.label).join(",")} | reste: ${columnOnly.leftover.map((n) => n.label).join(",") || "aucun"}`
     );
     const reservedSpine = { x: 0, y: 5.4, w: 10, d: 1.2 };
     const withSpine = g.packNeedsIntoFreeSpace(spineEmprise, [reservedSpine], spineNeeds);
@@ -334,6 +318,75 @@ try {
       const noExposureRoom = { x: 3, y: 1, w: 2, d: 2 };
       const noExposureChoice = g.chooseExteriorWindow(noExposureRoom, noExposureFootprint, []);
       record("Fenêtres finales — une pièce sans exposition extérieure possible est refusée", noExposureChoice === null);
+    }
+
+    // 7quater) PRÉSERVER BLOQUE, RECONSTRUIRE RETROUVE — cas déterministe
+    // distinguant progrès et repli (lot "replacer les pièces sans subir les
+    // anciens couloirs") : simule directement les obstacles des deux modes
+    // de regenerateUnlocked (jamais regenerateUnlocked lui-même, pour isoler
+    // la cause géométrique précise, même esprit que le test "Retour arrière"
+    // ci-dessus). Emprise 16×12 m, UNE pièce verrouillée (4×4 m, coin
+    // supérieur gauche) — la "disposition actuelle" est admissible (4
+    // besoins non verrouillés de 3×3 m déjà posés ailleurs, non modélisés
+    // ici car hors sujet). L'ancien réseau à préserver est une grille (un
+    // segment vertical + un horizontal, largeur réelle CORRIDOR_WIDTH) qui
+    // fragmente l'espace libre restant en morceaux dont AUCUNE combinaison
+    // ne loge les 4 besoins (ni ordre fixe, ni retour arrière, même avec la
+    // réinjection d'espace restant du lot courant) : "préserver" bloque
+    // réellement le replacement, pas un repli arbitraire. "Reconstruire"
+    // (qui ne garde que la pièce verrouillée comme obstacle, l'ancien réseau
+    // étant entièrement reconstructible) retrouve une disposition COMPLÈTE
+    // et DISTINCTE des 4 besoins — simplement renvoyer une disposition
+    // identique à l'originale (ou partielle) ne ferait PAS réussir ce test.
+    {
+      const gridEmprise = { x: 0, y: 0, w: 16, d: 12 };
+      const gridLocked = { x: 0, y: 0, w: 4, d: 4 };
+      const gridOldVert = { x: 7.4, y: 0, w: 1.2, d: 12 };
+      const gridOldHoriz = { x: 0, y: 7.4, w: 16, d: 1.2 };
+      const gridNeeds = [mkNeed(0, "A", 3, 3), mkNeed(1, "B", 3, 3), mkNeed(2, "C", 3, 3), mkNeed(3, "D", 3, 3)];
+
+      const preserveLike = g.packNeedsIntoFreeSpace(gridEmprise, [gridLocked, gridOldVert, gridOldHoriz], gridNeeds);
+      record(
+        "Préserver bloque / reconstruire retrouve — préalable : « préserver » (ordre fixe) bloque réellement un besoin",
+        preserveLike.leftover.length > 0,
+        `placés: ${preserveLike.placements.map((p) => p.need.label).join(",")} | reste: ${preserveLike.leftover.map((n) => n.label).join(",")}`
+      );
+      const preserveBacktrack = g.backtrackPackNeedsIntoFreeSpace(gridEmprise, [gridLocked, gridOldVert, gridOldHoriz], gridNeeds, 400, 150, 4);
+      record(
+        "Préserver bloque / reconstruire retrouve — préalable : « préserver » bloque aussi avec le retour arrière (pas un repli d'ordre)",
+        preserveBacktrack.complete.length === 0,
+        `${preserveBacktrack.nodesExplored} noeud(s), ${preserveBacktrack.deadEnds} impasse(s)`
+      );
+
+      const reconstructLike = g.packNeedsIntoFreeSpace(gridEmprise, [gridLocked], gridNeeds);
+      record(
+        "Préserver bloque / reconstruire retrouve — « reconstruire » (ancien réseau libéré) retrouve une disposition COMPLÈTE",
+        reconstructLike.leftover.length === 0,
+        `placés: ${reconstructLike.placements.map((p) => p.need.label).join(",")}`
+      );
+      record(
+        "Préserver bloque / reconstruire retrouve — la disposition retrouvée est bien DISTINCTE de l'originale (pas un simple retour de l'existant)",
+        reconstructLike.leftover.length === 0 &&
+          reconstructLike.placements.every((p) => p.x !== gridOldVert.x && p.y !== gridOldHoriz.y)
+      );
+      if (reconstructLike.leftover.length === 0) {
+        const allRects = [
+          gridLocked,
+          ...reconstructLike.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })),
+          ...reconstructLike.corridors,
+          ...reconstructLike.corridorFillers,
+        ];
+        let overlapFound = false;
+        for (let i = 0; i < allRects.length && !overlapFound; i++) {
+          for (let j = i + 1; j < allRects.length; j++) {
+            const a = allRects[i], b = allRects[j];
+            const overlapX = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x);
+            const overlapY = Math.min(a.y + a.d, b.y + b.d) - Math.max(a.y, b.y);
+            if (overlapX > 1e-6 && overlapY > 1e-6) { overlapFound = true; break; }
+          }
+        }
+        record("Préserver bloque / reconstruire retrouve — aucun chevauchement dans la disposition reconstruite", !overlapFound);
+      }
     }
 
     // 8) COMPACITÉ — RÉVISÉ (lot sur l'entrée non reliée, après
@@ -600,14 +653,16 @@ try {
       const labelsAndSurfaces = (result) => result.variants.map((v) => `${v.variantLabel}:${v.surfaces.circulation.toFixed(2)}`).join("|");
 
       // Cas A — une nouvelle variante CONNUE (deux dispositions régénérées
-      // distinctes de la base, voir le lot précédent : 54.04 et 54.58 m²)
-      // doit rester trouvable, ET distincte de la base inchangée (27.xx m²,
-      // la disposition L d'origine, elle-même déjà admissible).
+      // distinctes de la base, 48.96 et 54.58 m² depuis la réinjection de
+      // l'espace restant — voir le lot courant, qui a amélioré la première
+      // de ces deux valeurs depuis 54.04 m²) doit rester trouvable, ET
+      // distincte de la base inchangée (27.xx m², la disposition L
+      // d'origine, elle-même déjà admissible).
       const regenMemory = g.regenerateUnlocked(lockedOnce);
       const newOnesMemory = regenMemory.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)");
       record(
         "Régénération fiable — une nouvelle variante connue reste trouvable (en mémoire)",
-        newOnesMemory.length >= 2 && newOnesMemory.some((v) => Math.abs(v.surfaces.circulation - 54.04) < 0.01),
+        newOnesMemory.length >= 2 && newOnesMemory.some((v) => Math.abs(v.surfaces.circulation - 48.96) < 0.01),
         labelsAndSurfaces(regenMemory)
       );
       record(
@@ -640,7 +695,7 @@ try {
       // admissible") et le brouillon (la disposition retrouvée) reste
       // sélectionnable/utilisable — jamais variants.length === 0 alors que
       // la disposition courante est elle-même admissible.
-      const firstRegenNew = newOnesMemory.find((v) => Math.abs(v.surfaces.circulation - 54.04) < 0.01) ?? newOnesMemory[0];
+      const firstRegenNew = newOnesMemory.find((v) => Math.abs(v.surfaces.circulation - 48.96) < 0.01) ?? newOnesMemory[0];
       const secondRegen = g.regenerateUnlocked(firstRegenNew);
       record(
         "Régénération fiable — régénérer une disposition déjà régénérée reste informatif, jamais « aucun plan admissible »",
