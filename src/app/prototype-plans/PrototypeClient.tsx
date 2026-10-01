@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import {
   DEFAULT_PRESETS,
   generateVariants,
@@ -19,6 +19,43 @@ import { clearDraftLocally, loadDraftLocally, type ProjectFile } from "./project
 
 interface RoomRow extends RoomNeed {
   count: number;
+}
+
+// Source externe (localStorage) exposée via useSyncExternalStore plutôt que
+// lue dans un effet ou dans l'initialiseur de useState : le serveur n'a pas
+// accès à localStorage, donc un initialiseur qui le lisait directement
+// renvoyait `null` au rendu serveur mais la vraie valeur dès la première
+// passe client — un contenu différent (bannière « brouillon trouvé » contre
+// rien) détecté par React comme une erreur d'hydratation. useSyncExternalStore
+// est l'API prévue pour ce cas exact : `getServerSnapshot` fige le rendu
+// serveur à `null`, `getSnapshot` lit la vraie valeur côté client UNIQUEMENT
+// après l'hydratation, sans jamais annoncer un setState dans un effet
+// (interdit par la configuration de lint de ce projet). Le cache est
+// invalidé explicitement par clearResumableDraft, jamais relu à chaque
+// rendu (loadDraftLocally reparse le JSON à chaque appel, une référence
+// neuve à chaque fois ferait boucler useSyncExternalStore).
+type ResumableState = { file: ProjectFile } | { error: string } | null;
+let resumableCache: ResumableState | undefined;
+const resumableListeners = new Set<() => void>();
+
+function getResumableSnapshot(): ResumableState {
+  if (resumableCache === undefined) {
+    const result = loadDraftLocally();
+    resumableCache = !result ? null : result.ok ? { file: result.value } : { error: result.error };
+  }
+  return resumableCache;
+}
+function getResumableServerSnapshot(): ResumableState {
+  return null;
+}
+function subscribeResumable(listener: () => void) {
+  resumableListeners.add(listener);
+  return () => resumableListeners.delete(listener);
+}
+function clearResumableDraft() {
+  clearDraftLocally();
+  resumableCache = null;
+  resumableListeners.forEach((listener) => listener());
 }
 
 const DEFAULT_ROWS: RoomRow[] = [
@@ -68,13 +105,10 @@ export function PrototypeClient() {
   // Brouillon enregistré localement (navigateur/appareil courant) lors d'une
   // session précédente — proposé explicitement, jamais rouvert sans action
   // de l'utilisateur. null = aucun, undefined-like "corrupted" géré via le
-  // champ error.
-  const [resumable, setResumable] = useState<{ file: ProjectFile } | { error: string } | null>(() => {
-    if (typeof window === "undefined") return null;
-    const result = loadDraftLocally();
-    if (!result) return null;
-    return result.ok ? { file: result.value } : { error: result.error };
-  });
+  // champ error. Voir getResumableSnapshot/getResumableServerSnapshot
+  // ci-dessus pour pourquoi ceci passe par useSyncExternalStore plutôt
+  // qu'un useState initialisé depuis localStorage.
+  const resumable = useSyncExternalStore(subscribeResumable, getResumableSnapshot, getResumableServerSnapshot);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
@@ -177,10 +211,7 @@ export function PrototypeClient() {
             Reprendre ce brouillon
           </button>
           <button
-            onClick={() => {
-              clearDraftLocally();
-              setResumable(null);
-            }}
+            onClick={clearResumableDraft}
             className="rounded border border-sky-400 px-3 py-1 text-xs"
           >
             Ignorer et effacer
@@ -190,7 +221,7 @@ export function PrototypeClient() {
       {resumable && "error" in resumable ? (
         <section className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
           Un brouillon local existait mais n&apos;a pas pu être relu ({resumable.error}). Il n&apos;a pas été modifié ;
-          vous pouvez <button onClick={() => { clearDraftLocally(); setResumable(null); }} className="underline">l&apos;effacer</button>.
+          vous pouvez <button onClick={clearResumableDraft} className="underline">l&apos;effacer</button>.
         </section>
       ) : null}
 
