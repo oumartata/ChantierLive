@@ -2108,8 +2108,24 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     }
     const issues = independentVerify(built.layout);
     const errors = issues.filter((i) => i.severity === "error");
-    if (errors.length > 0) {
-      failureReasons.push(`Ordre ${order} : ${errors.map((e) => e.message).join(" ")}`);
+    // Même règle que generateVariants (consider()) — jamais appliquée ici
+    // avant ce correctif : indépendantVerify ne la signale qu'en
+    // avertissement (une pièce peut légitimement rester posée sans fenêtre
+    // pendant l'édition), mais une proposition de RÉGÉNÉRATION présentée
+    // comme admissible ne peut pas violer en silence la règle du prototype
+    // ("une chambre ou un salon sans ouverture extérieure représentée est
+    // écarté des propositions satisfaisantes") — y compris pour une pièce
+    // VERROUILLÉE : un verrou fige sa position, jamais la garantie que
+    // cette position reste conforme aux règles de présentation.
+    const realWindowFailures = built.layout.rooms.filter(
+      (r) => !r.parked && REQUIRE_EXTERIOR_TYPES.has(r.type) && built.layout.footprint && !hasExteriorTouch(r, built.layout.footprint)
+    );
+    if (errors.length > 0 || realWindowFailures.length > 0) {
+      const reasons = [
+        ...errors.map((e) => e.message),
+        ...realWindowFailures.map((r) => `« ${r.label} ${r.number} » (${r.type}) : règle du prototype — ouverture extérieure requise pour une chambre ou un salon, absente ici.`),
+      ];
+      failureReasons.push(`Ordre ${order} : ${reasons.join(" ")}`);
       continue;
     }
     candidates.push(built);
