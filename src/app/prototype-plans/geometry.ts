@@ -160,7 +160,7 @@ export function doorSwingRect(door: Door): Rect {
 // une porte translatée avec sa pièce peut sortir de la portion de mur qui
 // touche réellement le dégagement/la pièce voisine, même si le reste du mur
 // continue de chevaucher cet espace.
-function doorOutsideProbe(door: Door): Rect {
+function doorOutsideProbe(door: DoorGeometry): Rect {
   const half = door.width / 2;
   const depth = ADJACENCY_TOLERANCE;
   switch (door.wall) {
@@ -173,6 +173,17 @@ function doorOutsideProbe(door: Door): Rect {
     case "bottom":
       return { x: door.cx - half, y: door.cy, w: door.width, d: depth };
   }
+}
+
+// Contrepartie INTÉRIEURE, pour l'unique porte sans pièce propriétaire :
+// entryDoor/streetDoor. `wall` y désigne le mur du BÂTI dans lequel la porte
+// est percée (pas le mur d'une pièce) — sonder "à l'extérieur" de ce mur
+// pointerait hors du bâti, jamais vers le corridor ou le salon qu'elle est
+// censée desservir ; on sonde donc du côté opposé (vers l'intérieur), qui
+// est exactement la formule de doorOutsideProbe appliquée au mur inversé.
+function doorInsideProbe(door: DoorGeometry): Rect {
+  const flipped: WallSide = door.wall === "left" ? "right" : door.wall === "right" ? "left" : door.wall === "top" ? "bottom" : "top";
+  return doorOutsideProbe({ ...door, wall: flipped });
 }
 
 export interface PlacedRoom {
@@ -1024,13 +1035,29 @@ export function computeReachableRooms(layout: Layout): Set<number> {
   if (!layout.corridor) return reached;
   const salonIndex = layout.rooms.findIndex((r) => r.type === "salon");
   const salonRect = salonIndex >= 0 ? roomRect(layout.rooms[salonIndex]) : null;
-  const salonTouchesCorridor = salonRect ? rectsAdjacent(salonRect, layout.corridor) : false;
+  // Généralisé aux circulations multiples (voir circulationSpaces), comme le
+  // contrôle équivalent de independentVerify : seul `layout.corridor` était
+  // testé ici avant ce correctif, un reliquat antérieur au support de
+  // plusieurs segments — un salon desservi par un segment autre que le
+  // corridor historique (circulation en L, ou tout segment neuf posé par
+  // packNeedsIntoFreeSpace) ne coupait jamais la chaîne vers ce segment,
+  // seulement vers `layout.corridor` spécifiquement.
   const circulation = circulationSpaces(layout);
+  const salonTouchesCorridor = salonRect ? circulation.some((c) => rectsAdjacent(salonRect, c)) : false;
   const usableDoors = layout.doors.filter((d) => d.width >= DOOR_WIDTH - 1e-6);
-  const genuinelyTouches = (d: Door, target: Rect) => rectsOverlap(doorOutsideProbe(d), target);
+  const genuinelyTouches = (d: DoorGeometry, target: Rect) => rectsOverlap(doorOutsideProbe(d), target);
 
+  // L'entrée amorce le graphe à partir de ce qu'elle touche RÉELLEMENT — le
+  // salon, une circulation, les deux, ou aucun des deux (auquel cas rien
+  // n'est atteignable, honnêtement) — jamais une hypothèse fixe "l'entrée
+  // mène toujours au salon s'il y en a un", qui supposait à tort un
+  // parcours guidé même pour un salon ordinaire sans statut particulier.
   const infraQueue: ("corridor" | "salon")[] = [];
-  if (layout.entryDoor) infraQueue.push(salonRect ? "salon" : "corridor");
+  if (layout.entryDoor) {
+    const entryProbe = doorInsideProbe(layout.entryDoor);
+    if (salonRect && rectsOverlap(entryProbe, salonRect)) infraQueue.push("salon");
+    if (circulation.some((c) => rectsOverlap(entryProbe, c))) infraQueue.push("corridor");
+  }
 
   const roomQueue: number[] = [];
   const pushRoomsConnectedTo = (node: "corridor" | "salon") => {
@@ -1196,23 +1223,37 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   }
 
   if (layout.entryDoor && originReached) {
-    const targetRect = salonRect ?? layout.corridor;
-    const targetLabel = salonRect ? "le salon" : "le corridor";
-    const entryTouches =
-      Math.abs(layout.entryDoor.cy - targetRect.y) < eps ||
-      Math.abs(layout.entryDoor.cy - (targetRect.y + targetRect.d)) < eps ||
-      Math.abs(layout.entryDoor.cx - targetRect.x) < eps ||
-      Math.abs(layout.entryDoor.cx - (targetRect.x + targetRect.w)) < eps;
-    if (!entryTouches) {
-      issues.push({ severity: "error", message: `L'entrée ne débouche pas sur ${targetLabel} : accès non garanti.` });
+    // Contact RÉEL (sonde intérieure, pas un simple alignement de coordonnées
+    // sur le bord d'un rectangle) et généralisé à toute circulation (voir
+    // circulationSpaces), pas seulement `layout.corridor` : avant ce
+    // correctif, un salon ordinaire (sans statut d'accès direct particulier)
+    // devait obligatoirement toucher l'entrée dès qu'il existait, même dans
+    // une disposition où l'entrée dessert le corridor et le salon s'y relie
+    // ensuite par sa propre porte — un salon régénéré ailleurs par
+    // packNeedsIntoFreeSpace faisait donc échouer ce contrôle à tort alors
+    // que le graphe d'accessibilité réel (computeReachableRooms) le disait
+    // atteignable.
+    const entryProbe = doorInsideProbe(layout.entryDoor);
+    const touchesSalon = salonRect ? rectsOverlap(entryProbe, salonRect) : false;
+    const touchesCirculation = circulationSpaces(layout).some((c) => rectsOverlap(entryProbe, c));
+    if (!touchesSalon && !touchesCirculation) {
+      issues.push({ severity: "error", message: "L'entrée ne débouche ni sur le salon ni sur une circulation réelle : accès non garanti." });
     }
   } else if (!layout.entryDoor) {
     issues.push({ severity: "error", message: "Aucune porte d'entrée définie." });
   }
 
-  const salonConnectedToCorridor = salonRect ? rectsAdjacent(salonRect, layout.corridor) : true;
+  // Généralisé aux circulations multiples (voir circulationSpaces) : avant
+  // ce correctif, seul `layout.corridor` était testé ici, un reliquat
+  // antérieur au support de plusieurs segments de circulation. Une
+  // disposition en L où le salon touche le segment BAS (Layout.circulations)
+  // et non le corridor historique (le segment HAUT) passait ce contrôle par
+  // pure coïncidence géométrique (un écart de quelques centimètres resté
+  // sous la tolérance) plutôt que pour la bonne raison — corrigé ici pour
+  // vérifier l'adjacence à N'IMPORTE LAQUELLE des circulations réelles.
+  const salonConnectedToCorridor = salonRect ? circulationSpaces(layout).some((c) => rectsAdjacent(salonRect, c)) : true;
   if (salonRect && !salonConnectedToCorridor) {
-    issues.push({ severity: "error", message: "Le salon central ne débouche sur le corridor par aucune ouverture réelle : les pièces reliées au dégagement resteraient inaccessibles." });
+    issues.push({ severity: "error", message: "Le salon ne débouche sur aucune circulation par une ouverture réelle : les pièces reliées au dégagement resteraient inaccessibles." });
   }
 
   // Vérification immédiate (contact réel, jamais supposé) de CHAQUE porte
@@ -1504,31 +1545,239 @@ export interface RegenerationResult {
   failureReasons: string[];
 }
 
+// ---- Recherche générale par espace libre — obstacles à position quelconque ----
+// Remplace l'ancienne contrainte "deux bandes gauche/droite autour d'un
+// corridor central unique" par un calcul RÉEL de l'espace libre de l'emprise
+// autour d'obstacles fixes (pièces verrouillées + corridor/raccords/
+// circulations déjà en place), ceux-ci pouvant être à une position
+// QUELCONQUE — plus aucune classification "gauche/droite" obligatoire.
+// Découpe "guillotine" classique (2D rectangle packing) : chaque obstacle
+// découpe chaque rectangle libre qui le chevauche en au plus 4 morceaux
+// (haut/bas/gauche/droite, écrêtés à ce rectangle). Décomposition NON
+// nécessairement maximale (des rectangles libres peuvent se chevaucher entre
+// eux) — suffisante pour un remplissage glouton borné, jamais une
+// couverture optimale recherchée.
+function computeFreeRects(bounds: Rect, obstacles: Rect[]): Rect[] {
+  let free: Rect[] = [{ ...bounds }];
+  for (const obs of obstacles) {
+    const next: Rect[] = [];
+    for (const f of free) {
+      if (!rectsOverlap(f, obs)) {
+        next.push(f);
+        continue;
+      }
+      const ix0 = Math.max(f.x, obs.x);
+      const ix1 = Math.min(f.x + f.w, obs.x + obs.w);
+      const iy0 = Math.max(f.y, obs.y);
+      const iy1 = Math.min(f.y + f.d, obs.y + obs.d);
+      if (f.x < ix0 - 1e-9) next.push({ x: f.x, y: f.y, w: ix0 - f.x, d: f.d });
+      if (ix1 < f.x + f.w - 1e-9) next.push({ x: ix1, y: f.y, w: f.x + f.w - ix1, d: f.d });
+      if (f.y < iy0 - 1e-9) next.push({ x: f.x, y: f.y, w: f.w, d: iy0 - f.y });
+      if (iy1 < f.y + f.d - 1e-9) next.push({ x: f.x, y: iy1, w: f.w, d: f.y + f.d - iy1 });
+    }
+    free = next.filter((r) => r.w > 0.05 && r.d > 0.05);
+  }
+  return free;
+}
+
+// Un rectangle libre ne peut recevoir une pièce desservie par une façade que
+// s'il touche RÉELLEMENT un bord de l'emprise (seul endroit où une porte/
+// fenêtre extérieure a un sens) — jamais supposé par défaut. Priorité fixe
+// (haut, bas, gauche, droite) quand plusieurs bords coïncident (coin de
+// l'emprise) : un choix arbitraire mais déterministe, pas une optimisation.
+function pickOrientation(fr: Rect, emprise: Rect): { vertical: boolean; exteriorIsMin: boolean } | null {
+  const eps = 1e-2;
+  if (Math.abs(fr.y - emprise.y) < eps) return { vertical: false, exteriorIsMin: true };
+  if (Math.abs(fr.y + fr.d - (emprise.y + emprise.d)) < eps) return { vertical: false, exteriorIsMin: false };
+  if (Math.abs(fr.x - emprise.x) < eps) return { vertical: true, exteriorIsMin: true };
+  if (Math.abs(fr.x + fr.w - (emprise.x + emprise.w)) < eps) return { vertical: true, exteriorIsMin: false };
+  return null;
+}
+
+// Coordonnée absolue (min) d'un élément situé à `distFromExterior` du bord
+// extérieur du rectangle libre et de taille `size` le long de l'axe
+// transversal — centralise la réflexion gauche/droite ou haut/bas selon le
+// côté réellement extérieur, pour écrire une seule formule au lieu de 4
+// variantes recopiées à la main (source d'erreurs de signe).
+function crossAbsMin(origin: number, crossExtent: number, exteriorIsMin: boolean, distFromExterior: number, size: number): number {
+  return exteriorIsMin ? origin + distFromExterior : origin + crossExtent - distFromExterior - size;
+}
+
+interface FreeSpaceNeed { idx: number; label: string; type: string; width: number; depth: number; minW: number; minD: number }
+interface FreeSpacePlacement { need: FreeSpaceNeed; x: number; y: number; w: number; d: number; exteriorWall: WallSide; doorWall: WallSide }
+
+// Remplit GLOUTONNEMENT l'espace libre (plus grands rectangles d'abord) avec
+// les besoins fournis, DANS L'ORDRE donné (c'est l'appelant qui explore
+// plusieurs ordres) : chaque rectangle libre reçoit un groupe en simple
+// rangée (ligne le long d'un bord haut/bas, colonne le long d'un bord
+// gauche/droit), avec son propre segment de circulation neuf. Jamais une
+// pièce étirée ou réduite hors de sa taille individuelle pour "faire
+// rentrer" le résultat : un besoin qui ne tient dans aucun rectangle libre
+// reste dans `leftover`, jamais forcé ni abandonné en silence.
+function packNeedsIntoFreeSpace(
+  emprise: Rect,
+  obstacles: Rect[],
+  needs: FreeSpaceNeed[]
+): { placements: FreeSpacePlacement[]; corridors: Rect[]; corridorFillers: Rect[]; leftover: FreeSpaceNeed[] } {
+  const placements: FreeSpacePlacement[] = [];
+  const corridors: Rect[] = [];
+  const corridorFillers: Rect[] = [];
+  let remaining = [...needs];
+  // La découpe guillotine n'est PAS maximale : au sein même d'un seul appel,
+  // les morceaux renvoyés (haut/bas/gauche/droite autour d'un obstacle)
+  // peuvent se chevaucher entre eux (ex. les coins autour de l'obstacle
+  // comptent à la fois dans le morceau "gauche" et dans le morceau "haut").
+  // Sans précaution, poser un groupe dans l'un de ces morceaux puis un autre
+  // groupe dans un morceau qui le chevauche produirait des pièces qui se
+  // chevauchent elles-mêmes dans l'espace réel. Traité ici par une file de
+  // rectangles candidats : après CHAQUE pose, tout candidat encore en
+  // attente qui chevauche ce qui vient d'être consommé est ré-écrêté contre
+  // ce nouvel obstacle (lui-même potentiellement scindé en plusieurs
+  // morceaux encore libres) avant d'être considéré à son tour — jamais deux
+  // poses sur le même espace.
+  let pending = computeFreeRects(emprise, obstacles);
+
+  function packInto(fr: Rect): Rect[] {
+    const justConsumed: Rect[] = [];
+    if (remaining.length === 0) return justConsumed;
+    const orient = pickOrientation(fr, emprise);
+    if (!orient) return justConsumed; // aucun bord extérieur réel : aucune pièce desservie par façade ne peut y aller
+    const { vertical, exteriorIsMin } = orient;
+    const crossExtent = vertical ? fr.w : fr.d;
+    const crossOrigin = vertical ? fr.x : fr.y;
+    const crossBudget = crossExtent - WALL_EXT - CORRIDOR_WIDTH - WALL_INT - WALL_EXT;
+    if (crossBudget < 1.5) return justConsumed; // pas assez de profondeur disponible pour une pièce même minimale + corridor
+
+    const alongOrigin = vertical ? fr.y : fr.x;
+    const alongExtent = vertical ? fr.d : fr.w;
+    const alongStart = alongOrigin + WALL_EXT;
+    const alongLimit = alongOrigin + alongExtent - WALL_EXT;
+    let cursor = alongStart;
+    const stillRemaining: FreeSpaceNeed[] = [];
+    const placedHere: Array<{ need: FreeSpaceNeed; along: number; cross: number; alongPos: number }> = [];
+
+    for (const need of remaining) {
+      const crossDim = vertical ? need.width : need.depth;
+      const alongDim = vertical ? need.depth : need.width;
+      if (crossDim <= crossBudget + 1e-6 && cursor + alongDim <= alongLimit + 1e-6) {
+        placedHere.push({ need, along: alongDim, cross: crossDim, alongPos: cursor });
+        cursor += alongDim + WALL_INT;
+      } else {
+        stillRemaining.push(need);
+      }
+    }
+    remaining = stillRemaining;
+    if (placedHere.length === 0) return justConsumed;
+
+    const maxCross = Math.max(...placedHere.map((p) => p.cross));
+    const exteriorWall: WallSide = vertical ? (exteriorIsMin ? "left" : "right") : exteriorIsMin ? "top" : "bottom";
+    const doorWall: WallSide = exteriorWall === "left" ? "right" : exteriorWall === "right" ? "left" : exteriorWall === "top" ? "bottom" : "top";
+
+    const corridorAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT + maxCross, CORRIDOR_WIDTH);
+    const groupAlongStart = placedHere[0].alongPos;
+    const groupAlongSpan = placedHere[placedHere.length - 1].alongPos + placedHere[placedHere.length - 1].along - groupAlongStart;
+    const corridorRect: Rect = vertical
+      ? { x: corridorAbsMin, y: groupAlongStart, w: CORRIDOR_WIDTH, d: groupAlongSpan }
+      : { x: groupAlongStart, y: corridorAbsMin, w: groupAlongSpan, d: CORRIDOR_WIDTH };
+    corridors.push(corridorRect);
+    justConsumed.push(corridorRect);
+
+    for (const p of placedHere) {
+      const roomCrossAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT, p.cross);
+      const x = vertical ? roomCrossAbsMin : p.alongPos;
+      const y = vertical ? p.alongPos : roomCrossAbsMin;
+      const w = vertical ? p.cross : p.along;
+      const d = vertical ? p.along : p.cross;
+      placements.push({ need: p.need, x, y, w, d, exteriorWall, doorWall });
+      justConsumed.push({ x, y, w, d });
+      if (maxCross - p.cross > 1e-6) {
+        const fillerCrossAbsMin = crossAbsMin(crossOrigin, crossExtent, exteriorIsMin, WALL_EXT + p.cross, maxCross - p.cross + WALL_INT);
+        const fillerRect: Rect = vertical
+          ? { x: fillerCrossAbsMin, y: p.alongPos, w: maxCross - p.cross + WALL_INT, d: p.along }
+          : { x: p.alongPos, y: fillerCrossAbsMin, w: p.along, d: maxCross - p.cross + WALL_INT };
+        corridorFillers.push(fillerRect);
+        justConsumed.push(fillerRect);
+      }
+    }
+    return justConsumed;
+  }
+
+  while (remaining.length > 0 && pending.length > 0) {
+    pending.sort((a, b) => b.w * b.d - a.w * a.d);
+    const fr = pending.shift()!;
+    const justConsumed = packInto(fr);
+    if (justConsumed.length > 0) {
+      const next: Rect[] = [];
+      for (const other of pending) {
+        if (justConsumed.some((c) => rectsOverlap(other, c))) next.push(...computeFreeRects(other, justConsumed));
+        else next.push(other);
+      }
+      pending = next;
+    }
+  }
+
+  return { placements, corridors, corridorFillers, leftover: remaining };
+}
+
 // Régénère les pièces NON verrouillées et NON mises de côté, en conservant
 // EXACTEMENT les pièces verrouillées (identité, position, dimensions,
 // portes, fenêtres — jamais touchées) et les dimensions INDIVIDUELLES
 // (éventuellement redimensionnées manuellement) de chaque pièce régénérée —
-// jamais ramenées à une taille unique par type. Portée EXACTE de ce moteur
-// dans cette tranche : les pièces (verrouillées ou non) doivent se trouver
-// dans l'une des deux bandes gauche/droite autour d'un unique corridor
-// central ; DANS une bande, les pièces verrouillées peuvent être N'IMPORTE
-// OÙ (plus de contrainte "bloc contigu depuis le haut") — les espaces
-// libres entre/au-dessus/en dessous d'elles sont comblés par les pièces à
-// régénérer. Une pièce hors de ces deux bandes (position vraiment
-// quelconque dans l'emprise) est un cas HORS DE PORTÉE de ce moteur,
-// signalé comme tel — jamais confondu avec une contradiction géométrique
-// démontrée (largeur insuffisante, manque de profondeur dans l'emprise).
-// Explore 2 ordres de remplissage (profondeur croissante/décroissante)
-// quand au moins deux pièces de profondeurs différentes doivent être
-// régénérées dans la même bande — jamais un simple miroir gauche/droite.
+// jamais ramenées à une taille unique par type.
+//
+// GÉNÉRALISATION de ce lot : les pièces verrouillées comptent comme des
+// obstacles fixes à leur position RÉELLE, quelle qu'elle soit dans l'emprise
+// — les deux bandes gauche/droite d'un corridor central unique ne sont PLUS
+// une condition d'admissibilité (voir packNeedsIntoFreeSpace). Le corridor,
+// les raccords et les circulations déjà en place (d'une disposition droite
+// OU en L — peu importe le générateur d'origine) sont eux aussi traités
+// comme des obstacles fixes : jamais redessinés, pour que les portes des
+// pièces verrouillées qui s'y appuient restent valides. Seul l'espace
+// réellement libre autour de tout cela reçoit les pièces à régénérer, avec
+// leur propre segment de circulation neuf (ajouté à Layout.circulations).
+//
+// Recherche BORNÉE et NON EXHAUSTIVE (2 ordres de remplissage par aire
+// croissante/décroissante, remplissage glouton en un seul passage, aucun
+// retour-arrière) — un échec signifie seulement que CETTE recherche n'a rien
+// trouvé, jamais qu'une organisation est impossible. Une pièce à accès
+// véhicule obligatoire (garage) n'est pas prise en charge par ce moteur
+// général (aucune porte véhicule posée) : plutôt que produire un plan sans
+// accès garage, cette famille est explicitement écartée pour cette
+// régénération, avec le motif indiqué.
 export function regenerateUnlocked(layout: Layout): RegenerationResult {
   const failureReasons: string[] = [];
-  if (!layout.emprise || !layout.corridor || !layout.footprint) {
+  if (!layout.emprise || !layout.footprint) {
     return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."] };
   }
-  const emprise = layout.emprise;
-  const corridor = layout.corridor;
   const lockedRooms = layout.rooms.filter((r) => r.locked && !r.parked);
+  // Le contour bâti reste une UNIQUE emprise rectangulaire (convention déjà
+  // établie dans tout ce moteur, aucune encoche) : si une pièce verrouillée
+  // porte déjà un mur extérieur validé (exteriorWall), ce mur fixe la limite
+  // RÉELLE du bâti de ce côté — le reste de la régénération ne doit jamais
+  // la dépasser, sous peine de repousser le contour bâti recalculé au-delà
+  // de cette pièce et d'invalider rétroactivement son propre mur extérieur
+  // (chevauchement de responsabilité détecté par independentVerify, mais
+  // évité ici à la source plutôt que découvert après coup). Les côtés sans
+  // pièce verrouillée gardent l'emprise complète.
+  const emprise: Rect = { ...layout.emprise };
+  for (const r of lockedRooms) {
+    if (r.exteriorWall === "right") emprise.w = Math.min(emprise.w, r.x + r.w + WALL_EXT - emprise.x);
+    if (r.exteriorWall === "bottom") emprise.d = Math.min(emprise.d, r.y + r.d + WALL_EXT - emprise.y);
+    if (r.exteriorWall === "left") {
+      const newMinX = r.x - WALL_EXT;
+      if (newMinX > emprise.x) {
+        emprise.w -= newMinX - emprise.x;
+        emprise.x = newMinX;
+      }
+    }
+    if (r.exteriorWall === "top") {
+      const newMinY = r.y - WALL_EXT;
+      if (newMinY > emprise.y) {
+        emprise.d -= newMinY - emprise.y;
+        emprise.y = newMinY;
+      }
+    }
+  }
   const targetRooms = layout.rooms.map((r, i) => ({ r, i })).filter((x) => !x.r.locked && !x.r.parked);
   if (targetRooms.length === 0) {
     return {
@@ -1538,157 +1787,94 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     };
   }
 
-  function sideOf(r: PlacedRoom): "left" | "right" | null {
-    if (r.x + r.w <= corridor.x + 1e-2) return "left";
-    if (r.x >= corridor.x + corridor.w - 1e-2) return "right";
-    return null;
-  }
-  const outOfScope = [...lockedRooms, ...targetRooms.map((x) => x.r)].filter((r) => sideOf(r) === null);
-  if (outOfScope.length > 0) {
+  const vehicleNeeds = targetRooms.filter((x) => REQUIRE_VEHICLE_ACCESS_TYPES.has(x.r.type));
+  if (vehicleNeeds.length > 0) {
     return {
       variants: [],
       preferenceNotes: [],
       failureReasons: [
-        `Hors de portée de ce moteur dans cette version (pas une contradiction géométrique) : « ${outOfScope[0].label} ${outOfScope[0].number} » occupe une position que la régénération ne sait pas encore traiter (ni dans la bande gauche, ni dans la bande droite du corridor central). Repositionnez-la dans l'une des deux bandes, ou laissez-la déverrouillée.`,
+        `Ce moteur général (espace libre autour d'obstacles) ne sait pas encore poser d'accès véhicule direct : « ${vehicleNeeds[0].r.label} ${vehicleNeeds[0].r.number} » ne peut pas être régénérée ainsi sans perdre son accès — verrouillez-la pour la conserver à sa place actuelle, ou déplacez-la manuellement après régénération des autres pièces.`,
       ],
     };
   }
 
-  const lockedBySide = { left: [] as PlacedRoom[], right: [] as PlacedRoom[] };
-  for (const r of lockedRooms) lockedBySide[sideOf(r)!].push(r);
-  // Chaque pièce à régénérer garde SA PROPRE taille (cible = sa taille
-  // actuelle, minimum = son propre minimum défini à l'origine) — jamais
-  // regroupée avec les autres pièces du même type.
-  interface TargetDesc { idx: number; label: string; width: number; depth: number; minW: number; minD: number }
-  const targetBySide = { left: [] as TargetDesc[], right: [] as TargetDesc[] };
-  for (const { r, i } of targetRooms) {
-    const side = sideOf(r)!;
-    targetBySide[side].push({ idx: i, label: `${r.label} ${r.number}`, width: sizeFor(r.w, r.minW), depth: sizeFor(r.d, r.minD), minW: r.minW, minD: r.minD });
-  }
+  // Obstacles fixes : pièces verrouillées (position réelle, quelle qu'elle
+  // soit) + toute l'infrastructure de circulation déjà en place, quelle que
+  // soit la famille qui l'a produite (corridor double-chargé, segment haut
+  // ou bas d'une circulation en L...) — jamais redessinée ici, pour ne
+  // jamais invalider une porte de pièce verrouillée qui s'y appuie.
+  const obstacles: Rect[] = [
+    ...lockedRooms.map(roomRect),
+    ...(layout.corridor ? [layout.corridor] : []),
+    ...layout.corridorFillers,
+    ...layout.circulations,
+    ...(layout.courtyard ? [layout.courtyard] : []),
+  ];
 
-  const lockedWidth = { left: null as number | null, right: null as number | null };
-  for (const side of ["left", "right"] as const) {
-    if (lockedBySide[side].length > 0) lockedWidth[side] = Math.max(...lockedBySide[side].map((r) => r.w));
-  }
+  const needs: FreeSpaceNeed[] = targetRooms.map(({ r, i }) => ({
+    idx: i,
+    label: `${r.label} ${r.number}`,
+    type: r.type,
+    width: sizeFor(r.w, r.minW),
+    depth: sizeFor(r.d, r.minD),
+    minW: r.minW,
+    minD: r.minD,
+  }));
 
-  // Espaces LIBRES dans chaque bande, calculés à partir des pièces
-  // verrouillées quelle que soit leur position (plus de restriction "haut
-  // de colonne") : un segment avant chaque pièce verrouillée (le cas
-  // échéant), entre deux pièces verrouillées consécutives, et un dernier
-  // segment ouvert après la dernière — jamais un chevauchement avec une
-  // pièce verrouillée.
-  interface Gap { start: number; end: number | null }
-  function gapsFor(side: "left" | "right"): Gap[] {
-    const locked = lockedBySide[side].slice().sort((a, b) => a.y - b.y);
-    const gaps: Gap[] = [];
-    let cursor = emprise.y + WALL_EXT;
-    for (const r of locked) {
-      if (r.y > cursor + 1e-2) gaps.push({ start: cursor, end: r.y - WALL_INT });
-      cursor = Math.max(cursor, r.y + r.d + WALL_INT);
+  function attempt(order: "aire décroissante" | "aire croissante"): { layout: Layout; note: string; newCirculationArea: number } | { error: string } {
+    const ordered = [...needs].sort((a, b) => (order === "aire décroissante" ? b.width * b.depth - a.width * a.depth : a.width * a.depth - b.width * b.depth));
+    const { placements, corridors, corridorFillers, leftover } = packNeedsIntoFreeSpace(emprise, obstacles, ordered);
+    if (leftover.length > 0) {
+      return {
+        error: `Ordre ${order} : cette recherche bornée n'a pas trouvé de place, dans l'espace libre restant de l'emprise, pour ${leftover.map((l) => `« ${l.label} »`).join(", ")} — pas une impossibilité architecturale démontrée, seulement ce que cet algorithme a trouvé. Déverrouillez une pièce supplémentaire, ajustez une dimension, ou agrandissez l'emprise pour lui donner plus de chances.`,
+      };
     }
-    gaps.push({ start: cursor, end: null });
-    return gaps;
-  }
-
-  // Profondeur cible ORIGINALE des pièces régénérées (avant régénération),
-  // pour noter honnêtement l'écart introduit par chaque variante — une
-  // préférence sert seulement à CLASSER des dispositions déjà admissibles,
-  // jamais à en exclure une qui respecterait toutes les contraintes
-  // obligatoires.
-  const originalDepth = { left: 0, right: 0 };
-  for (const { r } of targetRooms) originalDepth[sideOf(r)!] += r.d;
-
-  function buildVariant(order: "croissant" | "décroissant"): { layout: Layout; note: string } | { error: string } {
     const next = cloneLayout(layout);
     next.doors = next.doors.filter((d) => !targetRooms.some((t) => t.i === d.roomIndex));
     next.windows = next.windows.filter((w) => !targetRooms.some((t) => t.i === w.roomIndex));
-    const totalNewDepth = { left: 0, right: 0 };
-
-    for (const side of ["left", "right"] as const) {
-      const descs = targetBySide[side];
-      if (descs.length === 0) continue;
-      const naturalMaxWidth = descs.reduce((m, s) => Math.max(m, s.width), 0);
-      const colMaxWidth = lockedWidth[side] ?? naturalMaxWidth;
-      const tooWide = descs.find((s) => s.width > colMaxWidth + 1e-6);
-      if (tooWide) {
-        return {
-          error: `Bande ${side === "left" ? "gauche" : "droite"} : largeur de « ${tooWide.label} » (${tooWide.width.toFixed(2)} m) dépasse la largeur fixée par les pièces verrouillées (${colMaxWidth.toFixed(2)} m) — contradiction géométrique, pas une limite de portée.`,
-        };
-      }
-      const ordered = [...descs].sort((a, b) => (order === "croissant" ? a.depth - b.depth : b.depth - a.depth));
-      const gaps = gapsFor(side).map((g) => ({ ...g, cursor: g.start }));
-      const exteriorWall: WallSide = side === "left" ? "left" : "right";
-      const doorWall: WallSide = side === "left" ? "right" : "left";
-      for (const desc of ordered) {
-        // Premier espace (dans l'ordre) où cette pièce tient encore —
-        // heuristique de remplissage simple (premier ajustement), pas une
-        // optimisation exhaustive de la disposition.
-        let gap = gaps.find((g) => g.end === null || g.cursor + desc.depth <= g.end + 1e-6);
-        if (!gap) gap = gaps[gaps.length - 1];
-        const needsMargin = gap.cursor > gap.start + 1e-9;
-        const y = gap.cursor + (needsMargin ? WALL_INT : 0);
-        if (gap.end !== null && y + desc.depth > gap.end + 1e-6) {
-          return {
-            error: `Bande ${side === "left" ? "gauche" : "droite"} : profondeur insuffisante dans l'espace libre disponible pour « ${desc.label} » entre les pièces verrouillées — contradiction géométrique pour cet ordre de remplissage, pas une limite de portée.`,
-          };
-        }
-        gap.cursor = y + desc.depth;
-        const x = side === "left" ? emprise.x + WALL_EXT : corridor.x + corridor.w + WALL_INT + (colMaxWidth - desc.width);
-        const innerX = side === "left" ? x + desc.width : x;
-        const room = next.rooms[desc.idx];
-        room.x = x;
-        room.y = y;
-        room.w = desc.width;
-        room.d = desc.depth;
-        room.minW = desc.minW;
-        room.minD = desc.minD;
-        room.exteriorWall = exteriorWall;
-        next.doors.push({ roomIndex: desc.idx, wall: doorWall, cx: innerX, cy: y + desc.depth / 2, width: Math.min(DOOR_WIDTH, desc.depth), to: { kind: "circulation" } });
-        next.windows.push({ roomIndex: desc.idx, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + desc.width, cy: y + desc.depth / 2, width: desc.depth * 0.5 });
-        const widthGap = colMaxWidth - desc.width;
-        if (widthGap > 1e-6) {
-          const fillerX = side === "left" ? x + desc.width : corridor.x + corridor.w + WALL_INT;
-          next.circulations.push({ x: fillerX, y, w: widthGap + WALL_INT, d: desc.depth });
-        }
-      }
-      totalNewDepth[side] = gaps.reduce((s, g) => s + Math.max(0, g.cursor - g.start), 0);
+    for (const p of placements) {
+      const room = next.rooms[p.need.idx];
+      room.x = p.x;
+      room.y = p.y;
+      room.w = p.w;
+      room.d = p.d;
+      room.minW = p.need.minW;
+      room.minD = p.need.minD;
+      room.exteriorWall = p.exteriorWall;
+      const innerCoord = p.doorWall === "right" || p.doorWall === "bottom" ? (p.doorWall === "right" ? p.x + p.w : p.y + p.d) : p.doorWall === "left" ? p.x : p.y;
+      const vertical = p.doorWall === "left" || p.doorWall === "right";
+      next.doors.push({
+        roomIndex: p.need.idx,
+        wall: p.doorWall,
+        cx: vertical ? innerCoord : p.x + p.w / 2,
+        cy: vertical ? p.y + p.d / 2 : innerCoord,
+        width: Math.min(DOOR_WIDTH, vertical ? p.d : p.w),
+        to: { kind: "circulation" },
+      });
+      const outerVertical = p.exteriorWall === "left" || p.exteriorWall === "right";
+      const outerCoord = p.exteriorWall === "right" ? p.x + p.w : p.exteriorWall === "bottom" ? p.y + p.d : p.exteriorWall === "left" ? p.x : p.y;
+      next.windows.push({
+        roomIndex: p.need.idx,
+        wall: p.exteriorWall,
+        cx: outerVertical ? outerCoord : p.x + p.w / 2,
+        cy: outerVertical ? p.y + p.d / 2 : outerCoord,
+        width: (outerVertical ? p.d : p.w) * 0.5,
+      });
     }
-
-    // Retire les anciens raccords tombant dans la zone régénérée (identifiés
-    // par leur position en x, côté gauche ou droit du corridor) pour ne pas
-    // laisser de raccord fantôme pointant vers une position abandonnée.
-    next.corridorFillers = next.corridorFillers.filter((f) => {
-      const side: "left" | "right" | null = f.x + f.w <= corridor.x ? "left" : f.x >= corridor.x + corridor.w ? "right" : null;
-      if (!side || targetBySide[side].length === 0) return true;
-      return !targetBySide[side].some((d) => Math.abs(next.rooms[d.idx].y - f.y) < 1e-2);
-    });
-
-    // Le corridor historique peut avoir besoin d'être prolongé si la pièce
-    // régénérée la plus profonde dépasse ce qu'il desservait jusqu'ici — ce
-    // prolongement est un espace de circulation à part entière (Layout.
-    // circulations), identifié séparément du corridor historique.
-    const oldCorridorEnd = corridor.y + corridor.d;
-    const newRoomsMaxY = Math.max(
-      oldCorridorEnd,
-      ...targetBySide.left.map((d) => next.rooms[d.idx].y + next.rooms[d.idx].d),
-      ...targetBySide.right.map((d) => next.rooms[d.idx].y + next.rooms[d.idx].d)
-    );
-    if (newRoomsMaxY > oldCorridorEnd + 1e-6) {
-      next.circulations.push({ x: corridor.x, y: oldCorridorEnd, w: corridor.w, d: newRoomsMaxY - oldCorridorEnd });
-    }
-
+    next.circulations = [...next.circulations, ...corridors];
+    next.corridorFillers = [...next.corridorFillers, ...corridorFillers];
     const result = recomputeDerivedGeometry(next);
-    const deviation = Math.abs(totalNewDepth.left - originalDepth.left) + Math.abs(totalNewDepth.right - originalDepth.right);
-    const note =
-      deviation < 1e-2
-        ? `Ordre ${order} — même profondeur totale que l'origine pour les pièces régénérées.`
-        : `Ordre ${order} — profondeur totale des pièces régénérées modifiée de ${deviation.toFixed(2)} m par rapport à l'origine.`;
-    return { layout: result, note: `${note} (préférence : écart de profondeur minimal)` };
+    const newCirculationArea = corridors.reduce((s, c) => s + c.w * c.d, 0) + corridorFillers.reduce((s, f) => s + f.w * f.d, 0);
+    return {
+      layout: result,
+      note: `Ordre ${order} — ${placements.length} pièce(s) régénérée(s) autour des éléments verrouillés, ${newCirculationArea.toFixed(2)} m² de nouvelle circulation ajoutée (préférence : circulation ajoutée minimale).`,
+      newCirculationArea,
+    };
   }
 
-  const candidates: { layout: Layout; note: string; deviation: number }[] = [];
-  for (const order of ["croissant", "décroissant"] as const) {
-    const built = buildVariant(order);
+  const candidates: { layout: Layout; note: string; newCirculationArea: number }[] = [];
+  for (const order of ["aire décroissante", "aire croissante"] as const) {
+    const built = attempt(order);
     if ("error" in built) {
       failureReasons.push(built.error);
       continue;
@@ -1699,12 +1885,11 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       failureReasons.push(`Ordre ${order} : ${errors.map((e) => e.message).join(" ")}`);
       continue;
     }
-    const deviationMatch = built.note.match(/modifiée de ([\d.]+) m/);
-    candidates.push({ layout: built.layout, note: built.note, deviation: deviationMatch ? parseFloat(deviationMatch[1]) : 0 });
+    candidates.push(built);
   }
 
   // Écarte les doublons stricts (même ordre produit la même disposition si
-  // une seule pièce est régénérée par bande) — jamais compté comme deux
+  // un seul rectangle libre admissible existe) — jamais compté comme deux
   // organisations distinctes.
   const seen = new Set<string>();
   const deduped: typeof candidates = [];
@@ -1714,7 +1899,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     seen.add(key);
     deduped.push(c);
   }
-  deduped.sort((a, b) => a.deviation - b.deviation);
+  deduped.sort((a, b) => a.newCirculationArea - b.newCirculationArea);
   deduped.forEach((c, i) => (c.layout.variantLabel = `Régénération ${i + 1}`));
 
   return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons };
