@@ -11,6 +11,14 @@ compteur global reste exclusivement celui de `MVP_BACKLOG.csv`.
 à chaque bilan futur) — terminer chaque compte rendu de lot par une ligne :
 `compteur global / jalons moteur / cycles effectués / résultat utilisateur / limite principale / commit`.
 
+**Suite (après la clôture des 7/7 jalons)** : la préparation de
+l'intégration métier (parcours chantier → demande → génération → édition →
+dépôt → validation → publication, réutilisation de l'existant, schéma
+minimal proposé, découpage en lots) est documentée séparément dans
+[`PREPARATION_INTEGRATION_METIER.md`](./PREPARATION_INTEGRATION_METIER.md)
+— ce fichier-ci reste centré sur le moteur 2D lui-même, pas sur son
+intégration applicative.
+
 ---
 
 ## 1. ChantierLive — compteur global
