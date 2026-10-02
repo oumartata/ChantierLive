@@ -1341,6 +1341,56 @@ function buildSharedCorridorLayoutStraight(input: GenerationInput, frontNeeds: R
   // parcelle) — contact géométrique réel, foyer.x==footprint.x+WALL_EXT.
   const entryDoor: DoorGeometry = { wall: "top", cx: foyer.x + foyer.w / 2, cy: footprint.y, width: DOOR_WIDTH };
 
+  // Accès ARRIÈRE : construit ci-dessus comme pour un accès AVANT (foyer et
+  // entrée contre le mur du haut), puis reflet vertical complet — même
+  // principe que buildDoubleLoadedLayoutStraight pour "back" (mirrorY), mais
+  // ICI les murs "top"/"bottom" sont de VRAIES orientations utilisées pour
+  // les portes/fenêtres des deux rangées (jamais seulement "left"/"right"
+  // comme dans le corridor double-chargé) : leur étiquette doit donc être
+  // inversée en même temps que leur position, sous peine de fenêtres posées
+  // sur le mur opposé à celui qu'elles touchent réellement après le reflet.
+  // Jamais une seconde géométrie indépendante : les mêmes rooms/doors/
+  // windows/foyer/corridor calculés ci-dessus, simplement repositionnés.
+  if (input.accessSide === "back") {
+    const mirrorRect = (r: Rect): Rect => ({ x: r.x, y: emprise.y + emprise.d - (r.y - emprise.y) - r.d, w: r.w, d: r.d });
+    const mirrorCy = (cy: number) => emprise.y + emprise.d - (cy - emprise.y);
+    const mirrorWall = (w: WallSide): WallSide => (w === "top" ? "bottom" : w === "bottom" ? "top" : w);
+    const footprintM = mirrorRect(footprint);
+    const corridorM = mirrorRect(corridor);
+    const fillersM = extraFillers.map(mirrorRect);
+    const foyerM = mirrorRect(foyer);
+    const roomsM: PlacedRoom[] = rooms.map((r) => {
+      const t = mirrorRect(r);
+      return { ...r, x: t.x, y: t.y, exteriorWall: r.exteriorWall ? mirrorWall(r.exteriorWall) : null };
+    });
+    const doorsM: Door[] = doors.map((d) => ({ ...d, wall: mirrorWall(d.wall), cy: mirrorCy(d.cy) }));
+    const windowsM: Window[] = windows.map((w) => ({ ...w, wall: mirrorWall(w.wall), cy: mirrorCy(w.cy) }));
+    const entryDoorM: DoorGeometry = { ...entryDoor, wall: mirrorWall(entryDoor.wall), cy: mirrorCy(entryDoor.cy) };
+    return {
+      variantLabel: label,
+      feasible: true,
+      failureReasons: [],
+      rejected: false,
+      rejectionReasons: [],
+      accessSide: input.accessSide,
+      terrain,
+      emprise,
+      footprint: footprintM,
+      corridor: corridorM,
+      corridorFillers: fillersM,
+      circulations: [foyerM],
+      exteriorPaths: [],
+      courtyard: null,
+      streetDoor: null,
+      entryDoor: entryDoorM,
+      rooms: roomsM,
+      doors: doorsM,
+      windows: windowsM,
+      exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprintM, input.accessSide),
+      surfaces: computeSurfaces(terrain, emprise, footprintM, corridorM, fillersM, [foyerM], roomsM, null, []),
+    };
+  }
+
   return {
     variantLabel: label,
     feasible: true,
@@ -1372,7 +1422,7 @@ function buildSharedCorridorLayoutStraight(input: GenerationInput, frontNeeds: R
 // réutilisée ici telle quelle (transposeDoubleLoadedResult ne dépend
 // d'aucune géométrie propre au corridor double-chargé : rects, portes,
 // fenêtres et pièces génériques).
-function buildSharedCorridorLayout(input: GenerationInput, frontNeeds: RoomNeed[], backNeeds: RoomNeed[], label: string): Layout {
+export function buildSharedCorridorLayout(input: GenerationInput, frontNeeds: RoomNeed[], backNeeds: RoomNeed[], label: string): Layout {
   if (input.accessSide === "left" || input.accessSide === "right") {
     const virtualInput: GenerationInput = {
       ...input,
@@ -1384,36 +1434,11 @@ function buildSharedCorridorLayout(input: GenerationInput, frontNeeds: RoomNeed[
     const virtual = buildSharedCorridorLayoutStraight(virtualInput, frontNeeds, backNeeds, label);
     return transposeDoubleLoadedResult(virtual, input);
   }
-  if (input.accessSide === "back") {
-    // Non pris en charge dans cette version (limite de portée explicite,
-    // même convention que buildLShapedLayout pour "autre que gauche") :
-    // un reflet vertical correct (mur avant/arrière, portes, foyer) n'a pas
-    // été vérifié dans ce lot — jamais livré sans preuve, plutôt refusé
-    // explicitement ici que silencieusement incorrect.
-    return {
-      variantLabel: label,
-      feasible: false,
-      failureReasons: ["Corridor partagé entre deux rangées non pris en charge dans cette version pour une façade d'accès arrière — combinaison non traitée, choix ignoré nulle part : réessayez avec « Avant » ou « Gauche »/« Droite »."],
-      rejected: false,
-      rejectionReasons: [],
-      accessSide: input.accessSide,
-      terrain: { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth },
-      emprise: null,
-      footprint: null,
-      corridor: null,
-      corridorFillers: [],
-      circulations: [],
-      exteriorPaths: [],
-      courtyard: null,
-      streetDoor: null,
-      entryDoor: null,
-      rooms: [],
-      doors: [],
-      windows: [],
-      exteriorSpaces: [],
-      surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
-    };
-  }
+  // "front" et "back" sont tous deux pris en charge NATIVEMENT par
+  // buildSharedCorridorLayoutStraight (reflet vertical interne pour "back",
+  // voir son corps) — jamais un second chemin ici : la correction pour
+  // "back" profite du même coup à "droite" ci-dessus, qui construit son
+  // repère virtuel avec accessSide="back" avant de transposer.
   return buildSharedCorridorLayoutStraight(input, frontNeeds, backNeeds, label);
 }
 
