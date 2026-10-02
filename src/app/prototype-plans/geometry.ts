@@ -448,7 +448,12 @@ function transposeRect(r: Rect): Rect {
 function transposeDoorGeometry<T extends DoorGeometry>(d: T): T {
   return { ...d, wall: transposeWallSide(d.wall), cx: d.cy, cy: d.cx };
 }
-function transposeDoubleLoadedResult(v: Layout, input: GenerationInput): Layout {
+// N'utilise que ces 3 champs (jamais le reste de GenerationInput) — signature
+// volontairement réduite à `Pick<...>` pour que regenerateUnlocked (qui n'a
+// qu'un Layout, pas un GenerationInput complet) puisse le réutiliser tel
+// quel pour la régénération gauche/droite, sans construction ni cast d'un
+// GenerationInput fictif.
+function transposeDoubleLoadedResult(v: Layout, input: Pick<GenerationInput, "terrainWidth" | "terrainDepth" | "accessSide">): Layout {
   const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
   if (!v.feasible || !v.emprise || !v.footprint) return { ...v, accessSide: input.accessSide, terrain };
   const emprise = transposeRect(v.emprise);
@@ -3367,6 +3372,63 @@ function pruneUnneededCirculation(layout: Layout): Layout {
   return current;
 }
 
+// Même clé que `roomsKey` à l'intérieur de regenerateUnlockedCore (jamais
+// réimplémentée différemment) — sert ici à fusionner deux appels distincts
+// de cette même fonction (natif + transposé, voir regenerateUnlocked)
+// sans jamais compter deux fois la même disposition physique.
+function roomsKeyOf(l: Layout): string {
+  return l.rooms.map((r) => `${r.x.toFixed(2)}|${r.y.toFixed(2)}|${r.w.toFixed(2)}|${r.d.toFixed(2)}`).join(";");
+}
+
+// Point d'entrée public — étend regenerateUnlockedCore à l'accès
+// gauche/droite SANS rien retirer de son comportement natif existant
+// (jamais de régression sur ce qu'il trouvait déjà) : appelle d'abord
+// regenerateUnlockedCore nativement (recherche générale, déjà capable de
+// gauche/droite), PUIS, en plus, transpose le même Layout dans le repère
+// virtuel de la génération initiale (voir buildSharedCorridorLayout/
+// buildDoubleLoadedLayout, gauche → avant virtuel, droite → arrière
+// virtuel), rappelle regenerateUnlockedCore INCHANGÉE sur ce repère pour
+// que sa stratégie dédiée corridor partagé (gardée par entryWallForRegen,
+// jusqu'ici seulement avant/arrière) s'applique aussi, puis transpose
+// chaque résultat vers le repère physique réel. Les deux ensembles sont
+// fusionnés avec déduplication stricte par géométrie physique (roomsKeyOf)
+// — jamais la même disposition comptée deux fois entre les deux appels.
+// Mesuré : essayer de se passer de l'appel natif (tout faire via le seul
+// repère transposé) perdait des dispositions que la recherche générale
+// trouvait nativement pour « gauche »/« droite » (son exploration n'est
+// pas garantie symétrique sous une réflexion à 90°, voir son propre
+// commentaire "recherche BORNÉE et NON EXHAUSTIVE") — d'où la fusion
+// plutôt qu'un remplacement.
+export function regenerateUnlocked(layout: Layout): RegenerationResult {
+  const nativeResult = regenerateUnlockedCore(layout);
+  if (layout.accessSide !== "left" && layout.accessSide !== "right") {
+    return nativeResult;
+  }
+  const virtualAccessSide: AccessSide = layout.accessSide === "left" ? "front" : "back";
+  const toVirtual = { terrainWidth: layout.terrain.d, terrainDepth: layout.terrain.w, accessSide: virtualAccessSide };
+  const toPhysical = { terrainWidth: layout.terrain.w, terrainDepth: layout.terrain.d, accessSide: layout.accessSide };
+  const virtualLayout = transposeDoubleLoadedResult(layout, toVirtual);
+  const virtualResult = regenerateUnlockedCore(virtualLayout);
+
+  const seen = new Set(nativeResult.variants.map(roomsKeyOf));
+  const variants = [...nativeResult.variants];
+  const preferenceNotes = [...nativeResult.preferenceNotes];
+  for (let i = 0; i < virtualResult.variants.length; i++) {
+    const physical = transposeDoubleLoadedResult(virtualResult.variants[i], toPhysical);
+    const key = roomsKeyOf(physical);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    variants.push(physical);
+    preferenceNotes.push(virtualResult.preferenceNotes[i]);
+  }
+  return {
+    variants,
+    preferenceNotes,
+    failureReasons: [...nativeResult.failureReasons, ...virtualResult.failureReasons],
+    searchStats: [...nativeResult.searchStats, ...virtualResult.searchStats],
+  };
+}
+
 // Régénère les pièces NON verrouillées et NON mises de côté, en conservant
 // EXACTEMENT les pièces verrouillées (identité, position, dimensions,
 // portes, fenêtres — jamais touchées) et les dimensions INDIVIDUELLES
@@ -3398,7 +3460,16 @@ function pruneUnneededCirculation(layout: Layout): Layout {
 // général (aucune porte véhicule posée) : plutôt que produire un plan sans
 // accès garage, cette famille est explicitement écartée pour cette
 // régénération, avec le motif indiqué.
-export function regenerateUnlocked(layout: Layout): RegenerationResult {
+//
+// Accès gauche/droite : RÉUTILISE la même transposition globale que la
+// génération initiale (buildSharedCorridorLayout/buildDoubleLoadedLayout,
+// voir transposeDoubleLoadedResult) plutôt qu'un second chemin dédié —
+// voir le wrapper exporté `regenerateUnlocked` plus bas, qui transpose le
+// `Layout` reçu dans un repère virtuel avant (et après) d'appeler CETTE
+// fonction inchangée. La stratégie dédiée corridor partagé ci-dessous (gardée
+// par `entryWallForRegen`) s'applique donc EXACTEMENT de la même façon pour
+// gauche/droite que pour avant/arrière, sans duplication de sa géométrie.
+function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   const failureReasons: string[] = [];
   if (!layout.emprise || !layout.footprint) {
     return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."], searchStats: [] };

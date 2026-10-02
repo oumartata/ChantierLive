@@ -51,3 +51,6 @@ desktop.ini
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# exports générés (SVG/PNG/JSON du prototype plans) — artefacts, pas du code
+exports/

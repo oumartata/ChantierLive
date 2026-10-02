@@ -1454,6 +1454,93 @@ try {
       }
     }
 
+    // 22) CORRIDOR PARTAGÉ — RÉGÉNÉRATION ÉTENDUE À L'ACCÈS GAUCHE/DROITE
+    // (même lot que la correction du rétrécissement silencieux) — jusqu'ici
+    // seuls avant/arrière réutilisaient la stratégie dédiée en régénération ;
+    // gauche/droite retombaient sur la recherche générale. Corrigé en
+    // RÉUTILISANT la même transposition globale que la génération initiale
+    // (buildSharedCorridorLayout/buildDoubleLoadedLayout) plutôt qu'un
+    // second chemin dédié : `regenerateUnlocked` (exporté) transpose
+    // désormais le Layout reçu dans le même repère virtuel pour gauche/droite,
+    // appelle `regenerateUnlockedCore` (la fonction déjà existante,
+    // inchangée) sur ce repère, puis transpose chaque résultat vers le
+    // repère physique réel — zéro duplication de la géométrie Cas A/B.
+    {
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 3, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 2, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+      ];
+      const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: NEEDS };
+      const terrains = [
+        { label: "terrain carré, reculs symétriques", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
+        { label: "terrain NON carré, reculs ASYMÉTRIQUES", terrainWidth: 14, terrainDepth: 24, setbacks: { front: 4, back: 1, left: 2.5, right: 1 } },
+      ];
+
+      function checkRegenLR(label, lockedBase, base, lockedIdxs, accessSide) {
+        const regen = g.regenerateUnlocked(lockedBase);
+        const newOnes = regen.variants.filter((l, i) => !regen.preferenceNotes[i].startsWith("Disposition actuelle conservée"));
+        for (const layout of newOnes) {
+          const lockedOk = lockedIdxs.every((idx) => {
+            const r = layout.rooms[idx];
+            const b = base.rooms[idx];
+            return r && Math.abs(r.x - b.x) < 1e-6 && Math.abs(r.y - b.y) < 1e-6 && Math.abs(r.w - b.w) < 1e-6 && Math.abs(r.d - b.d) < 1e-6;
+          });
+          record(`${label} : pièce(s) verrouillée(s) strictement inchangée(s) (position/dimensions, repère physique)`, lockedOk);
+          const unlockedOk = layout.rooms.every((r, i) => {
+            if (lockedIdxs.includes(i) || r.parked) return true;
+            const b = base.rooms[i];
+            return b && Math.abs(r.w - b.w) < 1e-6 && Math.abs(r.d - b.d) < 1e-6;
+          });
+          record(`${label} : aucune pièce non verrouillée réduite sous sa dimension cible`, unlockedOk);
+          const errors = g.independentVerify(layout).filter((e) => e.severity === "error");
+          record(`${label} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+          const reach = g.computeReachableRooms(layout);
+          record(`${label} : toutes les pièces accessibles depuis l'entrée`, layout.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`${label} : entrée sur le mur attendu (${accessSide})`, layout.entryDoor?.wall === accessSide);
+          record(
+            `${label} : terrain/reculs physiques inchangés (jamais permutés par la transposition interne)`,
+            layout.terrain.w === base.terrain.w && layout.terrain.d === base.terrain.d &&
+              Math.abs(layout.emprise.w - base.emprise.w) < 1e-6 && Math.abs(layout.emprise.d - base.emprise.d) < 1e-6
+          );
+          const sumCat = layout.surfaces.batie + layout.surfaces.cheminementExterieur + layout.surfaces.nonAffectee + layout.surfaces.exterieure + layout.surfaces.cour;
+          record(
+            `${label} : bilan de surfaces cohérent (somme = emprise, sans double comptage)`,
+            Math.abs(sumCat - layout.surfaces.emprise) < 1e-6,
+            `somme=${sumCat.toFixed(4)} vs emprise=${layout.surfaces.emprise.toFixed(4)}`
+          );
+        }
+        // Échec explicite conservé (jamais forcé) : si la recherche ne
+        // trouve aucune nouvelle disposition pour cette combinaison précise,
+        // le repli "disposition actuelle" doit rester proposé et distinct —
+        // jamais une erreur, jamais un résultat invalide.
+        const baseline = regen.variants.find((l, i) => regen.preferenceNotes[i].startsWith("Disposition actuelle conservée"));
+        record(`${label} : repli "disposition actuelle" distinct des nouvelles propositions`, !!baseline && newOnes.every((l) => l !== baseline));
+      }
+
+      for (const accessSide of ["left", "right"]) {
+        for (const t of terrains) {
+          const input = { ...BASE, terrainWidth: t.terrainWidth, terrainDepth: t.terrainDepth, accessSide, setbacks: t.setbacks };
+          const res = g.generateVariants(input);
+          record(`Corridor partagé, régénération accès ${accessSide}, ${t.label} : au moins une disposition de départ générée`, res.variants.length > 0);
+          if (res.variants.length === 0) continue;
+          const base = res.variants[0];
+
+          const salonIdx = base.rooms.findIndex((r) => r.type === "salon");
+          if (salonIdx >= 0) {
+            const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (i === salonIdx ? { ...r, locked: true } : r)) };
+            checkRegenLR(`Corridor partagé, régénération accès ${accessSide}, ${t.label} (salon verrouillé, mur ${base.rooms[salonIdx].exteriorWall})`, lockedBase, base, [salonIdx], accessSide);
+          }
+          const chambreIdxs = base.rooms.map((r, i) => (r.type === "chambre" ? i : -1)).filter((i) => i >= 0);
+          if (chambreIdxs.length > 0) {
+            const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (chambreIdxs.includes(i) ? { ...r, locked: true } : r)) };
+            checkRegenLR(`Corridor partagé, régénération accès ${accessSide}, ${t.label} (chambres verrouillées, mur ${base.rooms[chambreIdxs[0]].exteriorWall})`, lockedBase, base, chambreIdxs, accessSide);
+          }
+        }
+      }
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

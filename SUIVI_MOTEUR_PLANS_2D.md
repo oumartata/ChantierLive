@@ -47,9 +47,9 @@ jamais reformulé pour conserver artificiellement 7/7.
 
 | # | Jalon | Statut | Critère de clôture | Preuve disponible |
 |---|---|---|---|---|
-| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 249 tests `scripts/test-plans-geometry.mjs` |
+| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 380 tests `scripts/test-plans-geometry.mjs` |
 | M2 | Vérification géométrique indépendante (chevauchement, accessibilité réelle, ouvertures réellement extérieures) | **Terminé** | `independentVerify`/`computeReachableRooms` recalculent depuis la géométrie brute, jamais depuis un champ enregistré | Sections dédiées de `test-plans-geometry.mjs` (ex. recalcul d'union indépendant des surfaces) |
-| M3 | Verrouillage + régénération partielle (préserve exactement position/dimensions/portes/fenêtres verrouillées) | **Terminé** | `regenerateUnlocked` ne modifie jamais une pièce verrouillée NI une pièce non verrouillée sous sa dimension cible (un placement qui l'exigerait est rejeté, jamais proposé réduit) ; propose ≥1 disposition nouvelle quand une existe géométriquement | Fixtures `plans-c8-resolu`/`plans-c2-resolu`/`plans-scenario*-post-regen`, scénario C9 salon verrouillé, accès arrière (sections 20/21, `scripts/test-plans-geometry.mjs`) |
+| M3 | Verrouillage + régénération partielle (préserve exactement position/dimensions/portes/fenêtres verrouillées) | **Terminé** | `regenerateUnlocked` ne modifie jamais une pièce verrouillée NI une pièce non verrouillée sous sa dimension cible (un placement qui l'exigerait est rejeté, jamais proposé réduit) ; propose ≥1 disposition nouvelle quand une existe géométriquement | Fixtures `plans-c8-resolu`/`plans-c2-resolu`/`plans-scenario*-post-regen`, scénario C9 salon verrouillé, accès avant/arrière/gauche/droite (sections 20/22, `scripts/test-plans-geometry.mjs`) — stratégie dédiée corridor partagé désormais réutilisée sur les 4 façades, voir journal |
 | M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte (dimensions, verrou, bilan de surfaces) | Fixtures `scripts/fixtures/plans-*.projet.json` ; section 21 (`serializeProject`→écriture→`validateProjectFile`, round-trip vérifié y compris le bilan de surfaces) ; vérifié en navigateur |
 | M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*` (SVG+PNG/JSON+fichiers de projet réels) envoyés et inspectés |
 | M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot — C8/C9 régénération CORRIGÉS ce lot (voir journal) |
@@ -58,6 +58,86 @@ jamais reformulé pour conserver artificiellement 7/7.
 ---
 
 ## 3. Journal des lots
+
+### Lot (en cours, après `33d0a11`) — régénération corridor partagé étendue à gauche/droite
+
+**Objectif** : la stratégie dédiée corridor partagé de `regenerateUnlocked`
+ne réutilisait sa géométrie (Cas A/B) que pour avant/arrière — gauche/droite
+retombaient sur la recherche générale, limite documentée explicitement
+dans les lots précédents.
+
+**Réutilisation des transformations existantes** : `regenerateUnlocked`
+devient un point d'entrée public qui (1) appelle d'abord
+`regenerateUnlockedCore` (l'implémentation inchangée, recherche générale
+comprise) NATIVEMENT sur le `Layout` reçu — jamais retiré, pour ne perdre
+aucune disposition déjà trouvée nativement pour gauche/droite ; (2) PUIS,
+transpose ce même `Layout` dans le repère virtuel de la génération
+initiale (`buildSharedCorridorLayout`/`buildDoubleLoadedLayout` : gauche →
+avant virtuel, droite → arrière virtuel), rappelle
+`regenerateUnlockedCore` INCHANGÉE sur ce repère pour que sa stratégie
+dédiée (gardée par `entryWallForRegen`, jusqu'ici seulement avant/arrière)
+s'applique aussi, puis transpose chaque résultat vers le repère physique
+réel ; (3) fusionne les deux ensembles de dispositions avec déduplication
+stricte par géométrie physique — jamais la même disposition comptée deux
+fois. `transposeDoubleLoadedResult` (déjà utilisé par la génération
+initiale) est réutilisé tel quel, sa signature réduite à
+`Pick<GenerationInput, "terrainWidth" | "terrainDepth" | "accessSide">`
+(les seuls champs qu'elle lisait) pour l'appeler depuis `regenerateUnlocked`
+sans construire ni caster un `GenerationInput` fictif.
+
+**Défaut trouvé et corrigé en cours de route** : une première version
+remplaçait ENTIÈREMENT l'appel natif par l'appel transposé (au lieu de
+fusionner les deux) — un test préexistant (`accessSide: "left"`,
+scénario "Régénération fiable") a alors cessé de trouver une variante
+qu'il trouvait auparavant (circulation 48,96 m²) : la recherche générale
+n'est PAS garantie symétrique sous une réflexion à 90° (son propre
+commentaire la décrit comme "bornée et non exhaustive"), transposer tout
+l'appel pouvait donc faire manquer, pour cette recherche précise, ce
+qu'elle trouvait nativement. Corrigé en FUSIONNANT les deux appels
+(natif + transposé) plutôt qu'en remplaçant l'un par l'autre — aucune
+disposition déjà trouvable avant ce lot n'est perdue, et les nouvelles
+dispositions corridor partagé s'y ajoutent.
+
+**Vérifié** : accès gauche et droite, terrain carré symétrique (15×20) et
+terrain non carré à reculs asymétriques (14×24), verrou côté entrée
+(salon) et verrou côté opposé (chambres) — dans chaque cas où une
+disposition corridor partagé existe : pièces verrouillées strictement
+inchangées, aucune pièce non verrouillée réduite sous sa cible, 0 erreur
+`independentVerify`, entrée sur le mur physique attendu, terrain/reculs
+jamais permutés par la transposition interne, bilan de surfaces cohérent
+(somme = emprise). Round-trip réel vérifié en navigateur (génération →
+verrouillage → régénération → choix → export du fichier de projet réel →
+réimport) pour accès gauche (salon verrouillé, 14×24 asymétrique :
+circulation 31,32 m², chambres 3,50×3,50 m et sanitaires 1,80×2,00 m
+inchangés après export/réimport) et accès droite (chambres verrouillées,
+même terrain : "corridor partagé... accès arrière, +chambre/sanitaire
+côté arrière", chambres 3,50×3,50 m, salon 22,5 m², sanitaires 3,6 m²
+chacun — toutes dimensions physiques exactes, seul l'ordre largeur×
+profondeur affiché change selon l'orientation du mur, jamais l'aire).
+
+**Repli inchangé distingué** : vérifié dans chaque cas que "Disposition
+actuelle (inchangée)" reste une entrée séparée, jamais confondue avec les
+nouvelles "Régénération N" (même mécanisme de déduplication par géométrie
+physique que pour avant/arrière).
+
+**Hors périmètre, toujours documenté, jamais forcé** : familles guidée
+(salon central/cour) et circulation en L restent chacune à 1/4 façade par
+refus explicite (non concernées par ce lot, qui ne touche que la
+régénération de la famille corridor partagé).
+
+**Tests** : 380/380 (`scripts/test-plans-geometry.mjs`, +131 : section 22
+dédiée gauche/droite). Typecheck et lint : 0 erreur. Batterie 11 cas
+rejouée sans modification de paramètres, tous les nombres inchangés
+(C1=26,52, C2=34,62, C3=36 var./24,54, C8 génération=29,74/
+régénération=[] (0, corrigé lot précédent), C9 génération=34,62/
+régénération=[27, 31,78, 35,68], C10=36 var./24,54, C11=18/26,52) —
+aucune régression avant/arrière ni sur la batterie fixe.
+
+**Infrastructure** : port 3000 toujours occupé par le serveur orphelin de
+`C:\ChantierLive` (processus non tué cette fois, conformément à la
+consigne) — vérification faite depuis un serveur lancé explicitement
+depuis E: sur le port 3002 (`npm run dev -- --port 3002`), bundle
+confirmé à jour (présence de `roomsKeyOf`/`regenerateUnlockedCore`).
 
 ### Lot `37fea69` et suivant (corridor partagé — quatre façades d'accès)
 
