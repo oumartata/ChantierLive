@@ -542,3 +542,23 @@ circulation en L restent chacune à 1/4 façade par conception (hors
 périmètre de ce lot) / commit `5c54b0a` / serveur confirmé depuis E: :
 http://127.0.0.1:3002 (port 3000 occupé par un processus orphelin de
 `C:\ChantierLive`, non arrêté cette fois).
+
+---
+
+**Bilan de ce lot** (familles guidée et en L sur 4 façades) :
+28/68 (41 %) / 6/7 jalons moteur terminés (M7 reste "Partiel", critère
+inchangé — voir la matrice famille × façade : 4/5 familles désormais à
+4/4 en génération) / 2 cycles effectués (sur 5 autorisés, arrêt anticipé —
+guidée réussie au premier cycle, en L au second après un défaut
+préexistant trouvé et corrigé en cours de route) / résultat utilisateur :
+salon central/cour et circulation en L génèrent désormais une disposition
+admissible sur les 4 façades (avant/arrière/gauche/droite), terrain/
+reculs physiques jamais permutés, cour protégée, bilan de surfaces
+cohérent, round-trip génération→export→réimport vérifié en navigateur
+(guidée, accès arrière) / limite restante : empaquetage libre échoue
+systématiquement pour l'accès avant (limite nouvellement et précisément
+identifiée, hors périmètre de ce lot) ; régénération dédiée non étendue à
+guidée/L (recherche générale uniquement, non testée spécifiquement) /
+commit `4684e95` / serveur confirmé depuis E: : http://127.0.0.1:3002
+(port 3000 toujours occupé par le même processus orphelin de
+`C:\ChantierLive`, non arrêté).
