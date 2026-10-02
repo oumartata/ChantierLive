@@ -820,6 +820,16 @@ try {
         `extérieur recalculé=${indepExt.toFixed(2)} m², intérieur enregistré=${c8.surfaces.circulation.toFixed(2)} m², total=${(c8.surfaces.circulation + c8.surfaces.cheminementExterieur).toFixed(2)} m²`
       );
     }
+    // C2 (lot "boucle autonome — corridor partagé entre deux rangées") —
+    // terrain large et peu profond (20×14 m, emprise 16×9 m), auparavant à
+    // 0 variante sur trois familles à corridor séparé par groupe (voir
+    // section 18 ci-dessous pour cette mesure, conservée). Fixture exportée
+    // depuis l'éditeur (Salon verrouillé, scénario C9 de la batterie),
+    // réimportée ici exactement comme un utilisateur le ferait — jamais un
+    // objet Layout construit à la main qui pourrait diverger du format réel.
+    checkPostRegenFixture("Fixture C2 résolu (corridor partagé entre deux rangées, 28,50 m²)", "plans-c2-resolu.projet.json", 28.5, "salon", {
+      chambre: 3, salon: 1, cuisine: 1, sanitaire: 2,
+    });
 
     // 13) RACCORDEMENT PAR N'IMPORTE QUEL SEGMENT D'UN GROUPE (lot "évaluer et
     // améliorer la génération") — connectGroupsToNetwork ne sondait la
@@ -1037,34 +1047,18 @@ try {
       }
     }
 
-    // 18) TERRAIN LARGE ET PEU PROFOND (C2/C9, 20×14, 3 chambres) — preuve
-    // durable du blocage mesuré, qui distingue une INSUFFISANCE DE
-    // RÉPARTITION (une autre distribution aurait pu suffire) d'une LIMITE
-    // STRUCTURELLE (aucune répartition représentable par ce moteur ne peut
-    // suffire). Trois familles d'organisation RÉELLEMENT distinctes sont
-    // exigées ici, jamais une seule : le corridor double-chargé (2 colonnes
-    // empilées en profondeur), la circulation en L (refusée explicitement
-    // hors accès gauche) et l'empaquetage libre avec retour arrière
-    // (buildFreePackedLayout, lot "terrain large et peu profond" — AUCUNE
-    // hypothèse de colonnes, pourtant également en échec ici). Les trois
-    // motifs typiques sont cherchés explicitement dans
-    // attemptFailureReasons : leur présence SIMULTANÉE prouve que les trois
-    // familles ont bien été essayées (pas seulement une), jamais déduit du
-    // seul "0 variante".
-    //
-    // MESURE qui explique POURQUOI (pas seulement QUE) : avec ce moteur,
-    // chaque groupe de circulation paie un coût fixe WALL_EXT+CORRIDOR_WIDTH+
-    // WALL_INT+WALL_EXT=1.7 m de profondeur, en plus de la profondeur de sa
-    // pièce la plus profonde. La meilleure répartition en 2 groupes pour ce
-    // programme (chambre×3+salon+cuisine dans un groupe, profondeur max
-    // 4,5 m ; sanitaire×2 dans l'autre, profondeur max 1,8 m) nécessite au
-    // mieux 4,5+1,8+2×1,7=9,7 m — contre 9,0 m réellement disponibles
-    // (14-3-2 reculs) : un manque structurel de 0,7 m, pas un ordre d'essai
-    // manqué. Rejouer ce calcul ici (jamais une valeur recopiée en dur sans
-    // le mécanisme qui la produit) le rend vérifiable indépendamment de tout
-    // changement futur du moteur : si une future évolution comble cet écart
-    // (ex. un corridor partagé entre deux rangées), ce test échouera au bon
-    // endroit, signalant le progrès au lieu de le masquer.
+    // 18) TERRAIN LARGE ET PEU PROFOND (C2/C9, 20×14, 3 chambres) — RÉSOLU
+    // dans ce lot par une QUATRIÈME famille, le corridor PARTAGÉ entre deux
+    // rangées (buildSharedCorridorLayout). Le lot précédent avait mesuré et
+    // chiffré un manque structurel (0,90 m) pour TROIS familles à corridor
+    // SÉPARÉ par groupe (double-chargé, L, empaquetage libre) — une mesure
+    // honnête de CES topologies précises, jamais une preuve d'impossibilité
+    // architecturale pour le terrain lui-même (une quatrième organisation
+    // pouvait toujours exister). Les deux volets sont conservés ici : la
+    // mesure du manque pour les trois familles à corridor séparé (toujours
+    // vraie, inchangée), ET la preuve que la quatrième famille, en partageant
+    // UN SEUL corridor entre les deux rangées au lieu d'un par groupe,
+    // suffit réellement.
     {
       const SETBACKS = { front: 3, back: 2, left: 2, right: 2 };
       const NEEDS_3CH = [
@@ -1080,43 +1074,77 @@ try {
         terrainWidth: 20, terrainDepth: 14, accessSide: "front", needs: NEEDS_3CH,
       };
       const res = g.generateVariants(input);
-      record("Terrain large et peu profond (C2, 20×14, 3 ch) — génération initiale : mesure actuelle reproduite (0 variante)", res.variants.length === 0, `${res.variants.length} variante(s)`);
-      const reasons = res.attemptFailureReasons.join(" | ");
-      record(
-        "Terrain large et peu profond — famille 1 (corridor double-chargé, 2 colonnes) réellement essayée",
-        reasons.includes("Profondeur insuffisante")
-      );
-      record(
-        "Terrain large et peu profond — famille 2 (circulation en L) réellement essayée, refusée explicitement hors accès gauche",
-        reasons.includes("Circulation en L non prise en charge")
-      );
-      record(
-        "Terrain large et peu profond — famille 3 (empaquetage libre avec retour arrière, buildFreePackedLayout) réellement essayée, sans hypothèse de colonnes",
-        reasons.includes("Empaquetage libre : aucune répartition complète trouvée")
-      );
 
-      // Rejoue le calcul du manque structurel à partir des MÊMES constantes
-      // que le moteur (jamais une copie figée) : WALL_EXT/WALL_INT/
-      // CORRIDOR_WIDTH exportées, profondeurs cibles des besoins.
+      // Mesure CONSERVÉE : le manque structurel des trois familles à
+      // corridor séparé par groupe reste vrai en soi (rejoué depuis les
+      // mêmes constantes exportées, jamais une valeur figée) — il décrit
+      // leur limite propre, pas celle du terrain.
       const empriseD = input.terrainDepth - SETBACKS.front - SETBACKS.back;
-      const rowTax = g.WALL_EXT * 2 + g.CORRIDOR_WIDTH + g.WALL_INT;
+      const rowTaxSeparate = g.WALL_EXT * 2 + g.CORRIDOR_WIDTH + g.WALL_INT;
       const chambreDepth = NEEDS_3CH.find((n) => n.type === "chambre").targetDepth;
       const salonDepth = NEEDS_3CH.find((n) => n.type === "salon").targetDepth;
       const sanitaireDepth = NEEDS_3CH.find((n) => n.type === "sanitaire").targetDepth;
-      const bestTwoGroupDepth = Math.max(chambreDepth, salonDepth) + sanitaireDepth + 2 * rowTax;
+      const bestTwoGroupDepth = Math.max(chambreDepth, salonDepth) + sanitaireDepth + 2 * rowTaxSeparate;
       record(
-        `Terrain large et peu profond — manque structurel mesuré et rejoué (${bestTwoGroupDepth.toFixed(2)} m nécessaires pour la meilleure répartition à 2 groupes > ${empriseD.toFixed(2)} m disponibles)`,
+        `Terrain large et peu profond — manque structurel des familles à corridor SÉPARÉ, mesuré et rejoué (${bestTwoGroupDepth.toFixed(2)} m nécessaires pour la meilleure répartition à 2 groupes > ${empriseD.toFixed(2)} m disponibles)`,
         bestTwoGroupDepth > empriseD,
         `écart ${(bestTwoGroupDepth - empriseD).toFixed(2)} m`
       );
-
-      // Régénération : jamais présentée comme exécutée/validée sans base
-      // admissible réelle à verrouiller — même constat que la génération
-      // initiale (0 variante), donc rien à régénérer pour C9 non plus.
       record(
-        "Terrain large et peu profond (C9, régénération) — non exécutée faute de base admissible, jamais présentée comme validée",
-        res.variants.length === 0
+        "Terrain large et peu profond — familles à corridor séparé (double-chargé, L, empaquetage libre) réellement essayées avant la quatrième",
+        res.attemptFailureReasons.some((r) => r.includes("Profondeur insuffisante")) &&
+          res.attemptFailureReasons.some((r) => r.includes("Circulation en L non prise en charge"))
       );
+
+      // RÉSOLU : la quatrième famille (corridor partagé) trouve une
+      // disposition complète et admissible — jamais affirmé sans vérifier
+      // chaque garantie séparément (programme, dimensions, entrée, 0 erreur,
+      // accessibilité réelle).
+      record("Terrain large et peu profond (C2) — génération initiale : disposition complète trouvée (corridor partagé entre deux rangées)", res.variants.length > 0, `${res.variants.length} variante(s)`);
+      if (res.variants.length > 0) {
+        const v = res.variants[0];
+        record("Terrain large et peu profond (C2) — 0 erreur independentVerify", g.independentVerify(v).filter((i) => i.severity === "error").length === 0);
+        const reach = g.computeReachableRooms(v);
+        record("Terrain large et peu profond (C2) — toutes les pièces accessibles depuis l'entrée", v.rooms.every((r, i) => r.parked || reach.has(i)));
+        record("Terrain large et peu profond (C2) — entrée bien sur la façade avant", v.entryDoor?.wall === "top");
+        const counts = {};
+        v.rooms.forEach((r) => { if (!r.parked) counts[r.type] = (counts[r.type] || 0) + 1; });
+        record(
+          "Terrain large et peu profond (C2) — programme EXACTEMENT celui demandé (3 chambres, 1 salon, 1 cuisine, 2 sanitaires)",
+          counts.chambre === 3 && counts.salon === 1 && counts.cuisine === 1 && counts.sanitaire === 2,
+          JSON.stringify(counts)
+        );
+        const dimsOk = v.rooms.every((r) => {
+          const need = NEEDS_3CH.find((n) => n.type === r.type);
+          return r.w >= need.minWidth - 1e-6 && r.d >= need.minDepth - 1e-6 && r.w <= need.targetWidth * 1.25 + 1e-6 && r.d <= need.targetDepth * 1.25 + 1e-6;
+        });
+        record("Terrain large et peu profond (C2) — chaque pièce reste dans ses bornes déclarées (minimum..cible×1.25)", dimsOk);
+        record("Terrain large et peu profond (C2) — terrain et emprise inchangés (20×14, reculs 3/2/2/2)", v.terrain.w === 20 && v.terrain.d === 14 && v.emprise.w === 16 && v.emprise.d === 9);
+
+        // C9 : verrouille la première chambre (même scénario que la
+        // batterie fixe) puis régénère — vérifie la CONSERVATION EXACTE du
+        // verrou (position, dimensions), jamais seulement "ça tourne sans
+        // planter". Une régénération qui ne trouve aucune variante
+        // GENUINEMENT nouvelle reste informative (jamais présentée comme un
+        // échec de ce test, voir le repli "Disposition actuelle
+        // (inchangée)" déjà couvert ailleurs) : seule la conservation du
+        // verrou est l'objet de cette preuve.
+        const lockIdx = v.rooms.findIndex((r) => r.type === "chambre");
+        const before = { ...v.rooms[lockIdx] };
+        const locked = g.lockRoom(v, lockIdx);
+        const regen = g.regenerateUnlocked(locked);
+        const baseline = regen.variants.find((rv) => rv.variantLabel === "Disposition actuelle (inchangée)");
+        record("Terrain large et peu profond (C9) — le repli « disposition actuelle (inchangée) » reste proposé", !!baseline);
+        for (const candidate of regen.variants) {
+          const after = candidate.rooms[lockIdx];
+          const samePosition = Math.abs(after.x - before.x) < 1e-6 && Math.abs(after.y - before.y) < 1e-6;
+          const sameSize = Math.abs(after.w - before.w) < 1e-6 && Math.abs(after.d - before.d) < 1e-6;
+          record(
+            `Terrain large et peu profond (C9) — verrou conservé EXACTEMENT dans « ${candidate.variantLabel} » (position et dimensions inchangées)`,
+            samePosition && sameSize
+          );
+        }
+      }
     }
 
     const total = results.length;

@@ -1117,6 +1117,306 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
   };
 }
 
+// Famille D'ORGANISATION RÉELLEMENT DISTINCTE : un SEUL corridor horizontal
+// PARTAGÉ entre deux rangées (avant/arrière), au lieu d'un corridor dédié
+// par groupe — réponse directe au blocage mesuré sur C2 (20×14 m) : la
+// mesure précédente (buildFreePackedLayout / buildLShapedLayout) montrait
+// qu'aucune répartition en groupes à corridor SÉPARÉ ne tient (chaque
+// groupe paie WALL_EXT+CORRIDOR_WIDTH+WALL_INT+WALL_EXT=1,7 m de profondeur
+// EN PLUS de sa pièce la plus profonde). Ici, UN SEUL corridor sert les DEUX
+// rangées à la fois (comme le corridor central de buildDoubleLoadedLayout
+// sert déjà ses deux COLONNES, jamais dupliqué) : le coût de structure total
+// tombe à WALL_EXT*2+WALL_INT*2+CORRIDOR_WIDTH=1,8 m pour DEUX rangées (pas
+// deux fois 1,7 m) — une géométrie réellement praticable (le corridor touche
+// physiquement les deux rangées, chacune y a une porte réelle), pas une
+// constante réduite arbitrairement.
+//
+// Profondeur de chaque rangée : la CIBLE de chaque pièce est respectée en
+// priorité (comme partout ailleurs). Seulement si la somme des profondeurs
+// cibles des deux rangées dépasse la profondeur disponible, l'excédent est
+// retiré de la rangée qui a le plus de marge (écart cible-minimum), jamais
+// en dessous du MINIMUM déclaré d'aucune pièce — un repli vers un minimum
+// explicitement autorisé par l'utilisateur pour cette pièce, jamais un
+// assouplissement d'un contrôle. Si même au minimum absolu les deux rangées
+// ne tiennent pas, ce builder échoue explicitement (motif chiffré), jamais
+// un résultat incomplet présenté comme admissible.
+//
+// Raccordement à l'entrée : la rangée AVANT touche la façade d'accès, donc
+// AUCUNE pièce ne peut occuper toute sa largeur sans bloquer physiquement
+// l'entrée du corridor partagé qu'elle dessert. Un "foyer" (segment vertical
+// large de CORRIDOR_WIDTH, même largeur que n'importe quel corridor de ce
+// moteur) est réservé sur un côté de la rangée avant, de la façade d'accès
+// jusqu'au corridor partagé — jamais une largeur de couloir inventée.
+// L'entrée pierce directement ce foyer, qui rejoint le corridor partagé en
+// T. Cette largeur est réservée QUELLE QUE SOIT la rangée (toujours assez
+// de largeur disponible ou échec explicite), jamais une règle liée à 20×14.
+function buildSharedCorridorLayoutStraight(input: GenerationInput, frontNeeds: RoomNeed[], backNeeds: RoomNeed[], label: string): Layout {
+  const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
+  const fail = (reasons: string[]): Layout => ({
+    variantLabel: label,
+    feasible: false,
+    failureReasons: reasons,
+    rejected: false,
+    rejectionReasons: [],
+    accessSide: input.accessSide,
+    terrain,
+    emprise: null,
+    footprint: null,
+    corridor: null,
+    corridorFillers: [],
+    circulations: [],
+    exteriorPaths: [],
+    courtyard: null,
+    streetDoor: null,
+    entryDoor: null,
+    rooms: [],
+    doors: [],
+    windows: [],
+    exteriorSpaces: [],
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+  });
+
+  if (frontNeeds.length === 0 || backNeeds.length === 0) {
+    return fail(["Corridor partagé entre deux rangées : nécessite au moins une pièce dans chacune des deux rangées."]);
+  }
+  const empriseW = input.terrainWidth - input.setbacks.left - input.setbacks.right;
+  const empriseD = input.terrainDepth - input.setbacks.front - input.setbacks.back;
+  if (empriseW <= 0 || empriseD <= 0) {
+    return fail(["Les reculs ne laissent aucune emprise constructible (largeur ou profondeur disponible ≤ 0)."]);
+  }
+  const emprise: Rect = { x: input.setbacks.left, y: input.setbacks.front, w: empriseW, d: empriseD };
+
+  const idealDepth = (needs: RoomNeed[]) => Math.max(...needs.map((n) => sizeFor(n.targetDepth, n.minDepth)));
+  const floorDepth = (needs: RoomNeed[]) => Math.max(...needs.map((n) => n.minDepth));
+  const rowTax = WALL_EXT * 2 + WALL_INT * 2 + CORRIDOR_WIDTH;
+  const availableRows = empriseD - rowTax;
+  const floorFront = floorDepth(frontNeeds);
+  const floorBack = floorDepth(backNeeds);
+  if (availableRows <= 0 || floorFront + floorBack > availableRows + 1e-6) {
+    return fail([
+      `Corridor partagé entre deux rangées : ${(floorFront + floorBack).toFixed(2)} m nécessaires (planchers minimaux des deux rangées) + ${rowTax.toFixed(2)} m de structure (murs, corridor partagé) > ${empriseD.toFixed(2)} m disponibles.`,
+    ]);
+  }
+  let depthFront = idealDepth(frontNeeds);
+  let depthBack = idealDepth(backNeeds);
+  let excess = depthFront + depthBack - availableRows;
+  if (excess > 1e-9) {
+    // Réduit d'abord la rangée qui a le plus de marge (cible−minimum) : la
+    // moins pénalisée en proportion de s'écarter de sa dimension cible.
+    const slackFront = depthFront - floorFront;
+    const slackBack = depthBack - floorBack;
+    const order: Array<"front" | "back"> = slackFront >= slackBack ? ["front", "back"] : ["back", "front"];
+    for (const which of order) {
+      if (excess <= 1e-9) break;
+      if (which === "front") {
+        const take = Math.min(depthFront - floorFront, excess);
+        depthFront -= take;
+        excess -= take;
+      } else {
+        const take = Math.min(depthBack - floorBack, excess);
+        depthBack -= take;
+        excess -= take;
+      }
+    }
+  }
+
+  // Foyer : réservé sur le côté GAUCHE de la rangée avant, de la façade
+  // d'accès jusqu'au corridor partagé — largeur réelle de corridor, jamais
+  // une ligne. La rangée avant commence juste après, jamais superposée.
+  const foyerX = emprise.x + WALL_EXT;
+  const rowStartX = foyerX + CORRIDOR_WIDTH + WALL_INT;
+  const usableRowWidth = empriseW - 2 * WALL_EXT;
+  const usableFrontWidth = usableRowWidth - (CORRIDOR_WIDTH + WALL_INT);
+  if (usableFrontWidth <= 0) {
+    return fail(["Corridor partagé entre deux rangées : l'emprise est trop étroite pour réserver le foyer d'entrée à côté de la rangée avant."]);
+  }
+
+  // Largeur de chaque pièce d'une rangée : la CIBLE est respectée en
+  // priorité (comme sizeFor partout ailleurs) ; seulement si la somme des
+  // largeurs cibles de la rangée dépasse la largeur disponible, l'excédent
+  // est retiré PROPORTIONNELLEMENT à la marge (cible−minimum) de chaque
+  // pièce de cette rangée — jamais en dessous du minimum déclaré d'aucune.
+  // Même principe que la répartition des profondeurs ci-dessus, appliqué à
+  // une somme (largeur) plutôt qu'à un maximum (profondeur).
+  function fitRowWidths(needs: RoomNeed[], available: number): number[] | null {
+    const ideal = needs.map((n) => sizeFor(n.targetWidth, n.minWidth));
+    const floor = needs.map((n) => n.minWidth);
+    const gaps = WALL_INT * Math.max(0, needs.length - 1);
+    const idealSum = ideal.reduce((s, w) => s + w, 0) + gaps;
+    if (idealSum <= available + 1e-6) return ideal;
+    const floorSum = floor.reduce((s, w) => s + w, 0) + gaps;
+    if (floorSum > available + 1e-6) return null;
+    const totalSlack = ideal.reduce((s, w, i) => s + (w - floor[i]), 0);
+    if (totalSlack <= 1e-9) return null;
+    const reduction = idealSum - available;
+    return ideal.map((w, i) => w - ((w - floor[i]) / totalSlack) * reduction);
+  }
+
+  interface RowRoom { need: RoomNeed; width: number; depth: number }
+  function layoutRow(needs: RoomNeed[], rowDepth: number, widths: number[]): { rooms: RowRoom[]; totalWidth: number } {
+    const rooms = needs.map((need, i) => ({
+      need,
+      width: widths[i],
+      depth: Math.min(sizeFor(need.targetDepth, need.minDepth), rowDepth),
+    }));
+    const totalWidth = rooms.reduce((s, r) => s + r.width, 0) + WALL_INT * Math.max(0, rooms.length - 1);
+    return { rooms, totalWidth };
+  }
+  const frontWidths = fitRowWidths(frontNeeds, usableFrontWidth);
+  if (!frontWidths) {
+    const minNeeded = frontNeeds.reduce((s, n) => s + n.minWidth, 0) + WALL_INT * Math.max(0, frontNeeds.length - 1);
+    return fail([
+      `Corridor partagé entre deux rangées : largeur insuffisante pour la rangée avant à côté du foyer d'entrée, même aux minimums déclarés (${minNeeded.toFixed(2)} m nécessaires > ${usableFrontWidth.toFixed(2)} m disponibles).`,
+    ]);
+  }
+  const backWidths = fitRowWidths(backNeeds, usableRowWidth);
+  if (!backWidths) {
+    const minNeeded = backNeeds.reduce((s, n) => s + n.minWidth, 0) + WALL_INT * Math.max(0, backNeeds.length - 1);
+    return fail([
+      `Corridor partagé entre deux rangées : largeur insuffisante pour la rangée arrière, même aux minimums déclarés (${minNeeded.toFixed(2)} m nécessaires > ${usableRowWidth.toFixed(2)} m disponibles).`,
+    ]);
+  }
+  const frontRow = layoutRow(frontNeeds, depthFront, frontWidths);
+  const backRow = layoutRow(backNeeds, depthBack, backWidths);
+
+  const rooms: PlacedRoom[] = [];
+  const doors: Door[] = [];
+  const windows: Window[] = [];
+  const extraFillers: Rect[] = [];
+
+  const frontY = emprise.y + WALL_EXT;
+  let cursorX = rowStartX;
+  frontRow.rooms.forEach(({ need, width, depth }, i) => {
+    const x = cursorX;
+    const roomIndex = rooms.length;
+    rooms.push({ type: need.type, label: need.label, number: numberWithin(frontNeeds, i, need.type), x, y: frontY, w: width, d: depth, minW: need.minWidth, minD: need.minDepth, exteriorWall: "top", vehicleDoor: null });
+    doors.push({ roomIndex, wall: "bottom", cx: x + width / 2, cy: frontY + depth, width: Math.min(DOOR_WIDTH, width), to: { kind: "circulation" } });
+    windows.push({ roomIndex, wall: "top", cx: x + width / 2, cy: frontY, width: width * 0.5 });
+    // Le raccord doit couvrir le mur intérieur JUSQU'AU corridor réel
+    // (corridor.y = frontY+depthFront+WALL_INT), pas seulement jusqu'à la
+    // position où la pièce s'arrêterait si elle atteignait depthFront — sinon
+    // un écart de WALL_INT subsiste entre le raccord et le corridor, que
+    // rectsAdjacent (tolérance ~1 cm) ne referme pas : même défaut d'asymétrie
+    // que placeColumn (gap + WALL_INT), ici sur l'axe profondeur.
+    const depthGap = depthFront - depth;
+    if (depthGap > 1e-6) extraFillers.push({ x, y: frontY + depth, w: width, d: depthGap + WALL_INT });
+    cursorX += width + WALL_INT;
+  });
+
+  const corridor: Rect = { x: emprise.x + WALL_EXT, y: frontY + depthFront + WALL_INT, w: usableRowWidth, d: CORRIDOR_WIDTH };
+  const foyer: Rect = { x: foyerX, y: emprise.y + WALL_EXT, w: CORRIDOR_WIDTH, d: depthFront + WALL_INT };
+
+  const backY = corridor.y + CORRIDOR_WIDTH + WALL_INT;
+  cursorX = emprise.x + WALL_EXT;
+  backRow.rooms.forEach(({ need, width, depth }, i) => {
+    const x = cursorX;
+    // Alignée sur le bord EXTÉRIEUR réel (bas de la rangée, y=backY+depthBack)
+    // plutôt que sur le corridor (backY) : son mur "bottom" (fenêtre) doit
+    // toucher le contour bâti RÉEL quelle que soit sa propre profondeur —
+    // wallTouchesExterior vérifie le rectangle de la pièce elle-même, jamais
+    // une fenêtre posée à une coordonnée choisie séparément. Une pièce moins
+    // profonde que depthBack (ex. cuisine à côté du salon) laisse alors un
+    // écart côté CORRIDOR, comblé par un raccord (symétrique de la rangée
+    // avant, où l'écart était côté bas/porte) — jamais un étirement de la
+    // pièce au-delà de sa propre élongation maximale (sizeFor) pour combler
+    // cet écart autrement.
+    const y = backY + (depthBack - depth);
+    const roomIndex = rooms.length;
+    rooms.push({ type: need.type, label: need.label, number: numberWithin(backNeeds, i, need.type), x, y, w: width, d: depth, minW: need.minWidth, minD: need.minDepth, exteriorWall: "bottom", vehicleDoor: null });
+    doors.push({ roomIndex, wall: "top", cx: x + width / 2, cy: y, width: Math.min(DOOR_WIDTH, width), to: { kind: "circulation" } });
+    windows.push({ roomIndex, wall: "bottom", cx: x + width / 2, cy: y + depth, width: width * 0.5 });
+    // Même correction d'asymétrie que la rangée avant ci-dessus : le raccord
+    // doit couvrir le mur intérieur JUSQU'AU corridor réel (corridor.y+
+    // CORRIDOR_WIDTH = backY−WALL_INT), pas seulement jusqu'à backY — sinon
+    // un écart de WALL_INT subsiste entre le raccord et le corridor.
+    const depthGap = depthBack - depth; // = y - backY
+    if (depthGap > 1e-6) extraFillers.push({ x, y: backY - WALL_INT, w: width, d: depthGap + WALL_INT });
+    cursorX += width + WALL_INT;
+  });
+
+  const footprintW = Math.max(rowStartX + frontRow.totalWidth, emprise.x + WALL_EXT + backRow.totalWidth, corridor.x + corridor.w) - emprise.x + WALL_EXT;
+  const footprint: Rect = { x: emprise.x, y: emprise.y, w: footprintW, d: backY + depthBack - emprise.y + WALL_EXT };
+
+  // Entrée : pierce directement le foyer (mur avant, jamais le portail de
+  // parcelle) — contact géométrique réel, foyer.x==footprint.x+WALL_EXT.
+  const entryDoor: DoorGeometry = { wall: "top", cx: foyer.x + foyer.w / 2, cy: footprint.y, width: DOOR_WIDTH };
+
+  return {
+    variantLabel: label,
+    feasible: true,
+    failureReasons: [],
+    rejected: false,
+    rejectionReasons: [],
+    accessSide: input.accessSide,
+    terrain,
+    emprise,
+    footprint,
+    corridor,
+    corridorFillers: extraFillers,
+    circulations: [foyer],
+    exteriorPaths: [],
+    courtyard: null,
+    streetDoor: null,
+    entryDoor,
+    rooms,
+    doors,
+    windows,
+    exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
+    surfaces: computeSurfaces(terrain, emprise, footprint, corridor, extraFillers, [foyer], rooms, null, []),
+  };
+}
+
+// Point d'entrée public : un accès latéral redirige vers la construction
+// avant/arrière dans un repère virtuel puis transpose le résultat — EXACTE
+// même mécanique que buildDoubleLoadedLayout/transposeDoubleLoadedResult,
+// réutilisée ici telle quelle (transposeDoubleLoadedResult ne dépend
+// d'aucune géométrie propre au corridor double-chargé : rects, portes,
+// fenêtres et pièces génériques).
+function buildSharedCorridorLayout(input: GenerationInput, frontNeeds: RoomNeed[], backNeeds: RoomNeed[], label: string): Layout {
+  if (input.accessSide === "left" || input.accessSide === "right") {
+    const virtualInput: GenerationInput = {
+      ...input,
+      terrainWidth: input.terrainDepth,
+      terrainDepth: input.terrainWidth,
+      setbacks: { front: input.setbacks.left, back: input.setbacks.right, left: input.setbacks.front, right: input.setbacks.back },
+      accessSide: input.accessSide === "left" ? "front" : "back",
+    };
+    const virtual = buildSharedCorridorLayoutStraight(virtualInput, frontNeeds, backNeeds, label);
+    return transposeDoubleLoadedResult(virtual, input);
+  }
+  if (input.accessSide === "back") {
+    // Non pris en charge dans cette version (limite de portée explicite,
+    // même convention que buildLShapedLayout pour "autre que gauche") :
+    // un reflet vertical correct (mur avant/arrière, portes, foyer) n'a pas
+    // été vérifié dans ce lot — jamais livré sans preuve, plutôt refusé
+    // explicitement ici que silencieusement incorrect.
+    return {
+      variantLabel: label,
+      feasible: false,
+      failureReasons: ["Corridor partagé entre deux rangées non pris en charge dans cette version pour une façade d'accès arrière — combinaison non traitée, choix ignoré nulle part : réessayez avec « Avant » ou « Gauche »/« Droite »."],
+      rejected: false,
+      rejectionReasons: [],
+      accessSide: input.accessSide,
+      terrain: { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth },
+      emprise: null,
+      footprint: null,
+      corridor: null,
+      corridorFillers: [],
+      circulations: [],
+      exteriorPaths: [],
+      courtyard: null,
+      streetDoor: null,
+      entryDoor: null,
+      rooms: [],
+      doors: [],
+      windows: [],
+      exteriorSpaces: [],
+      surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+    };
+  }
+  return buildSharedCorridorLayoutStraight(input, frontNeeds, backNeeds, label);
+}
+
 // Famille D'ORGANISATION RÉELLEMENT DISTINCTE, pour un terrain dont les
 // PROPORTIONS ne conviennent à aucune des familles ci-dessus : ni le
 // corridor double-chargé (2 colonnes empilées en PROFONDEUR — inadapté dès
@@ -3995,6 +4295,32 @@ export function generateVariants(input: GenerationInput): GenerationResult {
           if (dL <= dR) { lNeeds.push(need); dL += d; } else { rNeeds.push(need); dR += d; }
         }
         consider(buildLShapedLayout(input, garageFirst(topNeeds), garageFirst(lNeeds), garageFirst(rNeeds), `Variante ${variantN}`));
+      }
+    }
+
+    // Famille D'ORGANISATION RÉELLEMENT DISTINCTE : corridor PARTAGÉ entre
+    // deux rangées (voir buildSharedCorridorLayout) — jamais tentée pour les
+    // dispositions guidées. Deux partages essayés : isoler la pièce la plus
+    // profonde dans sa propre rangée (minimise la somme des profondeurs max
+    // des deux rangées, le partage mathématiquement optimal pour ce coût de
+    // structure partagé), et le même partage sanitaire/cuisine-vs-reste déjà
+    // utilisé pour la circulation en L (diversité de repli). Garage exclu
+    // (même garde-fou que buildFreePackedLayout : aucune porte véhicule
+    // posée par ce builder).
+    if (!guided && !roomList.some((n) => REQUIRE_VEHICLE_ACCESS_TYPES.has(n.type))) {
+      const byDepthDescAll = [...roomList].sort((a, b) => sizeFor(b.targetDepth, b.minDepth) - sizeFor(a.targetDepth, a.minDepth));
+      if (byDepthDescAll.length >= 2) {
+        const tallest = [byDepthDescAll[0]];
+        const rest = byDepthDescAll.slice(1);
+        consider(buildSharedCorridorLayout(input, tallest, rest, `Variante ${variantN}`));
+        consider(buildSharedCorridorLayout(input, rest, tallest, `Variante ${variantN}`));
+      }
+      const sharedTopTypes = new Set(["sanitaire", "cuisine"]);
+      const sharedFrontNeeds = roomList.filter((n) => sharedTopTypes.has(n.type));
+      const sharedBackNeeds = roomList.filter((n) => !sharedTopTypes.has(n.type));
+      if (sharedFrontNeeds.length > 0 && sharedBackNeeds.length > 0) {
+        consider(buildSharedCorridorLayout(input, sharedFrontNeeds, sharedBackNeeds, `Variante ${variantN}`));
+        consider(buildSharedCorridorLayout(input, sharedBackNeeds, sharedFrontNeeds, `Variante ${variantN}`));
       }
     }
 

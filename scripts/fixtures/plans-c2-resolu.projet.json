@@ -1,0 +1,68 @@
+{
+  "version": 4,
+  "savedAt": "2026-10-02T03:13:13.583Z",
+  "orientation": "N",
+  "layout": {
+    "variantLabel": "Disposition actuelle (inchangée)",
+    "feasible": true,
+    "failureReasons": [],
+    "rejected": false,
+    "rejectionReasons": [],
+    "accessSide": "front",
+    "terrain": { "x": 0, "y": 0, "w": 20, "d": 14 },
+    "emprise": { "x": 2, "y": 3, "w": 16, "d": 9 },
+    "footprint": { "x": 2, "y": 3, "w": 16, "d": 9 },
+    "corridor": { "x": 2.2, "y": 7.3, "w": 15.6, "d": 1.2 },
+    "corridorFillers": [
+      { "x": 11.846153846153845, "y": 8.5, "w": 2.615384615384615, "d": 0.30000000000000016 },
+      { "x": 14.56153846153846, "y": 8.5, "w": 1.569230769230769, "d": 1.3000000000000003 },
+      { "x": 16.23076923076923, "y": 8.5, "w": 1.569230769230769, "d": 1.3000000000000003 }
+    ],
+    "circulations": [
+      { "x": 2.2, "y": 3.2, "w": 1.2, "d": 4.1 }
+    ],
+    "exteriorPaths": [],
+    "courtyard": null,
+    "streetDoor": null,
+    "entryDoor": { "wall": "top", "cx": 2.8000000000000003, "cy": 3, "width": 0.9 },
+    "rooms": [
+      { "type": "salon", "label": "Salon", "number": 1, "x": 3.5000000000000004, "y": 3.2, "w": 5, "d": 4, "minW": 4, "minD": 4, "exteriorWall": "top", "vehicleDoor": null, "locked": true },
+      { "type": "chambre", "label": "Chambre", "number": 1, "x": 2.2, "y": 8.6, "w": 3.115384615384615, "d": 3.2, "minW": 3, "minD": 3, "exteriorWall": "bottom", "vehicleDoor": null },
+      { "type": "chambre", "label": "Chambre", "number": 2, "x": 5.415384615384616, "y": 8.6, "w": 3.115384615384615, "d": 3.2, "minW": 3, "minD": 3, "exteriorWall": "bottom", "vehicleDoor": null },
+      { "type": "chambre", "label": "Chambre", "number": 3, "x": 8.63076923076923, "y": 8.6, "w": 3.115384615384615, "d": 3.2, "minW": 3, "minD": 3, "exteriorWall": "bottom", "vehicleDoor": null },
+      { "type": "cuisine", "label": "Cuisine", "number": 1, "x": 11.846153846153845, "y": 8.8, "w": 2.615384615384615, "d": 3, "minW": 2.5, "minD": 2.5, "exteriorWall": "bottom", "vehicleDoor": null },
+      { "type": "sanitaire", "label": "Sanitaire", "number": 1, "x": 14.56153846153846, "y": 9.8, "w": 1.569230769230769, "d": 2, "minW": 1.5, "minD": 1.8, "exteriorWall": "bottom", "vehicleDoor": null },
+      { "type": "sanitaire", "label": "Sanitaire", "number": 2, "x": 16.23076923076923, "y": 9.8, "w": 1.569230769230769, "d": 2, "minW": 1.5, "minD": 1.8, "exteriorWall": "bottom", "vehicleDoor": null }
+    ],
+    "doors": [
+      { "roomIndex": 0, "wall": "bottom", "cx": 6, "cy": 7.2, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 1, "wall": "top", "cx": 3.7576923076923077, "cy": 8.6, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 2, "wall": "top", "cx": 6.973076923076923, "cy": 8.6, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 3, "wall": "top", "cx": 10.188461538461539, "cy": 8.6, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 4, "wall": "top", "cx": 13.153846153846153, "cy": 8.8, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 5, "wall": "top", "cx": 15.346153846153843, "cy": 9.8, "width": 0.9, "to": { "kind": "circulation" } },
+      { "roomIndex": 6, "wall": "top", "cx": 17.015384615384615, "cy": 9.8, "width": 0.9, "to": { "kind": "circulation" } }
+    ],
+    "windows": [
+      { "roomIndex": 0, "wall": "top", "cx": 6, "cy": 3.2, "width": 2.5 },
+      { "roomIndex": 1, "wall": "bottom", "cx": 3.7576923076923077, "cy": 11.8, "width": 1.5576923076923075 },
+      { "roomIndex": 2, "wall": "bottom", "cx": 6.973076923076923, "cy": 11.8, "width": 1.5576923076923075 },
+      { "roomIndex": 3, "wall": "bottom", "cx": 10.188461538461539, "cy": 11.8, "width": 1.5576923076923075 },
+      { "roomIndex": 4, "wall": "bottom", "cx": 13.153846153846153, "cy": 11.8, "width": 1.3076923076923075 },
+      { "roomIndex": 5, "wall": "bottom", "cx": 15.346153846153843, "cy": 11.8, "width": 0.7846153846153845 },
+      { "roomIndex": 6, "wall": "bottom", "cx": 17.015384615384615, "cy": 11.8, "width": 0.7846153846153845 }
+    ],
+    "exteriorSpaces": [],
+    "surfaces": {
+      "terrain": 280,
+      "emprise": 144,
+      "cour": 0,
+      "batie": 92.5353846153846,
+      "utileHabitable": 64.03076923076924,
+      "exterieure": 0,
+      "circulation": 28.50461538461538,
+      "cheminementExterieur": 0,
+      "nonAffectee": 51.4646153846154
+    }
+  }
+}
