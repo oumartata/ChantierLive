@@ -29,38 +29,54 @@ non modifiée par ce document ni par aucun lot plans-generator à ce jour.
 ## 2. Moteur 2D — jalons de livraison
 
 Liste finie, établie depuis le périmètre déjà convenu au fil des lots
-(aucune fonctionnalité ajoutée ici). **6/7 jalons terminés.** Un jalon
+(aucune fonctionnalité ajoutée ici). **7/7 jalons terminés.** Un jalon
 partiel ne compte jamais comme terminé.
 
-**Correction de portée (M7, lot précédent)** : un lot antérieur avait marqué
-M7 "Terminé" sur la seule preuve de deux familles (double-chargé, corridor
-partagé) — remis à "Partiel" une fois la portée réelle de « CHAQUE
-famille » vérifiée.
+**Correction de portée (M7, lots précédents)** : un lot antérieur avait
+marqué M7 "Terminé" sur la seule preuve de deux familles (double-chargé,
+corridor partagé) — remis à "Partiel" une fois la portée réelle de
+« CHAQUE famille » vérifiée ; un lot suivant a étendu guidée et circulation
+en L aux 4 façades (4/5 familles à 4/4), laissant empaquetage libre bloqué
+sur l'accès avant comme seule limite restante, précisément identifiée et
+documentée (jamais masquée).
 
-**Ce lot** : étend la génération aux 4 façades pour LES DEUX familles
-encore limitées à une seule (guidée : avant seulement → 4/4 ; circulation
-en L : gauche seulement → 4/4, voir le journal pour le défaut corrigé au
-passage). **M7 reste "Partiel"** : en vérifiant par acquit de conscience
-la cinquième famille (empaquetage libre, jusqu'ici jamais testée par
-façade malgré son code générique), une LIMITE PRÉEXISTANTE jusqu'ici
-jamais mesurée a été découverte — voir la matrice ci-dessous et le
-journal. Le critère de M7 n'a pas été modifié pour compenser cette
-découverte.
+**Ce lot** : corrige cette dernière limite. Diagnostic confirmé avant toute
+modification (6 terrains signalés, reproduits avec leurs paramètres
+exacts) : `backtrackPackNeedsIntoFreeSpace` pose, pour TOUTE rangée et
+indépendamment de l'accès demandé, ses pièces près du bord de plus petit Y
+et son propre segment de circulation près du bord de plus grand Y — une
+convention interne qui correspond nativement à un accès "back". Pour
+"front", la rangée masque alors exactement l'emprise en x de sa propre
+circulation : aucune position d'entrée sur le mur haut ne peut la
+rejoindre en ligne droite (prouvé géométriquement, pas seulement supposé —
+une recherche élargie de positions candidates dans les espaces entre
+pièces a été explicitement testée et ne change rien, confirmant un biais
+structurel plutôt qu'une lacune de couverture). Corrigé en réutilisant le
+même principe miroir déjà appliqué ailleurs dans ce fichier
+(`buildSharedCorridorLayoutStraight`, `buildGuidedLayoutStraight`) :
+pour `accessSide === "front"` uniquement, la composition retenue par le
+remplissage natif est reflétée autour du centre vertical de l'emprise
+AVANT la recherche de porte d'accès — aucune règle spéciale aux 6 terrains,
+aucun changement de programme/dimensions/reculs, aucun contrôle relâché
+(`connectGroupsToNetwork` et la validation des fenêtres s'appliquent sans
+changement sur la géométrie reflétée). Voir le journal pour le détail du
+diagnostic et de la vérification.
 
-**Matrice famille × façade (génération)** — établie ce lot, remplace
-l'ancienne ligne M7 trop agrégée :
+**Matrice famille × façade (génération)** — mise à jour ce lot :
 
 | Famille | Avant | Arrière | Gauche | Droite | Limite restante |
 |---|---|---|---|---|---|
 | Double-chargé | ✅ | ✅ | ✅ | ✅ | Aucune (déjà 4/4, lots antérieurs) |
 | Corridor partagé | ✅ | ✅ | ✅ | ✅ | Aucune en génération (régénération dédiée aussi 4/4, voir M3) |
-| Guidée (salon central / cour) | ✅ | ✅ (ce lot) | ✅ (ce lot) | ✅ (ce lot) | Aucune en génération ; régénération non dédiée (recherche générale uniquement, non testée spécifiquement) |
-| Circulation en L | ✅ | ✅ (ce lot) | ✅ (ce lot, natif) | ✅ (ce lot) | Aucune en génération (défaut colonne droite/bord réel corrigé, voir journal) ; régénération non dédiée |
-| Empaquetage libre | ❌ **(découvert ce lot)** | ✅ | ✅ | ✅ | **Échoue systématiquement pour l'accès avant** sur 6 terrains testés (15×20 à 22×18) — motif constant : "aucune position d'entrée... ne rejoint tous les groupes posés". Cause probable : biais directionnel du remplissage par retour-arrière (`backtrackPackNeedsIntoFreeSpace`), jamais le calcul du mur d'accès lui-même (déjà générique, vérifié). **Hors périmètre de ce lot** (objectif = guidée + L uniquement) — à traiter séparément, jamais masqué. |
+| Guidée (salon central / cour) | ✅ | ✅ | ✅ | ✅ | Aucune en génération ; **régénération non dédiée reste une limite ouverte** (recherche générale uniquement, non testée spécifiquement — non traitée ce lot, hors périmètre explicite) |
+| Circulation en L | ✅ | ✅ | ✅ (natif) | ✅ | Aucune en génération (défaut colonne droite/bord réel corrigé, lot précédent) ; **régénération non dédiée reste une limite ouverte** (idem, non traitée ce lot) |
+| Empaquetage libre | ✅ **(corrigé ce lot)** | ✅ | ✅ | ✅ | Aucune en génération, sur les 6 terrains signalés (reflet en Y pour l'accès avant, voir journal). Gauche/droite non admissibles sur 2 des 6 terrains signalés (15×20, 16×18) — **préexistant, symétrique (gauche et droite échouent identiquement), jamais introduit par ce lot** : limite de couverture de la recherche par retour-arrière pour ce programme précis, pas un biais directionnel. |
 
-M7 ne peut donc pas être clôturé : 4 familles sur 5 sont à 4/4 en
-génération, la cinquième (empaquetage libre) a une limite désormais
-PRÉCISÉMENT identifiée (avant seulement, pas "façades non testées").
+**M7 est désormais clôturé selon son critère existant** : les 5 familles
+listées en M1 raccordent réellement leur entrée sur les 4 façades
+physiques, EN GÉNÉRATION — le seul périmètre couvert par ce jalon. La
+régénération dédiée (guidée, en L) reste une limite ouverte, distincte de
+M7, documentée ci-dessus et jamais présentée comme résolue.
 
 | # | Jalon | Statut | Critère de clôture | Preuve disponible |
 |---|---|---|---|---|
@@ -70,13 +86,157 @@ PRÉCISÉMENT identifiée (avant seulement, pas "façades non testées").
 | M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte (dimensions, verrou, bilan de surfaces) | Fixtures `scripts/fixtures/plans-*.projet.json` ; section 21 (`serializeProject`→écriture→`validateProjectFile`, round-trip vérifié y compris le bilan de surfaces) ; vérifié en navigateur pour avant/arrière/gauche/droite (guidée, corridor partagé) |
 | M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*`/`guidee_arriere_*`/`acces_gauche_*` (SVG+PNG/JSON+fichiers de projet réels) envoyés et inspectés |
 | M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot, tous les nombres inchangés |
-| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Partiel** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour TOUTES les familles listées en M1 | Voir la matrice famille × façade ci-dessus : 4/5 familles à 4/4, empaquetage libre bloqué sur l'accès avant (limite précisément identifiée ce lot, hors périmètre à corriger séparément) |
+| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Terminé** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour TOUTES les familles listées en M1 | Voir la matrice famille × façade ci-dessus : 5/5 familles à 4/4 en génération ; empaquetage libre accès avant corrigé ce lot (diagnostic + reflet en Y, 755 tests `scripts/test-plans-geometry.mjs` dont section 25 dédiée) |
+
+**Note de portée (ne modifie aucune règle de ce chantier, consignée pour
+validation explicite du fondateur)** : la règle constante "catalogue
+modifiable seulement après stabilisation du moteur 2D" (section 1
+ci-dessus) fait référence à CE jalon M7 comme dernier jalon de génération
+du moteur 2D. Les 7/7 jalons sont désormais terminés selon leurs critères
+respectifs — ce document ne décide PAS que le catalogue est débloqué,
+cette décision reste exclusivement celle du fondateur.
+
+### Clôture du prototype 2D — périmètre exact et limites
+
+Les 7 jalons moteur (M1 à M7) sont terminés selon leurs critères propres
+(section ci-dessus). Ceci clôture le **prototype géométrique 2D isolé**
+(`src/app/prototype-plans/`) tel que ce document le suit — PAS l'ensemble
+de ChantierLive, dont le compteur global (section 1) reste à 28/68 tâches,
+inchangé par ce document ou par aucun lot plans-generator à ce jour.
+
+**Ce qui est couvert, avec preuve** :
+- 5 familles de génération (double-chargé, corridor partagé, guidée
+  salon central/cour, circulation en L, empaquetage libre), chacune
+  raccordant réellement son entrée sur les 4 façades physiques
+  (avant/arrière/gauche/droite), vérifié par 755 tests
+  (`scripts/test-plans-geometry.mjs`) et une batterie fixe de 11 cas
+  catégorisés (`scripts/test-plans-battery.mjs`).
+- Vérification géométrique indépendante (chevauchements, accessibilité
+  réelle, ouvertures réellement extérieures, accès véhicule) recalculée
+  depuis la géométrie brute, jamais depuis un champ enregistré.
+- Verrouillage + régénération partielle fonctionnels pour TOUTES les
+  familles via la recherche générale ; stratégie dédiée (réutilise la
+  géométrie native) pour corridor partagé sur les 4 façades spécifiquement.
+- Export/réimport du fichier de projet (.json) fidèle, exports visuels
+  SVG/PNG lisibles, vérifiés en navigateur à plusieurs reprises depuis un
+  serveur confirmé lancé sur E:.
+
+**Limites explicitement hors de ce périmètre, non résolues par cette
+clôture** (jamais présentées comme résolues) :
+- **Régénération dédiée non étendue à guidée (salon central/cour) ni à
+  circulation en L** : ces deux familles utilisent la recherche générale
+  de `regenerateUnlocked`, jamais testée spécifiquement pour elles ;
+  seule la famille corridor partagé a une stratégie dédiée vérifiée sur
+  les 4 façades (M3).
+- **Empaquetage libre, accès gauche/droite** : 2 des 6 terrains signalés
+  pour l'accès avant (15×20, 16×18) restent sans disposition admissible
+  pour gauche ET droite identiquement — préexistant, symétrique, jamais
+  un biais directionnel comme celui corrigé ce lot pour l'avant ; limite
+  de couverture de la recherche par retour-arrière pour ce programme
+  précis, consignée ici, jamais masquée.
+- **3D, R+1, catalogue de matériaux/coûts** : différés, hors périmètre de
+  ce prototype par construction (règle constante de ce chantier).
+- Les préréglages de pièces (dimensions cibles/minimales) restent des
+  hypothèses de conception modifiables par l'utilisateur, jamais des
+  normes réglementaires certifiées (rappelé explicitement dans l'interface
+  elle-même).
 
 ---
 
 ## 3. Journal des lots
 
-### Lot (en cours, après `5c54b0a`) — familles guidée et en L sur 4 façades
+### Lot (en cours, après `5c325ae`) — empaquetage libre, accès avant (clôture M7)
+
+**Objectif** : diagnostiquer puis corriger la dernière limite de M7
+(empaquetage libre bloqué sur l'accès avant, découverte et documentée hors
+périmètre lors du lot précédent), pour clôturer M7 si ses critères sont
+atteints.
+
+**Étape 1 — reproduction et classification** : les 6 terrains signalés
+(15×20, 16×18, 18×22, 22×18, 20×20, 17×24) reproduits avec leurs paramètres
+exacts (chambre+salon+cuisine, reculs 2/2/2/2), résultats figés avant toute
+modification : 0/6 admissibles pour l'accès avant, 6/6 pour l'arrière, même
+programme. Classification précise du rejet : `backtrackPackNeedsIntoFreeSpace`
+trouve bien une répartition complète dans chaque cas (`outcome.complete.length
+> 0`) — le rejet n'est ni un placement incomplet, ni une entrée non
+raccordée en général, ni une ouverture invalide : c'est précisément
+"aucune position d'entrée sur la façade d'accès ne rejoint tous les
+groupes posés", systématiquement et uniquement pour le mur "top".
+
+**Étape 2 — comparaison avant/arrière et localisation de la divergence** :
+dump direct des groupes natifs (`corridor`+`placements` par groupe) pour le
+cas 15×20 montre que CHAQUE rangée pose ses pièces près du bord de plus
+petit Y et son propre segment de circulation près du bord de plus grand Y
+— une convention interne de `backtrackPackNeedsIntoFreeSpace`, jamais
+dépendante de l'accès demandé. Un chemin d'entrée depuis le mur "top" est
+alors à la fois bloqué par les pièces (s'il vise leur étendue en x,
+identique à celle de leur propre corridor) ET sans recouvrement d'axe
+transverse avec le corridor visé (s'il vise en dehors) — `buildExteriorPath`
+exige ce recouvrement pour toute cible. Hypothèse d'un biais directionnel
+confirmée par la géométrie elle-même, pas simplement supposée ; une
+correction plus simple ("essayer aussi les positions dans les espaces entre
+pièces") a été explicitement testée sur les chiffres exacts du cas 15×20 et
+montrée insuffisante (le corridor visé n'a toujours aucun recouvrement
+transverse), écartée avant d'implémenter le correctif retenu.
+
+**Étape 3 — correctif général** : réutilise le même principe miroir déjà
+appliqué ailleurs dans ce fichier (`buildSharedCorridorLayoutStraight`,
+`buildGuidedLayoutStraight`), mais dans le sens inverse (le remplissage
+natif correspond déjà à "back", pas à "front") : pour
+`input.accessSide === "front"` uniquement, `buildFreePackedLayout` reflète
+`placements`/`corridors`/`corridorFillers`/`groups` autour du centre
+vertical de l'emprise AVANT la recherche de porte d'accès — chaque rangée
+se retrouve avec sa circulation du côté proche du mur haut, directement
+atteignable. Validé par hypothèse testée séparément (reflet manuel des
+groupes dumpés, `connectGroupsToNetwork` passe alors à 0 `strandedNeeds`
+pour "top") avant toute modification du fichier source. Recherche native de
+`backtrackPackNeedsIntoFreeSpace` intégralement conservée (jamais touchée) ;
+aucune règle spéciale aux 6 terrains ; aucun changement de programme,
+dimensions ou reculs ; aucun contrôle relâché (`connectGroupsToNetwork` et
+la validation des fenêtres inchangés, appliqués tels quels sur la
+géométrie reflétée).
+
+**Étape 4 — mesure** : 6/6 terrains signalés admissibles pour l'accès avant
+après correctif (contre 0/6 avant), avec 0 erreur `independentVerify`
+chacun. Non-régression vérifiée : 6/6 toujours admissibles pour l'arrière ;
+gauche/droite inchangés (2 terrains sur 6 restent non admissibles pour les
+DEUX côtés identiquement — 15×20 et 16×18 — préexistant, symétrique, jamais
+une conséquence de ce correctif qui ne touche que la branche
+`accessSide === "front"`). Réussite dès le premier cycle (hypothèse
+confirmée par test direct avant modification du code source) — boucle
+arrêtée par anticipation, objectif atteint et vérifié.
+
+**Tests** : nouvelle section 25 dédiée dans `scripts/test-plans-geometry.mjs`
+(même programme que le diagnostic, 6 terrains × 4 façades) — admissibilité
+avant/arrière, 0 erreur `independentVerify`, accessibilité réelle depuis
+l'entrée, mur d'entrée attendu, terrain/reculs jamais permutés, bilan de
+surfaces cohérent (somme = emprise, sans double comptage), chaque pièce
+posée avec au moins une porte et une ouverture extérieure. **755/755 tests
+réussis** (602 précédents + 153 nouveaux). Typecheck : 0 erreur. Lint : 0
+erreur (2 avertissements préexistants, sans rapport avec ce lot). Batterie
+11 cas (`scripts/test-plans-battery.mjs`) rejouée, tous les nombres
+inchangés.
+
+**Vérifié en navigateur depuis E:** (serveur confirmé par CommandLine du
+processus, port 3002, jamais le port 3000 occupé par le processus orphelin
+de `C:\ChantierLive`, non arrêté) : génération réelle (terrain 15×20, accès
+avant, chambre+salon+cuisine) sans erreur, export réel du fichier de projet
+(.json) téléchargé puis réimporté dans l'éditeur — round-trip confirmé,
+mêmes pièces et mêmes surfaces après réimport. La disposition affichée par
+défaut dans ce parcours UI provient d'une autre famille (plusieurs familles
+sont admissibles pour ce programme simple) ; la preuve ciblée du correctif
+empaquetage libre/accès avant repose sur l'appel direct de
+`buildFreePackedLayout` (diagnostic + section 25), pas sur l'ordre
+d'affichage de l'interface.
+
+**Livraison** : fichier de projet réel (.json) et SVG correspondant pour le
+nouveau résultat empaquetage libre/accès avant (terrain 15×20) ; bons
+exemples déjà produits rejoints sans redéveloppement (guidée accès arrière :
+SVG régénéré depuis le fichier de projet déjà livré ; circulation en L
+accès avant : paire JSON+SVG produite depuis la fixture déjà validée par la
+section 24, terrain 21×24 asymétrique).
+
+### Lot (après `5c54b0a`) — familles guidée et en L sur 4 façades
 
 **Objectif** : compléter M7 selon son critère existant en étendant la
 génération des familles guidée (salon central/cour) et circulation en L
@@ -562,3 +722,29 @@ guidée/L (recherche générale uniquement, non testée spécifiquement) /
 commit `4684e95` / serveur confirmé depuis E: : http://127.0.0.1:3002
 (port 3000 toujours occupé par le même processus orphelin de
 `C:\ChantierLive`, non arrêté).
+
+---
+
+**Bilan de ce lot** (empaquetage libre, accès avant — clôture M7) :
+28/68 (41 %) / **7/7 jalons moteur terminés** (M7 clôturé selon son critère
+existant de génération — voir la matrice famille × façade : 5/5 familles
+désormais à 4/4 ; régénération dédiée guidée/L distinguée et laissée
+ouverte, jamais confondue avec M7) / 1 cycle effectué (sur 5 autorisés,
+arrêt anticipé — hypothèse du reflet en Y testée et confirmée séparément
+avant toute modification du fichier source, correctif validé dès le
+premier cycle) / résultat utilisateur : empaquetage libre génère désormais
+une disposition admissible pour l'accès avant sur les 6 terrains signalés
+(0/6 → 6/6), 0 erreur de vérification indépendante, non-régression
+confirmée pour l'arrière (6/6 inchangé) et pour gauche/droite (inchangés,
+y compris les 2 terrains sur 6 déjà non admissibles des deux côtés avant ce
+lot) ; round-trip génération→export→réimport vérifié en navigateur ;
+livraison du nouveau résultat (JSON + SVG) et des bons exemples
+guidée/L déjà produits, sans redéveloppement / limite restante :
+empaquetage libre gauche/droite non admissible sur 2 des 6 terrains
+signalés (15×20, 16×18 — préexistant, symétrique, hors de ce correctif) ;
+régénération dédiée guidée/L toujours non étendue (recherche générale
+uniquement) / clôture du prototype 2D prononcée avec son périmètre exact
+et ses limites (voir section 2 ci-dessus) — ChantierLive dans son ensemble
+n'est PAS terminé (28/68, inchangé) / commit `b718dd0` / serveur
+confirmé depuis E: : http://127.0.0.1:3002 (port 3000 toujours occupé par
+le même processus orphelin de `C:\ChantierLive`, non arrêté).
