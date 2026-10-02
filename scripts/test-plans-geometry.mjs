@@ -1707,6 +1707,83 @@ try {
       }
     }
 
+    // 25) FAMILLE EMPAQUETAGE LIBRE — ACCÈS AVANT (ce lot) — jusqu'ici cette
+    // famille échouait systématiquement (0/6 terrains signalés) pour l'accès
+    // avant, alors qu'elle réussissait pour arrière/gauche/droite avec le
+    // même programme. Diagnostic : backtrackPackNeedsIntoFreeSpace pose,
+    // structurellement et pour TOUTE rangée, ses pièces près du bord de plus
+    // petit Y et son propre segment de circulation près du bord de plus grand
+    // Y (convention interne, jamais dépendante de l'accès demandé) — ce qui
+    // correspond nativement à un accès "back". Pour "front", la rangée de
+    // pièces masque alors exactement l'emprise en x de sa propre circulation
+    // : aucune position de porte sur le mur haut ne peut la rejoindre en
+    // ligne droite (confirmé par diagnostic avant toute modification, une
+    // recherche élargie de positions candidates ne change rien). Corrigé en
+    // réutilisant le même principe miroir déjà appliqué ailleurs dans ce
+    // fichier (buildSharedCorridorLayoutStraight, buildGuidedLayoutStraight)
+    // : la composition retenue est reflétée autour du centre vertical de
+    // l'emprise avant la recherche de porte d'accès, pour "front" seulement —
+    // jamais une règle spéciale aux terrains signalés, jamais un relâchement
+    // de connectGroupsToNetwork ou de la validation des fenêtres.
+    {
+      const chambre = { type: "chambre", label: "Chambre", minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 };
+      const salon = { type: "salon", label: "Salon", minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 };
+      const cuisine = { type: "cuisine", label: "Cuisine", minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 };
+      const needs = [chambre, salon, cuisine];
+      const expectedWall = { front: "top", back: "bottom", left: "left", right: "right" };
+      const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: [] };
+      // Les six terrains exacts signalés en échec pour l'accès avant.
+      const terrains = [
+        { label: "15x20", terrainWidth: 15, terrainDepth: 20 },
+        { label: "16x18", terrainWidth: 16, terrainDepth: 18 },
+        { label: "18x22", terrainWidth: 18, terrainDepth: 22 },
+        { label: "22x18", terrainWidth: 22, terrainDepth: 18 },
+        { label: "20x20", terrainWidth: 20, terrainDepth: 20 },
+        { label: "17x24", terrainWidth: 17, terrainDepth: 24 },
+      ];
+      const setbacks = { front: 2, back: 2, left: 2, right: 2 };
+      let frontAdmissible = 0;
+      for (const t of terrains) {
+        for (const accessSide of ["front", "back", "left", "right"]) {
+          const input = { ...BASE, terrainWidth: t.terrainWidth, terrainDepth: t.terrainDepth, accessSide, setbacks };
+          const results2 = g.buildFreePackedLayout(input, needs, "test");
+          const v = results2.find((r) => r.feasible) ?? results2[0];
+          const label = `Empaquetage libre — ${t.label}, accès ${accessSide}`;
+          if (accessSide === "front" || accessSide === "back") {
+            // Seul l'accès avant est réparé par ce lot ; arrière doit rester
+            // tel quel (non-régression), jamais promis pour gauche/droite ici.
+            record(`${label} : disposition admissible trouvée`, !!v?.feasible, v?.feasible ? "" : (v?.failureReasons ?? []).join(" | "));
+          }
+          if (!v?.feasible) continue;
+          if (accessSide === "front") frontAdmissible++;
+          const errors = g.independentVerify(v).filter((i) => i.severity === "error");
+          record(`${label} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+          const reach = g.computeReachableRooms(v);
+          record(`${label} : toutes les pièces accessibles depuis l'entrée`, v.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`${label} : entrée sur le mur attendu (${expectedWall[accessSide]})`, v.entryDoor?.wall === expectedWall[accessSide]);
+          record(
+            `${label} : terrain/emprise physiques inchangés (reculs attachés aux côtés physiques, jamais permutés)`,
+            v.terrain.w === t.terrainWidth && v.terrain.d === t.terrainDepth &&
+              Math.abs(v.emprise.w - (t.terrainWidth - setbacks.left - setbacks.right)) < 1e-6 &&
+              Math.abs(v.emprise.d - (t.terrainDepth - setbacks.front - setbacks.back)) < 1e-6
+          );
+          const sumCat = v.surfaces.batie + v.surfaces.cheminementExterieur + v.surfaces.nonAffectee + v.surfaces.exterieure + v.surfaces.cour;
+          record(
+            `${label} : bilan de surfaces cohérent (somme = emprise, sans double comptage)`,
+            Math.abs(sumCat - v.surfaces.emprise) < 1e-6,
+            `somme=${sumCat.toFixed(4)} vs emprise=${v.surfaces.emprise.toFixed(4)}`
+          );
+          record(`${label} : chaque pièce posée a au moins une porte`, v.rooms.every((r, i) => g.doorsOf(v, i).length > 0));
+          record(`${label} : chaque pièce posée a au moins une ouverture extérieure`, v.rooms.every((r, i) => g.windowsOf(v, i).length > 0 || !!r.exteriorWall));
+        }
+      }
+      record(
+        "Empaquetage libre — accès avant : au moins un des six terrains signalés admissible (régression du biais directionnel résolue)",
+        frontAdmissible >= 1,
+        `${frontAdmissible}/6 admissibles`
+      );
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

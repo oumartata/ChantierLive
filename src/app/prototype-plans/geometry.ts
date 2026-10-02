@@ -1775,7 +1775,43 @@ export function buildFreePackedLayout(input: GenerationInput, needs: RoomNeed[],
   const fixedCoord =
     accessWall === "top" ? emprise.y : accessWall === "bottom" ? emprise.y + emprise.d : accessWall === "left" ? emprise.x : emprise.x + emprise.w;
 
-  return outcome.complete.map(({ placements, corridors, corridorFillers, groups }) => {
+  // Le remplissage par retour-arrière (backtrackPackNeedsIntoFreeSpace) pose
+  // structurellement, pour CHAQUE rangée, ses pièces près du bord de plus
+  // petit Y et son propre segment de circulation près du bord de plus grand Y
+  // — convention interne de packNeedsIntoFreeSpace, jamais dépendante de
+  // l'accès demandé — ce qui correspond nativement à un accès "back" (mur du
+  // bas). Pour un accès "front" (mur du haut), chaque rangée a alors sa
+  // circulation du côté opposé au mur d'accès : aucune position de porte ne
+  // peut la rejoindre en ligne droite (prouvé par diagnostic, pas seulement
+  // supposé — la rangée de pièces masque exactement l'emprise en x de sa
+  // propre circulation). Même principe miroir déjà réutilisé ailleurs dans ce
+  // fichier (buildSharedCorridorLayoutStraight, buildGuidedLayoutStraight) :
+  // on miroite la composition retenue autour du centre vertical de l'emprise
+  // AVANT de chercher une porte d'accès, plutôt que de chercher en vain
+  // d'autres positions sur un agencement resté orienté vers l'arrière.
+  const completeForAccess =
+    input.accessSide === "front"
+      ? outcome.complete.map(({ placements, corridors, corridorFillers, groups }) => {
+          const mirrorRect = (r: Rect): Rect => ({ x: r.x, y: emprise.y + emprise.d - (r.y - emprise.y) - r.d, w: r.w, d: r.d });
+          const mirrorWall = (w: WallSide): WallSide => (w === "top" ? "bottom" : w === "bottom" ? "top" : w);
+          const mirrorPlacement = (p: FreeSpacePlacement): FreeSpacePlacement => {
+            const t = mirrorRect(p);
+            return { ...p, x: t.x, y: t.y, exteriorWall: mirrorWall(p.exteriorWall), doorWall: mirrorWall(p.doorWall) };
+          };
+          return {
+            placements: placements.map(mirrorPlacement),
+            corridors: corridors.map(mirrorRect),
+            corridorFillers: corridorFillers.map(mirrorRect),
+            groups: groups.map((g) => ({
+              corridor: mirrorRect(g.corridor),
+              fillers: g.fillers.map(mirrorRect),
+              placements: g.placements.map(mirrorPlacement),
+            })),
+          };
+        })
+      : outcome.complete;
+
+  return completeForAccess.map(({ placements, corridors, corridorFillers, groups }) => {
     const candidateAlong = new Set<number>();
     for (const g of groups) candidateAlong.add(alongAxisIsY ? g.corridor.y + g.corridor.d / 2 : g.corridor.x + g.corridor.w / 2);
     candidateAlong.add(alongAxisIsY ? emprise.y + emprise.d / 2 : emprise.x + emprise.w / 2);
