@@ -25,6 +25,13 @@ import {
 } from "./geometry";
 import { escapeXml, renderSvg, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
+import type { DepositContext } from "./PrototypeClient";
+// Action serveur RÉELLE et INCHANGÉE du chantier (Lot 1,
+// PREPARATION_INTEGRATION_METIER.md) : aucun second mécanisme de dépôt.
+// Cette même fonction revérifie déjà le rôle CONTRACTOR/OWNER-PRIMARY côté
+// serveur pour le chantier ciblé (prepare_project_plan_upload, M020) —
+// `depositContext.canDeposit` ci-dessous ne sert qu'à l'affichage.
+import { depositProjectPlanAction } from "@/app/(app)/chantiers/[id]/plans/actions";
 
 const SCALE = 26; // px/m — cohérent avec render.ts
 const MARGIN = 40;
@@ -52,10 +59,12 @@ export function PlanEditor({
   initialLayout,
   orientation,
   onExit,
+  depositContext,
 }: {
   initialLayout: Layout;
   orientation: string;
   onExit: () => void;
+  depositContext: DepositContext | null;
 }) {
   const [history, setHistory] = useState<Layout[]>([cloneLayout(initialLayout)]);
   const [future, setFuture] = useState<Layout[]>([]);
@@ -146,24 +155,98 @@ export function PlanEditor({
   function handleExportSvg() {
     downloadBlob(new Blob([exportSvgMarkup], { type: "image/svg+xml" }), "avant-projet-modifie.svg");
   }
+  // Rendu PNG — EXTRAIT de handleExportPng (comportement inchangé) pour être
+  // réutilisé tel quel par le dépôt chantier (Lot 1) : même image, mêmes
+  // légendes et mention d'avant-projet déjà gravées dans exportSvgMarkup,
+  // jamais un second rendu qui pourrait diverger.
+  function renderExportPng(canvas: HTMLCanvasElement): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(new Blob([exportSvgMarkup], { type: "image/svg+xml" }));
+      img.onload = () => {
+        canvas.width = img.width || 900;
+        canvas.height = img.height || 700;
+        const ctx = canvas.getContext("2d")!;
+        ctx.fillStyle = "#ffffff";
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0);
+        URL.revokeObjectURL(url);
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error("png_encode_failed"));
+        }, "image/png");
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error("svg_load_failed"));
+      };
+      img.src = url;
+    });
+  }
   function handleExportPng() {
     if (!canvasRef.current) return;
-    const img = new Image();
-    const url = URL.createObjectURL(new Blob([exportSvgMarkup], { type: "image/svg+xml" }));
-    img.onload = () => {
-      const canvas = canvasRef.current!;
-      canvas.width = img.width || 900;
-      canvas.height = img.height || 700;
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0);
-      URL.revokeObjectURL(url);
-      canvas.toBlob((blob) => {
-        if (blob) downloadBlob(blob, "avant-projet-modifie.png");
-      }, "image/png");
-    };
-    img.src = url;
+    renderExportPng(canvasRef.current).then((blob) => downloadBlob(blob, "avant-projet-modifie.png"));
+  }
+
+  // Dépôt chantier (Lot 1, PREPARATION_INTEGRATION_METIER.md) — crée un
+  // candidat, RIEN d'autre : ne retient, ne valide ni ne publie jamais
+  // automatiquement (ces actes restent distincts, inchangés, dans
+  // chantiers/[id]/plans). Le brouillon local (history/future/saveStatus)
+  // n'est JAMAIS modifié par cette fonction, succès ou échec.
+  const [depositStep, setDepositStep] = useState<"idle" | "confirm" | "pending">("idle");
+  const [depositResult, setDepositResult] = useState<{ ok: true; versionId: string } | { ok: false; message: string } | null>(null);
+  const depositOperationUuidRef = useRef<string | null>(null);
+  // Garde anti-double-clic synchrone (jamais le seul state React, dont la
+  // mise à jour n'est visible qu'au prochain rendu) : un second appel lancé
+  // avant ce rendu est refusé ici immédiatement, jamais une seconde requête.
+  const depositInFlightRef = useRef(false);
+
+  // Programme complet (feasible), aucune pièce mise de côté, aucun contrôle
+  // géométrique en erreur — les TROIS mêmes signaux déjà affichés ailleurs
+  // dans cet éditeur (section "Plan incomplet", section "Anomalies
+  // géométriques"), jamais un second calcul qui pourrait diverger.
+  const depositBlockedReasons: string[] = [];
+  if (!current.feasible) depositBlockedReasons.push("ce brouillon ne correspond pas à un programme complet.");
+  if (parked.length > 0) depositBlockedReasons.push(`${parked.length} pièce(s) restent mises de côté, à replacer d'abord.`);
+  if (errorCount > 0) depositBlockedReasons.push(`${errorCount} problème(s) géométrique(s) non résolu(s) (voir « Anomalies géométriques » ci-dessous).`);
+
+  function openDepositConfirm() {
+    setDepositResult(null);
+    setDepositStep("confirm");
+  }
+  function cancelDeposit() {
+    setDepositStep("idle");
+  }
+  async function confirmDeposit() {
+    if (!depositContext || !canvasRef.current) return;
+    if (depositInFlightRef.current) return;
+    depositInFlightRef.current = true;
+    setDepositStep("pending");
+    try {
+      const blob = await renderExportPng(canvasRef.current);
+      if (!depositOperationUuidRef.current) depositOperationUuidRef.current = crypto.randomUUID();
+      const formData = new FormData();
+      formData.set("project_id", depositContext.projectId);
+      formData.set("operation_uuid", depositOperationUuidRef.current);
+      formData.set("file", new File([blob], "avant-projet.png", { type: "image/png" }));
+      const result = await depositProjectPlanAction(formData);
+      if (!result.ok) {
+        setDepositResult({ ok: false, message: result.message });
+        setDepositStep("idle");
+        return;
+      }
+      depositOperationUuidRef.current = null;
+      setDepositResult({ ok: true, versionId: result.value.versionId });
+      setDepositStep("idle");
+    } catch {
+      setDepositResult({
+        ok: false,
+        message: "L'envoi a échoué (connexion interrompue ou fichier trop volumineux). Le brouillon n'a pas été modifié — réessayez.",
+      });
+      setDepositStep("idle");
+    } finally {
+      depositInFlightRef.current = false;
+    }
   }
 
   // Fichier de projet — document géométrique COMPLET et modifiable, distinct
@@ -789,6 +872,80 @@ export function PlanEditor({
         Les exports SVG/PNG sont des images, pas des documents réouvrables.
       </p>
       <canvas ref={canvasRef} className="hidden" />
+
+      {depositContext ? (
+        <div className="flex flex-col gap-2 rounded border-2 border-slate-400 bg-slate-50 p-3">
+          <h3 className="font-semibold">Chantier {depositContext.projectName}</h3>
+          {!depositContext.canDeposit ? (
+            <p className="text-xs text-slate-600">
+              Seul l&apos;entrepreneur ou le propriétaire principal de ce chantier peut y déposer un plan. Vous pouvez
+              continuer à utiliser ce générateur, mais pas déposer ce brouillon sur ce chantier.
+            </p>
+          ) : depositResult?.ok ? (
+            <div className="rounded border border-green-400 bg-green-50 p-2 text-sm text-green-900">
+              <p className="font-semibold">Déposé comme nouveau candidat sur ce chantier.</p>
+              <p className="mt-1 text-xs">
+                Rien n&apos;est retenu, validé ni publié automatiquement — retrouvez ce candidat (parmi les autres) sur
+                la page Plans du chantier.
+              </p>
+              <a href={`/chantiers/${depositContext.projectId}/plans`} className="mt-2 inline-block text-xs font-semibold text-green-900 underline">
+                ← Revenir aux plans du chantier
+              </a>
+              <button onClick={() => setDepositResult(null)} className="mt-2 ml-3 text-xs font-semibold text-green-900 underline">
+                Déposer encore (après modification)
+              </button>
+            </div>
+          ) : depositStep === "confirm" ? (
+            <div className="flex flex-col gap-2 rounded border border-indigo-400 bg-indigo-50 p-2">
+              <p className="text-xs text-indigo-900">
+                Déposer ce brouillon (image PNG ci-dessous, avec légendes et mention d&apos;avant-projet) comme{" "}
+                <strong>nouveau candidat</strong> sur le chantier <strong>{depositContext.projectName}</strong>. Ceci ne
+                retient, ne valide ni ne publie rien automatiquement — ce sont trois actes séparés, à faire ensuite sur
+                la page Plans du chantier.
+              </p>
+              <div className="max-h-64 overflow-auto rounded border border-slate-300 bg-white p-2">
+                <div dangerouslySetInnerHTML={{ __html: exportSvgMarkup }} />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={confirmDeposit}
+                  className="rounded bg-indigo-900 px-3 py-2 text-sm font-semibold text-white"
+                >
+                  Confirmer le dépôt
+                </button>
+                <button onClick={cancelDeposit} className="rounded border border-indigo-400 px-3 py-2 text-sm">
+                  Annuler
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={openDepositConfirm}
+                disabled={depositBlockedReasons.length > 0 || depositStep === "pending"}
+                className="w-fit rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {depositStep === "pending" ? "Dépôt en cours…" : "Déposer ce plan sur ce chantier"}
+              </button>
+              {depositBlockedReasons.length > 0 ? (
+                <ul className="list-disc pl-5 text-xs text-red-700">
+                  {depositBlockedReasons.map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              ) : null}
+              {depositResult && !depositResult.ok ? (
+                <p className="text-xs font-semibold text-red-700">{depositResult.message} Le brouillon n&apos;a pas été modifié.</p>
+              ) : null}
+            </div>
+          )}
+          <p className="text-xs text-slate-500">
+            Le PNG déposé est une image : il n&apos;enregistre pas le projet modifiable sur le serveur. Conservez votre
+            export du fichier de projet (.json) ci-dessus si vous voulez pouvoir reprendre l&apos;édition plus tard — le
+            brouillon local de cette page reste inchangé, que le dépôt réussisse ou échoue.
+          </p>
+        </div>
+      ) : null}
 
       <div>
         <h3 className="font-semibold">Surfaces (mêmes données que le dessin et l&apos;export)</h3>

@@ -21,6 +21,17 @@ interface RoomRow extends RoomNeed {
   count: number;
 }
 
+// Lu côté serveur (page.tsx) depuis la session RÉELLE de l'appelant — jamais
+// déduit de `retour` lui-même, qui ne constitue jamais une autorisation
+// (Lot 1, PREPARATION_INTEGRATION_METIER.md). `canDeposit` ne sert qu'à
+// l'affichage : depositProjectPlanAction revérifie le rôle côté serveur de
+// toute façon pour CE chantier précis, quel que soit ce qui est affiché ici.
+export interface DepositContext {
+  projectId: string;
+  projectName: string;
+  canDeposit: boolean;
+}
+
 // Source externe (localStorage) exposée via useSyncExternalStore plutôt que
 // lue dans un effet ou dans l'initialiseur de useState : le serveur n'a pas
 // accès à localStorage, donc un initialiseur qui le lisait directement
@@ -79,7 +90,7 @@ function numberInput(value: number, onChange: (v: number) => void, step = 0.1, d
   );
 }
 
-export function PrototypeClient() {
+export function PrototypeClient({ depositContext }: { depositContext: DepositContext | null }) {
   const [terrainWidth, setTerrainWidth] = useState(15);
   const [terrainDepth, setTerrainDepth] = useState(20);
   const [front, setFront] = useState(3);
@@ -367,7 +378,7 @@ export function PrototypeClient() {
       </button>
 
       {draft ? (
-        <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} />
+        <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} depositContext={depositContext} />
       ) : (
       <>
       {variants && variants.length === 0 ? (

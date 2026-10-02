@@ -155,6 +155,24 @@ explicite, n'efface pas l'historique). Jamais de retour `DEPOSITED` →
 
 ### Lot 1 — Pont génération → dépôt réel (réalisable **sans migration**)
 
+**Statut : terminé**, implémenté et vérifié (branche `claude/plans-generator`,
+voir le commit de ce lot). Preuves : typecheck/lint 0 erreur ; 755/755
+tests moteur 2D inchangés (aucun fichier du moteur touché) ; 49/49 tests
+`scripts/test-project-plans.mjs` (B063, inchangé) rejoués — dépôt
+CONTRACTOR/OWNER_PRIMARY toujours admis, CO_OWNER toujours refusé,
+dépôt manuel (`DepositPlanForm`) non régressé ; nouveau
+`scripts/test-prototype-plans-bridge.mjs` (3/3) — refus serveur confirmés
+sans session (`permission denied`) et pour un chantier où l'appelant
+authentifié n'a aucune adhésion active (`not_authorized`) ; parcours réel
+en navigateur (serveur E:, port 3002, chantier de démo local dédié) —
+génération → édition → dépôt confirmé avec aperçu → candidat réel
+(« Plan 2 ») visible après rechargement complet, fichier PNG réellement
+signé/téléchargeable (légendes et mention d'avant-projet gravées dedans),
+aucune retenue/validation/publication automatique, candidat et historique
+préexistants (« Plan 1 », retenu/publié/validé) inchangés ; brouillon local
+(localStorage) intact après le dépôt réussi, confirmé après navigation et
+rechargement.
+
 - **Fichiers concernés** : `src/app/prototype-plans/PrototypeClient.tsx`,
   `PlanEditor.tsx`, `page.tsx` (lecture seule du rôle de l'appelant pour le
   `projectId` reçu via `retour`) ; aucun fichier de
@@ -241,24 +259,36 @@ explicite, n'efface pas l'historique). Jamais de retour `DEPOSITED` →
 
 ---
 
-## 6. Preuves déjà produites — famille guidée avec cour (réutilisables telles quelles)
+## 6. Preuves déjà produites — famille guidée (réutilisables telles quelles)
 
-Aucun nouveau test nécessaire ; références existantes :
+Aucun nouveau test nécessaire ; références existantes. **Correction
+apportée ce lot** : les deux preuves ci-dessous couvrent deux scénarios
+DIFFÉRENTS de la même famille — le fichier déjà transmis ne prouve PAS à
+lui seul le cas avec cour d'entrée, distingués explicitement ici.
 
-- **Tests** : `scripts/test-plans-geometry.mjs`, section 23 (ligne 1551,
-  « FAMILLE GUIDÉE (salon central / cour d'entrée) — QUATRE FAÇADES »),
-  scénario « cour d'entrée seule » (ligne 1572, `entryMode: "courtyard"`),
-  protection de la cour vérifiée explicitement (ligne 1608 : « cour
-  d'entrée présente et protégée »). Partie des 755/755 tests actuellement
-  verts (`node scripts/test-plans-geometry.mjs`).
-- **Suivi** : `SUIVI_MOTEUR_PLANS_2D.md`, journal du lot « familles guidée
-  et en L sur 4 façades » (commit `4684e95`) — round-trip
-  génération→export→réimport vérifié en navigateur pour la famille guidée,
-  accès arrière.
-- **Livrables réels** : `guidee_arriere_REEL.projet.json` (fichier de
-  projet réel) et `guidee_arriere_REEL.svg` (rendu correspondant),
-  déjà produits et déjà transmis — à rejoindre sans refaire leur
-  développement si une nouvelle transmission est utile.
+- **Cas AVEC cour d'entrée** — preuve = **tests uniquement**, aucun
+  fichier exporté n'existe pour ce cas précis : `scripts/test-plans-geometry.mjs`,
+  section 23 (ligne 1551, « FAMILLE GUIDÉE (salon central / cour d'entrée) —
+  QUATRE FAÇADES »), scénario « cour d'entrée seule » (ligne 1572,
+  `entryMode: "courtyard"`), sur les 4 façades × 2 terrains, protection de
+  la cour vérifiée explicitement à chaque fois (ligne 1608 : « cour
+  d'entrée présente et protégée (aucune pièce ne la chevauche) »). Partie
+  des 755/755 tests actuellement verts (`node scripts/test-plans-geometry.mjs`).
+- **Cas SANS cour (salon central seul)** — preuve = tests (même section 23,
+  scénario « salon central », ligne ~1571) **ET** livrable réel déjà
+  transmis : `guidee_arriere_REEL.projet.json` / `.svg` — vérifié par
+  relecture directe de ce fichier (`"courtyard": null`) : **ce livrable
+  n'illustre PAS le cas avec cour**, seulement le salon central. Round-trip
+  génération→export→réimport correspondant vérifié en navigateur, accès
+  arrière (`SUIVI_MOTEUR_PLANS_2D.md`, journal du lot « familles guidée et
+  en L sur 4 façades », commit `4684e95`).
+- **Si un livrable réel du cas AVEC cour est utile** : non produit à ce
+  jour — à générer en rejouant simplement la fixture de la section 23
+  (`entryMode: "courtyard"`, terrain/reculs déjà choisis par ce test) à
+  travers `buildGuidedLayout` + `renderSvg`/`serializeProject`, sans aucun
+  nouveau développement (mêmes fonctions, même méthode que tous les
+  livrables déjà produits ce chantier) — non fait ici, hors demande de ce
+  lot (Lot 1 seul).
 
 ---
 
