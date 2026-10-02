@@ -2407,7 +2407,7 @@ export function connectGroupsToNetwork(
   // bas. `null`/omis quand l'appelant n'a pas d'entrée fixe à proposer
   // (aucun changement de comportement dans ce cas).
   entryRescue?: { entryDoor: DoorGeometry; bounds: Rect } | null
-): { bridges: Rect[]; strandedNeeds: FreeSpaceNeed[] } {
+): { bridges: Rect[]; exteriorRescuePaths: Rect[]; strandedNeeds: FreeSpaceNeed[] } {
   const MAX_BRIDGE_GAP = 2.5; // m — au-delà, une jonction droite ne serait plus une hypothèse crédible
   const bridges: Rect[] = [];
   // GÉNÉRALISATION (blocage mesuré le plus fréquent, cas "connu" : deux
@@ -2468,27 +2468,30 @@ export function connectGroupsToNetwork(
   // DERNIER RECOURS, pour un cluster encore isolé de la racine après la
   // fusion normale ci-dessus : un trajet réel depuis l'ENTRÉE elle-même
   // (segment droit, largeur réelle CORRIDOR_WIDTH, jamais au travers d'une
-  // pièce — MÊME GÉOMÉTRIE que buildExteriorPath, sa fonction ne le dit pas
-  // elle-même). CLASSÉ ICI COMME CIRCULATION INTÉRIEURE (ajouté à `bridges`,
-  // jamais à Layout.exteriorPaths), et ce choix se justifie depuis le
-  // MODÈLE, pas depuis le nom de la fonction réutilisée :
-  // - il reste entièrement dans `entryRescue.bounds` (l'emprise de
-  //   recherche elle-même, jamais le terrain au-delà) — jamais un
-  //   cheminement sur un sol non bâti EXTÉRIEUR à ce contour ;
-  // - il participe à la fusion de clusters comme un membre ORDINAIRE du
-  //   réseau (un autre groupe encore isolé peut ensuite s'y raccorder via
-  //   `mergeAllPossible`, voir plus bas) — jamais un terminus isolé comme
-  //   l'est un vrai trajet extérieur (posé une seule fois, en dehors de
-  //   toute fusion, voir son usage dans finalizeCandidate) ;
-  // - le trajet EXTÉRIEUR existant répond à une question différente
-  //   (« le bâti reconstruit s'est-il éloigné de l'entrée ? ») une fois la
-  //   circulation intérieure déjà entièrement résolue entre elle-même ;
-  //   celui-ci répond à « cette circulation intérieure se résout-elle
-  //   jusqu'à l'entrée ? », PENDANT cette résolution.
-  // Aucun double comptage : ce rectangle n'est jamais poussé que dans
-  // `bridges` ici (jamais aussi dans exteriorPaths), et `bridges` n'alimente
-  // que `next.circulations`/`surfaces.circulation` dans finalizeCandidate —
-  // jamais les deux à la fois pour un même rectangle.
+  // pièce — buildExteriorPath, déjà utilisé ailleurs pour exactement cette
+  // même chose : relier entryDoor à de la circulation qui ne le touche pas
+  // directement).
+  //
+  // CLASSIFICATION (precision demandée) : ce modèle ne représente AUCUNE
+  // enveloppe bâtie réelle — ni mur, ni façade, au-delà du contour
+  // englobant (voir Layout.footprint) et des pièces elles-mêmes. Rien ici
+  // ne vérifie qu'un corridor ordinaire (ceux posés par packInto, déjà dans
+  // ce fichier bien avant ce lot) est flanqué de murs des deux côtés — un
+  // corridor n'y est jamais garanti bordé que du côté de SA rangée de
+  // pièces, jamais de l'autre. "Rester dans l'emprise" ou "rejoindre le même
+  // graphe que le réseau" ne prouve donc RIEN de plus pour ce trajet qu'un
+  // corridor ordinaire ne prouve déjà — ce n'est pas un critère valide pour
+  // le classer "intérieur". Le seul critère qui tient, et qui est DÉJÀ celui
+  // du modèle existant (buildExteriorPath, utilisé plus loin dans
+  // finalizeCandidate) : un trajet dont UNE extrémité est entryDoor
+  // lui-même représente par construction le dernier mètre entre le seuil et
+  // la circulation, jamais un segment entre deux pièces déjà posées — donc
+  // CLASSÉ COMME CHEMINEMENT EXTÉRIEUR (`exteriorRescuePaths`, séparé de
+  // `bridges`), exactement comme l'usage préexistant de cette même fonction,
+  // jamais ajouté à `bridges`/`next.circulations`. Conséquence vérifiée :
+  // le contour bâti recalculé (recomputeDerivedGeometry exclut
+  // exteriorPaths de son calcul) n'inclut plus ce trajet, qui n'est donc
+  // plus présenté à tort comme une façade bâtie.
   //
   // Jamais essayé avant la fusion normale : une jonction directe entre
   // segments de circulation reste toujours préférée. Mesuré sur un cas réel
@@ -2497,6 +2500,7 @@ export function connectGroupsToNetwork(
   // d'entrée — rejetés jusqu'ici comme "coupés", alors qu'un trajet direct
   // depuis l'entrée existait réellement vers l'un d'eux, ce qui aurait
   // ensuite rapproché les autres par la fusion normale.
+  const exteriorRescuePaths: Rect[] = [];
   if (entryRescue) {
     let rescued = true;
     while (rescued && clusters.length > 1) {
@@ -2508,7 +2512,7 @@ export function connectGroupsToNetwork(
         if (path) {
           root.rects.push(...clusters[j].rects, path);
           clusters[j].groupIdxs.forEach((gi) => root.groupIdxs.add(gi));
-          bridges.push(path);
+          exteriorRescuePaths.push(path);
           clusters.splice(j, 1);
           rescued = true;
           break;
@@ -2519,7 +2523,7 @@ export function connectGroupsToNetwork(
   }
 
   const strandedNeeds = groups.filter((_, gi) => !root.groupIdxs.has(gi)).flatMap((g) => g.placements.map((p) => p.need));
-  return { bridges, strandedNeeds };
+  return { bridges, exteriorRescuePaths, strandedNeeds };
 }
 
 // Compare deux dispositions DÉJÀ ADMISSIBLES (contraintes obligatoires déjà
@@ -2997,7 +3001,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     // ailleurs complets. Exclu ici uniquement (jamais retiré de
     // mode.obstacles lui-même, qui reste inchangé pour le placement).
     const circulationObstacles = mode.obstacles.filter((o) => !lockedDoorProbes.includes(o));
-    const { bridges, strandedNeeds } = connectGroupsToNetwork(
+    const { bridges, exteriorRescuePaths, strandedNeeds } = connectGroupsToNetwork(
       mode.networkAnchors,
       groups,
       circulationObstacles,
@@ -3043,6 +3047,12 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     next.corridor = mode.keepCorridor;
     next.corridorFillers = [...mode.keepFillers, ...corridorFillers];
     next.circulations = [...mode.keepCirculations, ...corridors, ...bridges];
+    // Trajet(s) de recours depuis l'entrée (connectGroupsToNetwork) : classés
+    // ici, jamais dans `circulations` — voir la justification complète au
+    // lieu de leur construction (classification depuis le modèle, pas depuis
+    // le nom de buildExteriorPath). Ajoutés AVANT le contrôle qui suit, pour
+    // qu'il les voie déjà et ne tente jamais un second trajet redondant.
+    next.exteriorPaths = [...next.exteriorPaths, ...exteriorRescuePaths];
     // L'entrée (son point FIXE, jamais déplacé — le seuil d'accès au
     // contour CONSTRUCTIBLE, distinct du portail de la parcelle ET de
     // l'accès au bâti) doit réellement déboucher sur CE réseau.

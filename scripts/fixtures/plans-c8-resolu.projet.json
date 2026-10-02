@@ -1,6 +1,6 @@
 {
   "version": 4,
-  "savedAt": "2026-10-02T01:10:08.781Z",
+  "savedAt": "2026-10-02T01:32:07.809Z",
   "orientation": "N",
   "layout": {
     "variantLabel": "Régénération 1",
@@ -23,9 +23,9 @@
     },
     "footprint": {
       "x": 2,
-      "y": 2.8,
+      "y": 3,
       "w": 10.299999999999999,
-      "d": 15.2
+      "d": 15
     },
     "corridor": null,
     "corridorFillers": [
@@ -84,7 +84,9 @@
         "y": 12.6,
         "w": 1.2000000000000002,
         "d": 1.0000000000000018
-      },
+      }
+    ],
+    "exteriorPaths": [
       {
         "x": 7.3,
         "y": 3,
@@ -92,7 +94,6 @@
         "d": 6.1
       }
     ],
-    "exteriorPaths": [],
     "courtyard": null,
     "streetDoor": null,
     "entryDoor": {
@@ -151,7 +152,7 @@
         "d": 4.5,
         "minW": 4,
         "minD": 4,
-        "exteriorWall": "left",
+        "exteriorWall": "top",
         "vehicleDoor": null
       },
       {
@@ -298,10 +299,10 @@
       },
       {
         "roomIndex": 3,
-        "wall": "left",
-        "cx": 2.2,
-        "cy": 5.45,
-        "width": 2.25
+        "wall": "top",
+        "cx": 4.7,
+        "cy": 3.2,
+        "width": 2.5
       },
       {
         "roomIndex": 5,
@@ -323,9 +324,9 @@
         "label": "Espace extérieur non bâti (latéral droit)",
         "rect": {
           "x": 12.299999999999999,
-          "y": 2.8,
+          "y": 3,
           "w": 0.7000000000000011,
-          "d": 15.2
+          "d": 15
         },
         "accessFrom": "façade latérale"
       }
@@ -334,12 +335,12 @@
       "terrain": 300,
       "emprise": 165,
       "cour": 0,
-      "batie": 111.57,
+      "batie": 104.25,
       "utileHabitable": 75.45,
-      "exterieure": 8.440000000000026,
-      "circulation": 36.12,
-      "cheminementExterieur": 0,
-      "nonAffectee": 44.98999999999998
+      "exterieure": 3.180000000000029,
+      "circulation": 28.8,
+      "cheminementExterieur": 7.319999999999999,
+      "nonAffectee": 50.24999999999997
     }
   }
 }

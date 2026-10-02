@@ -802,9 +802,24 @@ try {
     // C8 (lot "corriger le placement à l'origine du conflit") — la toute
     // première disposition NEUVE et admissible jamais retrouvée pour ce cas
     // fixe, auparavant bloqué à 0 variante sur deux lots consécutifs.
-    checkPostRegenFixture("Fixture C8 régénéré (36,12 m²)", "plans-c8-resolu.projet.json", 36.12, "chambre", {
+    // Circulation intérieure 28,80 m² + cheminement extérieur 7,32 m² =
+    // 36,12 m² au total (classification corrigée : le trajet de recours
+    // depuis l'entrée est un cheminement extérieur, jamais de la circulation
+    // intérieure — voir connectGroupsToNetwork). checkPostRegenFixture ne
+    // recalcule que la part intérieure (corridor+raccords+circulations,
+    // jamais exteriorPaths) : 28,80 m² attendus ici.
+    checkPostRegenFixture("Fixture C8 régénéré (28,80 m² intérieur + 7,32 m² extérieur)", "plans-c8-resolu.projet.json", 28.8, "chambre", {
       chambre: 3, salon: 1, cuisine: 1, sanitaire: 2,
     });
+    {
+      const c8 = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-c8-resolu.projet.json"), "utf8")).layout;
+      const indepExt = independentUnionArea(c8.exteriorPaths ?? []);
+      record(
+        "Fixture C8 régénéré — le trajet de recours depuis l'entrée est bien compté en cheminement extérieur (7,32 m²), jamais en circulation intérieure",
+        Math.abs(indepExt - 7.32) < 0.01 && Math.abs((c8.surfaces.circulation + c8.surfaces.cheminementExterieur) - 36.12) < 0.01,
+        `extérieur recalculé=${indepExt.toFixed(2)} m², intérieur enregistré=${c8.surfaces.circulation.toFixed(2)} m², total=${(c8.surfaces.circulation + c8.surfaces.cheminementExterieur).toFixed(2)} m²`
+      );
+    }
 
     // 13) RACCORDEMENT PAR N'IMPORTE QUEL SEGMENT D'UN GROUPE (lot "évaluer et
     // améliorer la génération") — connectGroupsToNetwork ne sondait la
@@ -860,7 +875,11 @@ try {
       record(
         "Recours depuis l'entrée — un groupe sans jonction directe se raccorde via un trajet réel depuis l'entrée",
         free.strandedNeeds.length === 0,
-        `ponts: ${JSON.stringify(free.bridges)}`
+        `trajets extérieurs: ${JSON.stringify(free.exteriorRescuePaths)}`
+      );
+      record(
+        "Recours depuis l'entrée — ce trajet est classé cheminement extérieur, jamais circulation intérieure (bridges reste vide)",
+        free.exteriorRescuePaths.length === 1 && free.bridges.length === 0
       );
       const blocker = { x: 4, y: 2, w: 2, d: 1 };
       const blocked = g.connectGroupsToNetwork([], [rescueGroup], [blocker], { entryDoor, bounds });
@@ -906,7 +925,7 @@ try {
       record(
         "Seuil de porte verrouillée — une circulation peut désormais le traverser (le seuil reste un obstacle pour une pièce, jamais pour la jonction)",
         afterFix.strandedNeeds.length === 0,
-        `ponts: ${JSON.stringify(afterFix.bridges)}`
+        `trajets extérieurs: ${JSON.stringify(afterFix.exteriorRescuePaths)}`
       );
     }
 
