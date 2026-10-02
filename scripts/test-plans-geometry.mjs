@@ -929,6 +929,53 @@ try {
       );
     }
 
+    // 16) ACCÈS LATÉRAL (GAUCHE/DROITE) RÉELLEMENT RACCORDÉ (lot "prochain
+    // blocage utile") — cause générale trouvée sur la batterie fixe des 11
+    // cas (C10, accès droite) : buildDoubleLoadedLayout ne faisait que
+    // replacer entryDoor sur le mur latéral, SANS jamais réorienter le
+    // corridor ni les colonnes — toujours nord-sud, comme pour un accès
+    // avant/arrière. Une colonne de pièces entière restait donc TOUJOURS
+    // entre le mur latéral et le corridor, qu'aucune jonction praticable ne
+    // reliait — rejeté par independentVerify sur TOUTES les répartitions
+    // essayées, jamais une vraie limite de taille de terrain. Corrigé en
+    // construisant la disposition dans un repère VIRTUEL "avant/arrière"
+    // (reculs échangés) puis en la transposant entièrement (x/y, largeur/
+    // profondeur, murs) dans le repère réel — réutilise l'algorithme avant/
+    // arrière déjà vérifié tel quel, aucune nouvelle géométrie de pièce.
+    // En chemin, un second défaut géométrique DISTINCT (indépendant de
+    // l'accès) a été trouvé et corrigé : le raccord d'une pièce plus
+    // étroite que sa colonne, côté droit, débordait de 10 cm (WALL_INT)
+    // dans cette même pièce — repéré seulement une fois la connexion
+    // entrée-corridor vérifiée pour de vrai (avant, le candidat était de
+    // toute façon rejeté pour inaccessibilité, masquant ce chevauchement).
+    {
+      const SETBACKS = { front: 3, back: 2, left: 2, right: 2 };
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 2, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 1, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+        { type: "garage", label: "Garage", count: 0, minWidth: 3, minDepth: 5, targetWidth: 3.5, targetDepth: 5.5 },
+      ];
+      const BASE = { orientation: "N", setbacks: SETBACKS, entryMode: "direct", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor" };
+      for (const accessSide of ["right", "left"]) {
+        const input = { ...BASE, terrainWidth: 15, terrainDepth: 20, accessSide, needs: NEEDS };
+        const res = g.generateVariants(input);
+        record(`Accès latéral réellement raccordé — ${accessSide} : au moins une disposition complète trouvée (0 avant ce lot pour « droite »)`, res.variants.length > 0, `${res.variants.length} variante(s)`);
+        if (res.variants.length > 0) {
+          const v = res.variants[0];
+          record(`Accès latéral réellement raccordé — ${accessSide} : 0 erreur independentVerify`, g.independentVerify(v).filter((i) => i.severity === "error").length === 0);
+          const reach = g.computeReachableRooms(v);
+          record(`Accès latéral réellement raccordé — ${accessSide} : toutes les pièces accessibles depuis l'entrée (graphe)`, v.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`Accès latéral réellement raccordé — ${accessSide} : l'entrée est bien sur le mur ${accessSide}`, v.entryDoor && v.entryDoor.wall === accessSide);
+          record(
+            `Accès latéral réellement raccordé — ${accessSide} : le corridor est réorienté (perpendiculaire au mur d'accès, pas nord-sud)`,
+            v.corridor && v.corridor.w > v.corridor.d
+          );
+        }
+      }
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

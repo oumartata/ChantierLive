@@ -257,9 +257,9 @@ export function PrototypeClient() {
         </div>
         {(accessSide === "left" || accessSide === "right") && (
           <p className="text-xs text-amber-700">
-            Limite connue : pour un accès latéral, la distribution intérieure reste organisée comme pour un accès
-            frontal ; seule la porte d&apos;entrée est déplacée sur le mur latéral. La cour d&apos;entrée et le salon
-            central (ci-dessous) ne sont pris en charge que pour un accès avant.
+            Limite connue : la cour d&apos;entrée et le salon central (ci-dessous) ne sont pris en charge que pour un
+            accès avant — pour un accès latéral, seule l&apos;organisation en corridor simple (réorientée et
+            réellement raccordée à l&apos;entrée) est proposée.
           </p>
         )}
 

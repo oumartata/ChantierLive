@@ -412,7 +412,98 @@ function numberWithin(rooms: RoomNeed[], upToIndex: number, type: string): numbe
   return n;
 }
 
-function buildDoubleLoadedLayout(
+// TRANSPOSITION (échange x/y, largeur/profondeur, murs) — cause générale
+// trouvée pour un accès latéral (gauche/droite) sur le corridor double
+// chargé (buildDoubleLoadedLayout) : la version précédente ne faisait que
+// replacer entryDoor sur le mur latéral, SANS jamais toucher au corridor ni
+// aux colonnes de pièces — toujours orientés nord-sud comme pour un accès
+// avant/arrière. Le seuil déplacé ne touchait alors jamais réellement le
+// corridor (une colonne de pièces entière reste systématiquement entre le
+// mur latéral et le corridor) : rejeté ensuite par independentVerify comme
+// "accès non garanti" sur TOUTES les répartitions essayées, jamais une
+// limite de taille de terrain comme le message de profondeur insuffisante
+// le suggérait par ailleurs pour d'autres répartitions.
+//
+// Corrigé en réutilisant l'algorithme avant/arrière SANS LE MODIFIER : pour
+// un accès gauche, la disposition est construite comme un accès "avant"
+// dans un repère VIRTUEL où largeur et profondeur sont échangées (reculs
+// gauche/droite du terrain réel deviennent les reculs avant/arrière de ce
+// repère, et inversement) puis le résultat entier est transposé (x<->y,
+// largeur<->profondeur, murs tournés) dans le repère réel. Un accès droit
+// réutilise de même la construction "arrière" déjà existante (déjà un
+// simple miroir de "avant"), puis la même transposition. Aucune nouvelle
+// géométrie de pièce : seul le repère de construction change, l'algorithme
+// de colonnes/corridor reste rigoureusement identique à celui déjà vérifié
+// pour avant/arrière.
+function transposeWallSide(w: WallSide): WallSide {
+  return w === "top" ? "left" : w === "bottom" ? "right" : w === "left" ? "top" : "bottom";
+}
+function transposeRect(r: Rect): Rect {
+  return { x: r.y, y: r.x, w: r.d, d: r.w };
+}
+function transposeDoorGeometry<T extends DoorGeometry>(d: T): T {
+  return { ...d, wall: transposeWallSide(d.wall), cx: d.cy, cy: d.cx };
+}
+function transposeDoubleLoadedResult(v: Layout, input: GenerationInput): Layout {
+  const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
+  if (!v.feasible || !v.emprise || !v.footprint) return { ...v, accessSide: input.accessSide, terrain };
+  const emprise = transposeRect(v.emprise);
+  const footprint = transposeRect(v.footprint);
+  const corridor = v.corridor ? transposeRect(v.corridor) : null;
+  const corridorFillers = v.corridorFillers.map(transposeRect);
+  const rooms: PlacedRoom[] = v.rooms.map((r) => {
+    const t = transposeRect(r);
+    return {
+      ...r,
+      x: t.x,
+      y: t.y,
+      w: t.w,
+      d: t.d,
+      exteriorWall: r.exteriorWall ? transposeWallSide(r.exteriorWall) : null,
+      vehicleDoor: r.vehicleDoor ? transposeDoorGeometry(r.vehicleDoor) : null,
+    };
+  });
+  const doors: Door[] = v.doors.map((d) => transposeDoorGeometry(d));
+  const windows: Window[] = v.windows.map((w) => transposeDoorGeometry(w));
+  const entryDoor = v.entryDoor ? transposeDoorGeometry(v.entryDoor) : null;
+  return {
+    ...v,
+    accessSide: input.accessSide,
+    terrain,
+    emprise,
+    footprint,
+    corridor,
+    corridorFillers,
+    rooms,
+    doors,
+    windows,
+    entryDoor,
+    exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
+    surfaces: computeSurfaces(terrain, emprise, footprint, corridor, corridorFillers, [], rooms, null, []),
+  };
+}
+
+// Point d'entrée public (inchangé pour tout appelant existant) : un accès
+// latéral redirige vers la construction avant/arrière dans un repère
+// virtuel transposé (voir transposeDoubleLoadedResult ci-dessus) — jamais
+// une nouvelle logique de colonnes/corridor, seulement un changement de
+// repère avant de reconstruire avec l'algorithme déjà vérifié.
+function buildDoubleLoadedLayout(input: GenerationInput, leftNeeds: RoomNeed[], rightNeeds: RoomNeed[], label: string): Layout {
+  if (input.accessSide === "left" || input.accessSide === "right") {
+    const virtualInput: GenerationInput = {
+      ...input,
+      terrainWidth: input.terrainDepth,
+      terrainDepth: input.terrainWidth,
+      setbacks: { front: input.setbacks.left, back: input.setbacks.right, left: input.setbacks.front, right: input.setbacks.back },
+      accessSide: input.accessSide === "left" ? "front" : "back",
+    };
+    const virtual = buildDoubleLoadedLayoutStraight(virtualInput, leftNeeds, rightNeeds, label);
+    return transposeDoubleLoadedResult(virtual, input);
+  }
+  return buildDoubleLoadedLayoutStraight(input, leftNeeds, rightNeeds, label);
+}
+
+function buildDoubleLoadedLayoutStraight(
   input: GenerationInput,
   leftNeeds: RoomNeed[],
   rightNeeds: RoomNeed[],
@@ -526,10 +617,24 @@ function buildDoubleLoadedLayout(
       });
       // Raccord si cette pièce est plus étroite que la colonne : relie son
       // bord intérieur au corridor, jamais un chevauchement supposé.
+      // Largeur du raccord ASYMÉTRIQUE entre les deux côtés — jamais la même
+      // formule des deux côtés par simplicité : à gauche, fillerX part du
+      // bord de la pièce (AVANT le mur intérieur qui la sépare du corridor),
+      // donc la largeur doit couvrir gap ET ce mur (gap + WALL_INT) pour
+      // atteindre exactement corridor.x. À droite, fillerX part DÉJÀ du bord
+      // du corridor PLUS ce même mur (corridor.x + corridor.w + WALL_INT) :
+      // ajouter WALL_INT une seconde fois dans la largeur dépassait de
+      // WALL_INT (10 cm) dans la pièce elle-même — chevauchement réel détecté
+      // par independentVerify (jamais silencieux), repéré sur un terrain
+      // avec façade d'accès autre qu'avant/arrière où cette répartition de
+      // colonne était la seule retenue (bug présent pour TOUT accessSide,
+      // simplement non rencontré par les répartitions qui réussissaient déjà
+      // par ailleurs pour avant/arrière sur ce même terrain).
       const gap = colMaxWidth - cr.width;
       if (gap > 1e-6) {
         const fillerX = side === "left" ? x + cr.width : corridor.x + corridor.w + WALL_INT;
-        corridorFillers.push({ x: fillerX, y: cursorY, w: gap + WALL_INT, d: cr.depth });
+        const fillerW = side === "left" ? gap + WALL_INT : gap;
+        corridorFillers.push({ x: fillerX, y: cursorY, w: fillerW, d: cr.depth });
       }
       cursorY += cr.depth + WALL_INT;
     });
@@ -939,10 +1044,14 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
       const innerX = side === "left" ? x + cr.width : x;
       doors.push({ roomIndex, wall: doorWall, cx: innerX, cy: cursorY + cr.depth / 2, width: Math.min(DOOR_WIDTH, cr.depth), to: { kind: "circulation" } });
       windows.push({ roomIndex, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + cr.width, cy: cursorY + cr.depth / 2, width: cr.depth * 0.5 });
+      // Même correction d'asymétrie gauche/droite que placeColumn
+      // (buildDoubleLoadedLayout) ci-dessus — voir ce commentaire pour le
+      // détail du calcul.
       const gap = colMaxWidth - cr.width;
       if (gap > 1e-6) {
         const fillerX = side === "left" ? x + cr.width : bottomCorridor.x + bottomCorridor.w + WALL_INT;
-        extraFillers.push({ x: fillerX, y: cursorY, w: gap + WALL_INT, d: cr.depth });
+        const fillerW = side === "left" ? gap + WALL_INT : gap;
+        extraFillers.push({ x: fillerX, y: cursorY, w: fillerW, d: cr.depth });
       }
       cursorY += cr.depth + WALL_INT;
     });

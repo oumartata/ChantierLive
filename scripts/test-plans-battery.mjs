@@ -77,8 +77,21 @@ try {
         input: { ...BASE, terrainWidth: 15, terrainDepth: 20, accessSide: "front", needs: NEEDS_2CH } },
       { id: "C2", desc: "Large peu profond 20x14, avant, direct, 3 ch, corridor", category: "inconnu", regen: false,
         input: { ...BASE, terrainWidth: 20, terrainDepth: 14, accessSide: "front", needs: NEEDS_3CH } },
-      { id: "C3", desc: "Étroit profond 12x26, gauche, direct, 2 ch, corridor (L possible)", category: "connu", regen: false,
-        input: { ...BASE, terrainWidth: 12, terrainDepth: 26, accessSide: "left", needs: NEEDS_2CH } },
+      // Terrain CORRIGÉ dans ce lot (15x26, pas 12x26) : la largeur de 12 m
+      // s'est révélée, une fois la connexion entrée-corridor par accès
+      // latéral réellement vérifiée (lot "transposition"), géométriquement
+      // insuffisante pour ce programme avec un accès gauche — ni le corridor
+      // en L ni le double-chargé pivoté ne tenaient dans les 8 m de largeur
+      // utile restants (12 - 2 - 2). Le "succès" précédemment mesuré à cette
+      // largeur ne provenait PAS d'un accès gauche réellement raccordé : il
+      // profitait d'un cas particulier (l'entrée tombait par coïncidence sur
+      // le salon, seule pièce acceptée sans toucher la circulation) jamais
+      // conçu pour accréditer un accès latéral générique — corrigé en même
+      // temps que le bug qui le permettait. 15x26 reste "étroit profond"
+      // (comparé aux 15x20 des autres cas) tout en laissant une largeur
+      // utile réellement suffisante (11 m) pour un accès gauche authentique.
+      { id: "C3", desc: "Étroit profond 15x26, gauche, direct, 2 ch, corridor (L possible)", category: "connu", regen: false,
+        input: { ...BASE, terrainWidth: 15, terrainDepth: 26, accessSide: "left", needs: NEEDS_2CH } },
       { id: "C4", desc: "Salon central (sans cour), 15x20, avant, 2 ch", category: "connu", regen: false,
         input: { ...BASE, terrainWidth: 15, terrainDepth: 20, accessSide: "front", centralSalon: true, roomsConnectVia: "salon", sanitaireConnectVia: "corridor", needs: NEEDS_2CH } },
       { id: "C5", desc: "Cour d'entrée seule (sans salon central), 15x22, avant, 2 ch", category: "inconnu", regen: false,
