@@ -829,6 +829,41 @@ try {
       );
     }
 
+    // 14) RECOURS DEPUIS L'ENTRÉE (lot "placement des groupes et
+    // raccordement à l'entrée") — diagnostic mesuré sur un cas réel
+    // (régénération, terrain standard 15×20, façade avant, 3 chambres, une
+    // pièce verrouillée) : le retour arrière trouve 4 dispositions
+    // complètes (tous les besoins réellement posés), mais aucun groupe ne
+    // touchait la zone d'entrée par une jonction directe entre segments de
+    // circulation — rejetées comme "coupées" alors qu'un trajet réel
+    // existait depuis l'entrée elle-même vers l'un des groupes (même
+    // géométrie que buildExteriorPath, jamais une nouvelle primitive).
+    // connectGroupsToNetwork tente maintenant ce recours en dernier ressort.
+    // Deux cas déterministes : le trajet réussit quand rien ne le bloque,
+    // et reste refusé (jamais un assouplissement du contrôle) quand un
+    // obstacle réel se trouve sur le segment direct.
+    {
+      const rescueGroup = {
+        corridor: { x: 3, y: 5, w: 4, d: 1.2 },
+        fillers: [],
+        placements: [{ need: { idx: 0, label: "Test", type: "chambre", width: 3, depth: 1, minW: 3, minD: 1 }, x: 3, y: 5, w: 3, d: 1, exteriorWall: "bottom", doorWall: "top" }],
+      };
+      const entryDoor = { wall: "top", cx: 5, cy: 0, width: 0.9 };
+      const bounds = { x: 0, y: 0, w: 10, d: 10 };
+      const free = g.connectGroupsToNetwork([], [rescueGroup], [], { entryDoor, bounds });
+      record(
+        "Recours depuis l'entrée — un groupe sans jonction directe se raccorde via un trajet réel depuis l'entrée",
+        free.strandedNeeds.length === 0,
+        `ponts: ${JSON.stringify(free.bridges)}`
+      );
+      const blocker = { x: 4, y: 2, w: 2, d: 1 };
+      const blocked = g.connectGroupsToNetwork([], [rescueGroup], [blocker], { entryDoor, bounds });
+      record(
+        "Recours depuis l'entrée — refusé si le trajet direct traverserait réellement un obstacle (jamais un assouplissement du contrôle)",
+        blocked.strandedNeeds.length === 1 && blocked.strandedNeeds[0].label === "Test"
+      );
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

@@ -2400,7 +2400,13 @@ export function buildExteriorPath(entryDoor: DoorGeometry, targets: Rect[], obst
 export function connectGroupsToNetwork(
   fixedNetwork: Rect[],
   groups: PackedGroup[],
-  obstacles: Rect[]
+  obstacles: Rect[],
+  // Dernier recours optionnel : un trajet réel depuis l'ENTRÉE elle-même
+  // (même géométrie que buildExteriorPath) pour un groupe qu'aucune jonction
+  // droite entre segments de circulation ne relie au réseau fixe — voir plus
+  // bas. `null`/omis quand l'appelant n'a pas d'entrée fixe à proposer
+  // (aucun changement de comportement dans ce cas).
+  entryRescue?: { entryDoor: DoorGeometry; bounds: Rect } | null
 ): { bridges: Rect[]; strandedNeeds: FreeSpaceNeed[] } {
   const MAX_BRIDGE_GAP = 2.5; // m — au-delà, une jonction droite ne serait plus une hypothèse crédible
   const bridges: Rect[] = [];
@@ -2439,22 +2445,61 @@ export function connectGroupsToNetwork(
     return null;
   }
 
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = 0; i < clusters.length && !changed; i++) {
-      for (let j = i + 1; j < clusters.length; j++) {
-        const result = tryMerge(clusters[i], clusters[j]);
-        if (result === null) continue;
-        if (result !== "touch") bridges.push(result);
-        clusters[i].rects.push(...clusters[j].rects, ...(result !== "touch" ? [result] : []));
-        clusters[j].groupIdxs.forEach((gi) => clusters[i].groupIdxs.add(gi));
-        clusters.splice(j, 1);
-        changed = true;
-        break;
+  function mergeAllPossible(): void {
+    let changed = true;
+    while (changed) {
+      changed = false;
+      for (let i = 0; i < clusters.length && !changed; i++) {
+        for (let j = i + 1; j < clusters.length; j++) {
+          const result = tryMerge(clusters[i], clusters[j]);
+          if (result === null) continue;
+          if (result !== "touch") bridges.push(result);
+          clusters[i].rects.push(...clusters[j].rects, ...(result !== "touch" ? [result] : []));
+          clusters[j].groupIdxs.forEach((gi) => clusters[i].groupIdxs.add(gi));
+          clusters.splice(j, 1);
+          changed = true;
+          break;
+        }
       }
     }
   }
+  mergeAllPossible();
+
+  // DERNIER RECOURS, pour un cluster encore isolé de la racine après la
+  // fusion normale ci-dessus : un trajet réel depuis l'ENTRÉE elle-même
+  // (segment droit, largeur réelle CORRIDOR_WIDTH, jamais au travers d'une
+  // pièce — exactement buildExteriorPath, mais compté ici comme circulation
+  // INTÉRIEURE, pas un cheminement extérieur : le groupe visé reste dans le
+  // contour bâti, seule sa jonction par segments de circulation avait
+  // échoué). Jamais essayé avant la fusion normale : une jonction directe
+  // entre segments de circulation reste toujours préférée. Mesuré sur un
+  // cas réel (régénération, terrain standard, pièce verrouillée) où
+  // plusieurs placements complets existaient mais où AUCUN groupe ne
+  // touchait la zone d'entrée — rejetés jusqu'ici comme "coupés", alors
+  // qu'un trajet direct depuis l'entrée existait réellement vers l'un
+  // d'eux, ce qui aurait ensuite rapproché les autres par la fusion
+  // normale.
+  if (entryRescue) {
+    let rescued = true;
+    while (rescued && clusters.length > 1) {
+      rescued = false;
+      const allPlacementRects = groups.flatMap((g) => g.placements.map((p) => ({ x: p.x, y: p.y, w: p.w, d: p.d })));
+      const pathObstacles = [...obstacles, ...allPlacementRects];
+      for (let j = 1; j < clusters.length; j++) {
+        const path = buildExteriorPath(entryRescue.entryDoor, clusters[j].rects, pathObstacles, entryRescue.bounds);
+        if (path) {
+          root.rects.push(...clusters[j].rects, path);
+          clusters[j].groupIdxs.forEach((gi) => root.groupIdxs.add(gi));
+          bridges.push(path);
+          clusters.splice(j, 1);
+          rescued = true;
+          break;
+        }
+      }
+      if (rescued) mergeAllPossible();
+    }
+  }
+
   const strandedNeeds = groups.filter((_, gi) => !root.groupIdxs.has(gi)).flatMap((g) => g.placements.map((p) => p.need));
   return { bridges, strandedNeeds };
 }
@@ -2915,7 +2960,12 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     corridorFillers: Rect[],
     groups: PackedGroup[]
   ): { layout: Layout; note: string } | { error: string } {
-    const { bridges, strandedNeeds } = connectGroupsToNetwork(mode.networkAnchors, groups, mode.obstacles);
+    const { bridges, strandedNeeds } = connectGroupsToNetwork(
+      mode.networkAnchors,
+      groups,
+      mode.obstacles,
+      layout.entryDoor ? { entryDoor: layout.entryDoor, bounds: emprise } : null
+    );
     if (strandedNeeds.length > 0) {
       return {
         error: `${label} : ${strandedNeeds.map((n) => `« ${n.label} »`).join(", ")} seraient posées sur un segment de circulation réellement coupé du reste du logement (aucune jonction praticable trouvée) — rejeté plutôt que proposé comme accessible.`,
