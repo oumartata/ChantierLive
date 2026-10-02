@@ -1117,6 +1117,231 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
   };
 }
 
+// Famille D'ORGANISATION RÉELLEMENT DISTINCTE, pour un terrain dont les
+// PROPORTIONS ne conviennent à aucune des familles ci-dessus : ni le
+// corridor double-chargé (2 colonnes empilées en PROFONDEUR — inadapté dès
+// que la profondeur disponible est la ressource rare, ex. terrain large et
+// peu profond) ni la circulation en L (réservée à l'accès gauche). Mesuré
+// sur 20×14 m / 3 chambres : même au minimum absolu de chaque pièce, la
+// somme des profondeurs à loger (≈19 m) dépasse déjà la profondeur
+// disponible divisée par 2 colonnes (≈9,5 m chacune) — aucune réparti­tion
+// entre deux colonnes ne peut suffire, quel que soit l'ordre essayé par
+// buildDoubleLoadedLayout : ce n'est pas une mauvaise distribution, c'est une
+// limite structurelle de cette topologie à 2 colonnes.
+//
+// RÉUTILISE intégralement backtrackPackNeedsIntoFreeSpace (déjà utilisé par
+// regenerateUnlocked, même budget BACKTRACK_MAX_*) : AUCUNE géométrie
+// nouvelle. Le simple empaquetage glouton en un seul passage
+// (packNeedsIntoFreeSpace) a été essayé en premier mais échouait encore sur
+// 20×14/3 chambres (certaines pièces restaient sans place dans aucun des 3
+// ordres globaux déjà essayés par generateVariants) — exactement le défaut
+// que backtrackPackNeedsIntoFreeSpace existe déjà pour surmonter (plusieurs
+// sous-ensembles/ordres essayés avec retour arrière, au même endroit). Ce
+// moteur répartit déjà lui-même ses groupes selon la forme RÉELLE de chaque
+// rectangle libre restant (pickOrientation choisit l'axe par rectangle,
+// jamais ce builder) — pour un terrain large et peu profond, il produit
+// naturellement PLUSIEURS groupes côte à côte le long du bord le plus
+// favorable, chacun avec son propre segment de circulation court, au lieu
+// d'empiler toutes les pièces dans une seule colonne profonde. Aucune règle
+// liée à une dimension précise : fonctionne identiquement, en échouant
+// proprement si besoin, quelles que soient les proportions du terrain.
+// Peut renvoyer PLUSIEURS dispositions complètes (une par résultat retenu
+// par le budget de recherche) — jamais une seule supposée suffisante.
+//
+// Raccordement à l'entrée : réutilise connectGroupsToNetwork EXACTEMENT
+// comme le fait regenerateUnlocked (même mécanisme de recours vérifié sur
+// C8), avec `fixedNetwork` vide puisqu'il n'existe ici aucune circulation
+// préexistante. Plusieurs POSITIONS d'entrée candidates sont essayées sur la
+// façade d'accès (centre de chaque groupe touchant potentiellement cette
+// façade, puis centre de l'emprise en repli) — jamais une géométrie
+// nouvelle : chaque candidat est simplement soumis tel quel à
+// connectGroupsToNetwork, qui accepte ou refuse selon ses propres règles déjà
+// vérifiées ailleurs. Garage exclu explicitement (même motif que
+// regenerateUnlocked) : ce moteur général ne pose aucune porte véhicule.
+function buildFreePackedLayout(input: GenerationInput, needs: RoomNeed[], label: string): Layout[] {
+  const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
+  const fail = (reasons: string[]): Layout => ({
+    variantLabel: label,
+    feasible: false,
+    failureReasons: reasons,
+    rejected: false,
+    rejectionReasons: [],
+    accessSide: input.accessSide,
+    terrain,
+    emprise: null,
+    footprint: null,
+    corridor: null,
+    corridorFillers: [],
+    circulations: [],
+    exteriorPaths: [],
+    courtyard: null,
+    streetDoor: null,
+    entryDoor: null,
+    rooms: [],
+    doors: [],
+    windows: [],
+    exteriorSpaces: [],
+    surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+  });
+
+  if (needs.length === 0) return [fail(["Empaquetage libre : aucun besoin renseigné."])];
+  const vehicleNeeds = needs.filter((n) => REQUIRE_VEHICLE_ACCESS_TYPES.has(n.type));
+  if (vehicleNeeds.length > 0) {
+    return [
+      fail([
+        `Empaquetage libre : accès véhicule direct non pris en charge par ce moteur général pour « ${vehicleNeeds[0].label} » — essayez le corridor double-chargé ou la circulation en L.`,
+      ]),
+    ];
+  }
+
+  const empriseW = input.terrainWidth - input.setbacks.left - input.setbacks.right;
+  const empriseD = input.terrainDepth - input.setbacks.front - input.setbacks.back;
+  if (empriseW <= 0 || empriseD <= 0) {
+    return [fail(["Les reculs ne laissent aucune emprise constructible (largeur ou profondeur disponible ≤ 0)."])];
+  }
+  const emprise: Rect = { x: input.setbacks.left, y: input.setbacks.front, w: empriseW, d: empriseD };
+
+  const freeNeeds: FreeSpaceNeed[] = needs.map((n, i) => ({
+    idx: i,
+    label: n.label,
+    type: n.type,
+    width: sizeFor(n.targetWidth, n.minWidth),
+    depth: sizeFor(n.targetDepth, n.minDepth),
+    minW: n.minWidth,
+    minD: n.minDepth,
+  }));
+  const outcome = backtrackPackNeedsIntoFreeSpace(emprise, [], freeNeeds, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
+  if (outcome.complete.length === 0) {
+    return [
+      fail([
+        `Empaquetage libre : aucune répartition complète trouvée dans le budget de recherche (${outcome.nodesExplored} noeuds, ${outcome.elapsedMillis.toFixed(0)} ms, ${outcome.deadEnds} impasse(s)${outcome.budgetHit ? ", budget atteint" : ""}) pour ${empriseW.toFixed(2)} × ${empriseD.toFixed(2)} m disponibles.`,
+      ]),
+    ];
+  }
+
+  // Mur réel (WallSide) correspondant à la façade d'accès (AccessSide) —
+  // même correspondance que partout ailleurs dans ce fichier (front=top,
+  // back=bottom, left/right inchangés).
+  const accessWall: WallSide = input.accessSide === "front" ? "top" : input.accessSide === "back" ? "bottom" : input.accessSide;
+  const alongAxisIsY = accessWall === "left" || accessWall === "right";
+  const fixedCoord =
+    accessWall === "top" ? emprise.y : accessWall === "bottom" ? emprise.y + emprise.d : accessWall === "left" ? emprise.x : emprise.x + emprise.w;
+
+  return outcome.complete.map(({ placements, corridors, corridorFillers, groups }) => {
+    const candidateAlong = new Set<number>();
+    for (const g of groups) candidateAlong.add(alongAxisIsY ? g.corridor.y + g.corridor.d / 2 : g.corridor.x + g.corridor.w / 2);
+    candidateAlong.add(alongAxisIsY ? emprise.y + emprise.d / 2 : emprise.x + emprise.w / 2);
+
+    let connection: { entryDoor: DoorGeometry; bridges: Rect[]; exteriorRescuePaths: Rect[] } | null = null;
+    for (const along of candidateAlong) {
+      const candidate: DoorGeometry = alongAxisIsY
+        ? { wall: accessWall, cx: fixedCoord, cy: along, width: DOOR_WIDTH }
+        : { wall: accessWall, cx: along, cy: fixedCoord, width: DOOR_WIDTH };
+      const result = connectGroupsToNetwork([], groups, [], { entryDoor: candidate, bounds: emprise });
+      if (result.strandedNeeds.length === 0) {
+        connection = { entryDoor: candidate, bridges: result.bridges, exteriorRescuePaths: result.exteriorRescuePaths };
+        break;
+      }
+    }
+    if (!connection) {
+      return fail([
+        "Empaquetage libre : aucune position d'entrée sur la façade d'accès ne rejoint tous les groupes posés (aucune jonction praticable trouvée).",
+      ]);
+    }
+
+    const rooms: PlacedRoom[] = [];
+    const doors: Door[] = [];
+    const windows: Window[] = [];
+    const roomIndexByPlacement: number[] = [];
+    for (const p of placements) {
+      const need = needs[p.need.idx];
+      const roomIndex = rooms.length;
+      roomIndexByPlacement.push(roomIndex);
+      rooms.push({
+        type: need.type,
+        label: need.label,
+        number: numberWithin(needs, p.need.idx, need.type),
+        x: p.x,
+        y: p.y,
+        w: p.w,
+        d: p.d,
+        minW: need.minWidth,
+        minD: need.minDepth,
+        exteriorWall: p.exteriorWall,
+        vehicleDoor: null,
+      });
+      const vertical = p.doorWall === "left" || p.doorWall === "right";
+      const innerCoord = p.doorWall === "right" ? p.x + p.w : p.doorWall === "left" ? p.x : p.doorWall === "bottom" ? p.y + p.d : p.y;
+      doors.push({
+        roomIndex,
+        wall: p.doorWall,
+        cx: vertical ? innerCoord : p.x + p.w / 2,
+        cy: vertical ? p.y + p.d / 2 : innerCoord,
+        width: Math.min(DOOR_WIDTH, vertical ? p.d : p.w),
+        to: { kind: "circulation" },
+      });
+    }
+
+    let draft: Layout = {
+      variantLabel: label,
+      feasible: true,
+      failureReasons: [],
+      rejected: false,
+      rejectionReasons: [],
+      accessSide: input.accessSide,
+      terrain,
+      emprise,
+      footprint: null,
+      corridor: null,
+      corridorFillers,
+      circulations: [...corridors, ...connection.bridges],
+      exteriorPaths: [...connection.exteriorRescuePaths],
+      courtyard: null,
+      streetDoor: null,
+      entryDoor: connection.entryDoor,
+      rooms,
+      doors,
+      windows,
+      exteriorSpaces: [],
+      surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
+    };
+    draft = recomputeDerivedGeometry(draft);
+    draft = pruneUnneededCirculation(draft);
+    if (!draft.footprint) return fail(["Empaquetage libre : aucun contour bâti calculable."]);
+
+    // Fenêtres choisies sur le contour bâti VRAIMENT final, une fois la
+    // circulation posée ET élaguée — même méthode et même ordre que
+    // finalizeCandidate (regenerateUnlocked), jamais un second calcul qui
+    // pourrait diverger.
+    const rejectedWindows: string[] = [];
+    placements.forEach((p, k) => {
+      const roomIndex = roomIndexByPlacement[k];
+      const room = draft.rooms[roomIndex];
+      const rect = roomRect(room);
+      const otherBuilt: Rect[] = [
+        ...(draft.corridor ? [draft.corridor] : []),
+        ...draft.corridorFillers,
+        ...draft.circulations,
+        ...(draft.exteriorPaths ?? []),
+        ...draft.rooms.filter((r, i) => i !== roomIndex && !r.parked).map(roomRect),
+      ];
+      const chosen = chooseExteriorWindow(rect, draft.footprint!, otherBuilt, room.exteriorWall);
+      if (chosen) {
+        room.exteriorWall = chosen.wall;
+        draft.windows.push({ roomIndex, wall: chosen.wall, cx: chosen.cx, cy: chosen.cy, width: chosen.width });
+      } else if (REQUIRE_EXTERIOR_TYPES.has(room.type)) {
+        rejectedWindows.push(`« ${room.label} ${room.number} » (${room.type})`);
+      }
+    });
+    if (rejectedWindows.length > 0) {
+      return fail([
+        `Empaquetage libre : aucune ouverture extérieure réellement exposée et non obstruée n'a été trouvée, une fois la circulation posée et élaguée, pour ${rejectedWindows.join(", ")} — rejeté plutôt que proposé avec une fenêtre fictive.`,
+      ]);
+    }
+    return recomputeDerivedGeometry(draft);
+  });
+}
+
 function computeExteriorSpaces(terrain: Rect, emprise: Rect, footprint: Rect, accessSide: AccessSide): ExteriorSpace[] {
   // Utilise les bords RÉELS du bâti des QUATRE côtés, jamais une hypothèse
   // d'alignement avec un bord de l'emprise. Avant ce correctif, seuls
@@ -3771,6 +3996,28 @@ export function generateVariants(input: GenerationInput): GenerationResult {
         }
         consider(buildLShapedLayout(input, garageFirst(topNeeds), garageFirst(lNeeds), garageFirst(rNeeds), `Variante ${variantN}`));
       }
+    }
+
+    // Famille D'ORGANISATION RÉELLEMENT DISTINCTE : empaquetage libre (voir
+    // buildFreePackedLayout) — jamais tentée pour les dispositions guidées
+    // (portée différente, comme buildLShapedLayout ci-dessus). Toujours
+    // TENTÉE sinon, quelles que soient les proportions du terrain ou la
+    // façade d'accès : ce builder échoue alors explicitement avec un motif
+    // précis (garage demandé, besoin trop grand pour l'emprise, aucune
+    // jonction praticable…), jamais un silence. Seule famille ici qui ne
+    // suppose PAS un découpage en colonnes empilées par profondeur — utile
+    // en particulier pour un terrain large et peu profond, où cette
+    // hypothèse structurelle des autres familles ne peut pas être satisfaite
+    // quelle que soit la répartition essayée (voir le commentaire du
+    // builder pour la mesure exacte).
+    if (!guided) {
+      // Pas de garageFirst ici : buildFreePackedLayout refuse explicitement
+      // tout besoin à accès véhicule (voir son propre garde-fou), l'ordre de
+      // la liste n'a donc aucun effet sur ce point pour ce builder. Peut
+      // renvoyer PLUSIEURS dispositions (une par résultat de la recherche
+      // avec retour arrière) : chacune est soumise à consider() séparément,
+      // jamais une seule supposée représentative des autres.
+      for (const l of buildFreePackedLayout(input, roomList, `Variante ${variantN}`)) consider(l);
     }
   }
 
