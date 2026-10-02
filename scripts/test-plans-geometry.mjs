@@ -1121,27 +1121,88 @@ try {
         record("Terrain large et peu profond (C2) — chaque pièce reste dans ses bornes déclarées (minimum..cible×1.25)", dimsOk);
         record("Terrain large et peu profond (C2) — terrain et emprise inchangés (20×14, reculs 3/2/2/2)", v.terrain.w === 20 && v.terrain.d === 14 && v.emprise.w === 16 && v.emprise.d === 9);
 
-        // C9 : verrouille la première chambre (même scénario que la
-        // batterie fixe) puis régénère — vérifie la CONSERVATION EXACTE du
-        // verrou (position, dimensions), jamais seulement "ça tourne sans
-        // planter". Une régénération qui ne trouve aucune variante
-        // GENUINEMENT nouvelle reste informative (jamais présentée comme un
-        // échec de ce test, voir le repli "Disposition actuelle
-        // (inchangée)" déjà couvert ailleurs) : seule la conservation du
-        // verrou est l'objet de cette preuve.
-        const lockIdx = v.rooms.findIndex((r) => r.type === "chambre");
+        // C9 : verrouille le SALON (scénario explicitement demandé, distinct
+        // du verrouillage d'une chambre déjà couvert par la batterie fixe)
+        // puis régénère — exige au moins une disposition GENUINEMENT
+        // nouvelle (pas seulement le repli « inchangée »), avec le verrou
+        // conservé EXACTEMENT : position, dimensions, portes ET fenêtres
+        // (jamais seulement position/dimensions comme la preuve précédente).
+        // Les AUTRES pièces doivent elles aussi garder leurs dimensions
+        // individuelles (même convention que packNeedsIntoFreeSpace/needs
+        // partout ailleurs dans regenerateUnlocked : sizeFor(r.w, r.minW)
+        // préfère toujours la taille ACTUELLE, jamais une cible recalculée
+        // depuis les préréglages).
+        const lockIdx = v.rooms.findIndex((r) => r.type === "salon");
         const before = { ...v.rooms[lockIdx] };
+        const beforeDoors = v.doors.filter((d) => d.roomIndex === lockIdx).map((d) => ({ ...d }));
+        const beforeWindows = v.windows.filter((w) => w.roomIndex === lockIdx).map((w) => ({ ...w }));
+        const beforeOtherDims = v.rooms.map((r) => ({ type: r.type, w: r.w, d: r.d }));
         const locked = g.lockRoom(v, lockIdx);
         const regen = g.regenerateUnlocked(locked);
         const baseline = regen.variants.find((rv) => rv.variantLabel === "Disposition actuelle (inchangée)");
-        record("Terrain large et peu profond (C9) — le repli « disposition actuelle (inchangée) » reste proposé", !!baseline);
+        record("Terrain large et peu profond (C9, salon verrouillé) — le repli « disposition actuelle (inchangée) » reste proposé", !!baseline);
+        const newOnes = regen.variants.filter((rv) => rv.variantLabel !== "Disposition actuelle (inchangée)");
+        record(
+          "Terrain large et peu profond (C9, salon verrouillé) — au moins une disposition NOUVELLE et admissible trouvée (pas seulement le repli)",
+          newOnes.length > 0,
+          `${newOnes.length} nouvelle(s) variante(s)`
+        );
         for (const candidate of regen.variants) {
           const after = candidate.rooms[lockIdx];
           const samePosition = Math.abs(after.x - before.x) < 1e-6 && Math.abs(after.y - before.y) < 1e-6;
           const sameSize = Math.abs(after.w - before.w) < 1e-6 && Math.abs(after.d - before.d) < 1e-6;
+          const afterDoors = candidate.doors.filter((d) => d.roomIndex === lockIdx);
+          const sameDoors =
+            afterDoors.length === beforeDoors.length &&
+            beforeDoors.every((bd) => afterDoors.some((ad) => ad.wall === bd.wall && Math.abs(ad.cx - bd.cx) < 1e-6 && Math.abs(ad.cy - bd.cy) < 1e-6 && Math.abs(ad.width - bd.width) < 1e-6));
+          const afterWindows = candidate.windows.filter((w) => w.roomIndex === lockIdx);
+          const sameWindows =
+            afterWindows.length === beforeWindows.length &&
+            beforeWindows.every((bw) => afterWindows.some((aw) => aw.wall === bw.wall && Math.abs(aw.cx - bw.cx) < 1e-6 && Math.abs(aw.cy - bw.cy) < 1e-6 && Math.abs(aw.width - bw.width) < 1e-6));
           record(
-            `Terrain large et peu profond (C9) — verrou conservé EXACTEMENT dans « ${candidate.variantLabel} » (position et dimensions inchangées)`,
-            samePosition && sameSize
+            `Terrain large et peu profond (C9, salon verrouillé) — verrou conservé EXACTEMENT dans « ${candidate.variantLabel} » (position, dimensions, portes, fenêtres)`,
+            samePosition && sameSize && sameDoors && sameWindows
+          );
+        }
+        if (newOnes.length > 0) {
+          // Certaines des nouvelles dispositions replient LÉGÈREMENT la
+          // largeur de quelques pièces (ex. 3,50→3,45 m, jamais sous leur
+          // minimum déclaré — même algorithme fitProportional qu'à la
+          // génération initiale) quand le partage essayé l'exige. Puisque la
+          // consigne demande explicitement de conserver les dimensions
+          // individuelles des autres pièces, la preuve retient en priorité
+          // une variante qui n'en a besoin d'AUCUN : au moins une des
+          // nouvelles dispositions trouvées doit satisfaire cette exigence
+          // sans aucun repli, jamais seulement "en moyenne" ou "au mieux".
+          const exact = newOnes.find((rv) => rv.rooms.every((r, i) => i === lockIdx || (Math.abs(r.w - beforeOtherDims[i].w) < 1e-6 && Math.abs(r.d - beforeOtherDims[i].d) < 1e-6)));
+          record(
+            "Terrain large et peu profond (C9, salon verrouillé) — au moins une nouvelle disposition conserve les dimensions individuelles de TOUTES les autres pièces, sans aucun repli",
+            !!exact,
+            exact ? exact.variantLabel : `aucune parmi : ${newOnes.map((rv) => rv.variantLabel).join(", ")}`
+          );
+          const sample = exact ?? newOnes[0];
+          const sampleOtherDims = sample.rooms.map((r) => ({ type: r.type, w: r.w, d: r.d }));
+          const dimsPreserved = beforeOtherDims.every((b, i) => Math.abs(sampleOtherDims[i].w - b.w) < 1e-6 && Math.abs(sampleOtherDims[i].d - b.d) < 1e-6);
+          record(
+            `Terrain large et peu profond (C9, salon verrouillé) — « ${sample.variantLabel} » (retenue pour les preuves suivantes) conserve les dimensions individuelles des autres pièces`,
+            dimsPreserved
+          );
+          const moved = sample.rooms.some((r, i) => i !== lockIdx && (Math.abs(r.x - v.rooms[i].x) > 1e-6 || Math.abs(r.y - v.rooms[i].y) > 1e-6));
+          record(
+            `Terrain large et peu profond (C9, salon verrouillé) — « ${sample.variantLabel} » réellement distincte du repli (au moins une pièce non verrouillée à une position différente)`,
+            moved
+          );
+          // Circulation intérieure, cheminement extérieur et total — comparés
+          // SÉPARÉMENT entre la disposition d'origine et la nouvelle, jamais
+          // additionnés sans distinction (même exigence que la clôture du
+          // bilan C8) : un total plus élevé qu'à l'origine est une diversité
+          // supplémentaire, jamais présenté comme un gain de surface.
+          const beforeTotal = v.surfaces.circulation + v.surfaces.cheminementExterieur;
+          const afterTotal = sample.surfaces.circulation + sample.surfaces.cheminementExterieur;
+          record(
+            `Terrain large et peu profond (C9, salon verrouillé) — circulation intérieure (${v.surfaces.circulation.toFixed(2)} → ${sample.surfaces.circulation.toFixed(2)} m²), cheminement extérieur (${v.surfaces.cheminementExterieur.toFixed(2)} → ${sample.surfaces.cheminementExterieur.toFixed(2)} m²) et total (${beforeTotal.toFixed(2)} → ${afterTotal.toFixed(2)} m²) mesurés séparément, jamais confondus`,
+            true,
+            `delta total = ${(afterTotal - beforeTotal).toFixed(2)} m²`
           );
         }
       }

@@ -3876,6 +3876,272 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     }
   }
 
+  // Stratégie "corridor partagé entre deux rangées" (voir
+  // buildSharedCorridorLayout, génération initiale) — RÉUTILISE
+  // intégralement finalizeCandidate/admitIfValid ci-dessus, jamais un
+  // second moteur : construit directement les `placements`/`groups` que
+  // packNeedsIntoFreeSpace aurait produits pour CETTE topologie précise,
+  // puis les soumet aux MÊMES contrôles (connectGroupsToNetwork, fenêtres,
+  // independentVerify) que toute autre tentative ci-dessus.
+  //
+  // Tentée "lorsque possible" (jamais une règle générale imposée à tout
+  // verrouillage) : seulement quand les pièces verrouillées forment, À
+  // ELLES SEULES, une rangée intacte contre la façade d'accès (toutes sur
+  // le mur "top", toutes à la même profondeur depuis ce mur) — exactement
+  // la structure que produit buildSharedCorridorLayoutStraight pour sa
+  // rangée avant. Diagnostic mesuré (lot précédent) : un verrouillage dans
+  // cette configuration laissait la recherche générale par espace libre
+  // (packNeedsIntoFreeSpace/backtrack) sans AUCUNE disposition complète,
+  // non faute de budget (confirmé par un budget 50× plus grand sans
+  // succès), mais parce qu'aucune de ses familles ne partage un corridor
+  // entre deux rangées — chaque groupe qu'elle construit paie sa propre
+  // circulation, exactement la limite déjà chiffrée pour la génération
+  // initiale sur un terrain large et peu profond.
+  // Répartit `ideal` (une valeur par pièce, déjà la cible retenue par
+  // `needs`) sur `available`, en respectant toujours `floor` (son minimum
+  // déclaré) : la cible est gardée telle quelle si la somme tient déjà,
+  // sinon l'excédent est retiré PROPORTIONNELLEMENT à la marge (cible −
+  // minimum) de chaque pièce — jamais en dessous d'aucun minimum. Même
+  // algorithme que fitRowWidths dans buildSharedCorridorLayout (fonction
+  // locale à cet autre builder, non exportée) : réimplémenté ici à
+  // l'identique, partagé par les deux cas (rangée verrouillée avant/arrière)
+  // ci-dessous plutôt que dupliqué deux fois avec une formule qui pourrait
+  // diverger.
+  function fitProportional(ideal: number[], floor: number[], available: number): number[] | null {
+    const gaps = WALL_INT * Math.max(0, ideal.length - 1);
+    const idealSum = ideal.reduce((s, w) => s + w, 0) + gaps;
+    if (idealSum <= available + 1e-6) return ideal;
+    const floorSum = floor.reduce((s, w) => s + w, 0) + gaps;
+    if (floorSum > available + 1e-6) return null;
+    const totalSlack = ideal.reduce((s, w, i) => s + (w - floor[i]), 0);
+    if (totalSlack <= 1e-9) return null;
+    const reduction = idealSum - available;
+    return ideal.map((w, i) => w - ((w - floor[i]) / totalSlack) * reduction);
+  }
+
+  // Stratégie "corridor partagé entre deux rangées" (voir
+  // buildSharedCorridorLayout, génération initiale) — RÉUTILISE
+  // intégralement finalizeCandidate/admitIfValid ci-dessus, jamais un
+  // second moteur : construit directement les `placements`/`groups` que
+  // packNeedsIntoFreeSpace aurait produits pour CETTE topologie précise,
+  // puis les soumet aux MÊMES contrôles (connectGroupsToNetwork, fenêtres,
+  // independentVerify) que toute autre tentative ci-dessus.
+  //
+  // Tentée "lorsque possible" (jamais une règle générale imposée à tout
+  // verrouillage) : seulement quand les pièces verrouillées forment, À
+  // ELLES SEULES, une rangée intacte contre une des deux façades (toutes
+  // sur le même mur "top" OU "bottom", à la même profondeur depuis ce
+  // mur) — exactement la structure que produit
+  // buildSharedCorridorLayoutStraight pour l'une de ses deux rangées.
+  // Diagnostic mesuré (lot précédent) : un verrouillage dans cette
+  // configuration laissait la recherche générale par espace libre
+  // (packNeedsIntoFreeSpace/backtrack) sans AUCUNE disposition complète,
+  // non faute de budget (confirmé par un budget 50× plus grand sans
+  // succès), mais parce qu'aucune de ses familles ne partage un corridor
+  // entre deux rangées — chaque groupe qu'elle construit paie sa propre
+  // circulation, exactement la limite déjà chiffrée pour la génération
+  // initiale sur un terrain large et peu profond.
+  if (layout.accessSide === "front" && lockedRooms.length > 0 && needs.length > 0) {
+    const empriseBottom = emprise.y + emprise.d;
+    const usableRowWidth = emprise.w - 2 * WALL_EXT;
+
+    function tryShared(label: string, placements: FreeSpacePlacement[], corridorRect: Rect, corridorFillers: Rect[], extraCirculations: Rect[] = []): void {
+      const group: PackedGroup = { corridor: corridorRect, fillers: corridorFillers, placements };
+      const mode: ObstacleMode = {
+        name: label,
+        obstacles: [...fixedObstacles],
+        networkAnchors: [],
+        keepCorridor: null,
+        keepFillers: [],
+        keepCirculations: extraCirculations,
+      };
+      const built = finalizeCandidate(label, mode, placements, [corridorRect, ...extraCirculations], corridorFillers, [group]);
+      if ("error" in built) failureReasons.push(built.error);
+      else admitIfValid(label, built);
+    }
+
+    // Regroupe les besoins non verrouillés par TYPE — permet, ci-dessous,
+    // d'essayer de laisser certains types REJOINDRE la rangée verrouillée
+    // (partageant sa largeur restante) plutôt que de tous les reconstruire
+    // dans l'unique rangée fraîche. Mesuré sur le verrouillage d'une seule
+    // chambre (3 chambres + salon + cuisine + 2 sanitaires à reconstruire) :
+    // sans ce partage, la seule rangée fraîche doit loger TOUT le reste,
+    // ce que sa largeur ne permet pas toujours — alors qu'un partage (ex.
+    // les 2 autres chambres restent à côté de la verrouillée, le reste
+    // forme la rangée fraîche) tient. Mêmes primitives que la génération
+    // initiale (fitProportional ci-dessus) ; aucune règle liée à un type ou
+    // un terrain précis — énuméré pour les types RÉELLEMENT présents.
+    const typeGroups = new Map<string, FreeSpaceNeed[]>();
+    for (const n of needs) {
+      if (!typeGroups.has(n.type)) typeGroups.set(n.type, []);
+      typeGroups.get(n.type)!.push(n);
+    }
+    const typeKeys = [...typeGroups.keys()];
+    const k = typeKeys.length;
+
+    // Cas A : la rangée verrouillée est la rangée AVANT (mur "top") — la
+    // rangée arrière est reconstruite librement, son corridor partagé se
+    // raccorde à l'entrée via le même recours (connectGroupsToNetwork,
+    // entryRescue) que finalizeCandidate essaie déjà pour toute tentative :
+    // aucun foyer à construire ici, l'entrée touche l'espace juste à côté
+    // de la rangée verrouillée exactement comme à la génération initiale.
+    const frontY = emprise.y + WALL_EXT;
+    if (lockedRooms.every((r) => r.exteriorWall === "top" && Math.abs(r.y - frontY) < 1e-2) && k > 0) {
+      const depthFrontFixed = Math.max(...lockedRooms.map((r) => r.d));
+      const corridorY = frontY + depthFrontFixed + WALL_INT;
+      const backY = corridorY + CORRIDOR_WIDTH + WALL_INT;
+      const availableBackDepth = empriseBottom - backY - WALL_EXT;
+      const lockedRightEdge = Math.max(...lockedRooms.map((r) => r.x + r.w));
+      const joinStartX = lockedRightEdge + WALL_INT;
+      const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
+      if (availableBackDepth > 1e-6) {
+        for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          const joinNeeds: FreeSpaceNeed[] = [];
+          const backNeeds: FreeSpaceNeed[] = [];
+          for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : backNeeds).push(...typeGroups.get(typeKeys[i])!);
+          if (backNeeds.length === 0 || joinNeeds.some((n) => n.minD > depthFrontFixed + 1e-6)) continue;
+          let joinPlacements: FreeSpacePlacement[] = [];
+          const joinFillers: Rect[] = [];
+          if (joinNeeds.length > 0) {
+            if (joinAvailableWidth <= 0) continue;
+            const jWidths = fitProportional(joinNeeds.map((n) => n.width), joinNeeds.map((n) => n.minW), joinAvailableWidth);
+            if (!jWidths) continue;
+            let cx = joinStartX;
+            joinPlacements = joinNeeds.map((n, i) => {
+              const w = jWidths[i];
+              const d = Math.min(n.depth, depthFrontFixed);
+              // Le raccord doit couvrir le mur intérieur JUSQU'AU corridor
+              // réel (corridorY), pas seulement jusqu'à depthFrontFixed —
+              // même défaut d'asymétrie que placeColumn/buildSharedCorridorLayout
+              // (gap + WALL_INT), ici généralisé en rejoignant directement la
+              // coordonnée réelle du corridor plutôt qu'une distance supposée.
+              const depthGap = corridorY - (frontY + d);
+              if (depthGap > 1e-6) joinFillers.push({ x: cx, y: frontY + d, w, d: depthGap });
+              const p: FreeSpacePlacement = { need: n, x: cx, y: frontY, w, d, exteriorWall: "top", doorWall: "bottom" };
+              cx += w + WALL_INT;
+              return p;
+            });
+          }
+          const bFloorDepth = Math.max(...backNeeds.map((n) => n.minD));
+          if (bFloorDepth > availableBackDepth + 1e-6) continue;
+          const bWidths = fitProportional(backNeeds.map((n) => n.width), backNeeds.map((n) => n.minW), usableRowWidth);
+          if (!bWidths) continue;
+          const rowDepth = Math.min(Math.max(...backNeeds.map((n) => n.depth)), availableBackDepth);
+          const backFillers: Rect[] = [];
+          let cursorX = emprise.x + WALL_EXT;
+          const backPlacements: FreeSpacePlacement[] = backNeeds.map((n, i) => {
+            const w = bWidths[i];
+            const d = Math.min(n.depth, rowDepth);
+            const y = backY + (rowDepth - d);
+            // Même correction : rejoint le bord réel du corridor
+            // (corridorY+CORRIDOR_WIDTH), jamais seulement backY.
+            const depthGap = y - (corridorY + CORRIDOR_WIDTH);
+            if (depthGap > 1e-6) backFillers.push({ x: cursorX, y: corridorY + CORRIDOR_WIDTH, w, d: depthGap });
+            const p: FreeSpacePlacement = { need: n, x: cursorX, y, w, d, exteriorWall: "bottom", doorWall: "top" };
+            cursorX += w + WALL_INT;
+            return p;
+          });
+          const corridorRect: Rect = { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH };
+          const joinLabel = joinNeeds.length ? `, +${[...new Set(joinNeeds.map((n) => n.type))].join("/")} côté avant` : "";
+          tryShared(
+            `corridor partagé entre deux rangées (rangée avant verrouillée réutilisée${joinLabel})`,
+            [...joinPlacements, ...backPlacements],
+            corridorRect,
+            [...joinFillers, ...backFillers]
+          );
+        }
+      }
+    }
+
+    // Cas B : la rangée verrouillée est la rangée ARRIÈRE (mur "bottom") —
+    // la rangée avant est reconstruite librement, CONTRE la façade
+    // d'accès : un foyer (largeur réelle de corridor, même convention que
+    // buildSharedCorridorLayoutStraight) est donc réservé sur son côté
+    // gauche pour que l'entrée rejoigne le corridor partagé, faute de quoi
+    // la rangée fraîchement posée pourrait occuper toute la largeur et
+    // couper tout accès direct depuis l'entrée. Même partage par type que
+    // le Cas A : certains types peuvent rejoindre la rangée verrouillée
+    // (largeur restante à côté d'elle) plutôt que d'être tous reconstruits
+    // dans l'unique rangée avant fraîche.
+    const empriseBottomEdge = empriseBottom - WALL_EXT;
+    if (lockedRooms.every((r) => r.exteriorWall === "bottom" && Math.abs(r.y + r.d - empriseBottomEdge) < 1e-2) && k > 0) {
+      const depthBackFixed = Math.max(...lockedRooms.map((r) => r.d));
+      const corridorBottom = empriseBottomEdge - depthBackFixed - WALL_INT;
+      const corridorY = corridorBottom - CORRIDOR_WIDTH;
+      const availableFrontDepth = corridorY - WALL_INT - frontY;
+      const foyerX = emprise.x + WALL_EXT;
+      const usableFrontWidth = usableRowWidth - (CORRIDOR_WIDTH + WALL_INT);
+      const lockedRightEdge = Math.max(...lockedRooms.map((r) => r.x + r.w));
+      const joinStartX = lockedRightEdge + WALL_INT;
+      const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
+      if (availableFrontDepth > 1e-6 && usableFrontWidth > 0) {
+        for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          const joinNeeds: FreeSpaceNeed[] = [];
+          const frontNeeds: FreeSpaceNeed[] = [];
+          for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : frontNeeds).push(...typeGroups.get(typeKeys[i])!);
+          if (frontNeeds.length === 0 || joinNeeds.some((n) => n.minD > depthBackFixed + 1e-6)) continue;
+          let joinPlacements: FreeSpacePlacement[] = [];
+          const joinFillers: Rect[] = [];
+          if (joinNeeds.length > 0) {
+            if (joinAvailableWidth <= 0) continue;
+            const jWidths = fitProportional(joinNeeds.map((n) => n.width), joinNeeds.map((n) => n.minW), joinAvailableWidth);
+            if (!jWidths) continue;
+            let cx = joinStartX;
+            joinPlacements = joinNeeds.map((n, i) => {
+              const w = jWidths[i];
+              const d = Math.min(n.depth, depthBackFixed);
+              const y = empriseBottomEdge - d;
+              // Rejoint le bord réel du corridor (corridorY+CORRIDOR_WIDTH),
+              // jamais seulement la profondeur de la rangée verrouillée.
+              const depthGap = y - (corridorY + CORRIDOR_WIDTH);
+              if (depthGap > 1e-6) joinFillers.push({ x: cx, y: corridorY + CORRIDOR_WIDTH, w, d: depthGap });
+              const p: FreeSpacePlacement = { need: n, x: cx, y, w, d, exteriorWall: "bottom", doorWall: "top" };
+              cx += w + WALL_INT;
+              return p;
+            });
+          }
+          const fFloorDepth = Math.max(...frontNeeds.map((n) => n.minD));
+          if (fFloorDepth > availableFrontDepth + 1e-6) continue;
+          const fWidths = fitProportional(frontNeeds.map((n) => n.width), frontNeeds.map((n) => n.minW), usableFrontWidth);
+          if (!fWidths) continue;
+          const rowDepth = Math.min(Math.max(...frontNeeds.map((n) => n.depth)), availableFrontDepth);
+          const frontFillers: Rect[] = [];
+          let cursorX = foyerX + CORRIDOR_WIDTH + WALL_INT;
+          const frontPlacements: FreeSpacePlacement[] = frontNeeds.map((n, i) => {
+            const w = fWidths[i];
+            const d = Math.min(n.depth, rowDepth);
+            // Rejoint le bord réel du corridor (corridorY), jamais seulement
+            // rowDepth : rowDepth peut être plus court que la profondeur
+            // réellement disponible (besoins naturellement moins profonds),
+            // laissant sinon un écart non comblé jusqu'au corridor fixé par
+            // la rangée verrouillée.
+            const depthGap = corridorY - (frontY + d);
+            if (depthGap > 1e-6) frontFillers.push({ x: cursorX, y: frontY + d, w, d: depthGap });
+            const p: FreeSpacePlacement = { need: n, x: cursorX, y: frontY, w, d, exteriorWall: "top", doorWall: "bottom" };
+            cursorX += w + WALL_INT;
+            return p;
+          });
+          const corridorRect: Rect = { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH };
+          // Aucun foyer construit à la main ici : la rangée avant fraîche
+          // laisse déjà la largeur [foyerX, foyerX+CORRIDOR_WIDTH] libre de
+          // toute pièce (cursorX démarre après), et finalizeCandidate essaie
+          // déjà un recours depuis l'entrée (connectGroupsToNetwork,
+          // entryRescue) vers CE groupe — un foyer posé à la main en plus
+          // produisait un VRAI chevauchement avec ce recours (mesuré :
+          // "circulation" et "cheminement extérieur" se recouvraient), les
+          // deux revendiquant la même largeur par deux chemins différents.
+          const joinLabel = joinNeeds.length ? `, +${[...new Set(joinNeeds.map((n) => n.type))].join("/")} côté arrière` : "";
+          tryShared(
+            `corridor partagé entre deux rangées (rangée arrière verrouillée réutilisée${joinLabel})`,
+            [...joinPlacements, ...frontPlacements],
+            corridorRect,
+            [...joinFillers, ...frontFillers]
+          );
+        }
+      }
+    }
+  }
+
   // Écarte les doublons stricts (même disposition obtenue par deux chemins
   // différents, ex. rien à reconstruire) — jamais compté comme deux
   // organisations distinctes. Même clé que pour repérer, plus bas, la
@@ -4300,27 +4566,37 @@ export function generateVariants(input: GenerationInput): GenerationResult {
 
     // Famille D'ORGANISATION RÉELLEMENT DISTINCTE : corridor PARTAGÉ entre
     // deux rangées (voir buildSharedCorridorLayout) — jamais tentée pour les
-    // dispositions guidées. Deux partages essayés : isoler la pièce la plus
-    // profonde dans sa propre rangée (minimise la somme des profondeurs max
-    // des deux rangées, le partage mathématiquement optimal pour ce coût de
-    // structure partagé), et le même partage sanitaire/cuisine-vs-reste déjà
-    // utilisé pour la circulation en L (diversité de repli). Garage exclu
+    // dispositions guidées. Deux partages isolés (le plus profond seul, ou
+    // sanitaire/cuisine vs reste) laissaient parfois des pièces repliées sous
+    // leur LARGEUR cible alors qu'un autre partage évitait ce repli tout en
+    // acceptant le même repli de PROFONDEUR (mathématiquement incontournable
+    // pour ce programme, voir le commentaire du builder) — mesuré sur C2 :
+    // "salon+cuisine" / "chambre+sanitaire" tient à largeur cible exacte des
+    // deux côtés, contrairement aux deux partages isolés essayés jusqu'ici.
+    // Généralisé ici en essayant TOUTES les bipartitions des TYPES distincts
+    // présents (jamais une paire de partages choisie à la main) : pour k
+    // types, 2^(k-1)-1 bipartitions uniques × les deux orientations
+    // (avant/arrière) — un calcul purement arithmétique par essai (aucune
+    // recherche), donc bon marché même en les essayant toutes. Garage exclu
     // (même garde-fou que buildFreePackedLayout : aucune porte véhicule
     // posée par ce builder).
     if (!guided && !roomList.some((n) => REQUIRE_VEHICLE_ACCESS_TYPES.has(n.type))) {
-      const byDepthDescAll = [...roomList].sort((a, b) => sizeFor(b.targetDepth, b.minDepth) - sizeFor(a.targetDepth, a.minDepth));
-      if (byDepthDescAll.length >= 2) {
-        const tallest = [byDepthDescAll[0]];
-        const rest = byDepthDescAll.slice(1);
-        consider(buildSharedCorridorLayout(input, tallest, rest, `Variante ${variantN}`));
-        consider(buildSharedCorridorLayout(input, rest, tallest, `Variante ${variantN}`));
+      const typeGroups = new Map<string, RoomNeed[]>();
+      for (const n of roomList) {
+        if (!typeGroups.has(n.type)) typeGroups.set(n.type, []);
+        typeGroups.get(n.type)!.push(n);
       }
-      const sharedTopTypes = new Set(["sanitaire", "cuisine"]);
-      const sharedFrontNeeds = roomList.filter((n) => sharedTopTypes.has(n.type));
-      const sharedBackNeeds = roomList.filter((n) => !sharedTopTypes.has(n.type));
-      if (sharedFrontNeeds.length > 0 && sharedBackNeeds.length > 0) {
-        consider(buildSharedCorridorLayout(input, sharedFrontNeeds, sharedBackNeeds, `Variante ${variantN}`));
-        consider(buildSharedCorridorLayout(input, sharedBackNeeds, sharedFrontNeeds, `Variante ${variantN}`));
+      const typeKeys = [...typeGroups.keys()];
+      const k = typeKeys.length;
+      if (k >= 2 && k <= 8) {
+        for (let mask = 1; mask < (1 << k) - 1; mask++) {
+          if ((mask & 1) === 0) continue; // chaque bipartition unique essayée une fois ; les deux consider() ci-dessous couvrent déjà ses deux orientations
+          const front: RoomNeed[] = [];
+          const back: RoomNeed[] = [];
+          for (let i = 0; i < k; i++) (mask & (1 << i) ? front : back).push(...typeGroups.get(typeKeys[i])!);
+          consider(buildSharedCorridorLayout(input, front, back, `Variante ${variantN}`));
+          consider(buildSharedCorridorLayout(input, back, front, `Variante ${variantN}`));
+        }
       }
     }
 
