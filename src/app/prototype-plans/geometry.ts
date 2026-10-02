@@ -293,6 +293,10 @@ export interface Layout {
   // fois) mais inclus dans circulationSpaces() pour l'accessibilité : un
   // trajet extérieur réellement praticable relie bel et bien l'entrée au
   // reste du réseau.
+  // CONVENTION, pas une preuve physique (voir connectGroupsToNetwork pour le
+  // détail) : "une extrémité touche entryDoor" classe ici, faute d'une
+  // représentation de mur/enveloppe au-delà de Layout.footprint — jamais une
+  // vérification que le trajet est réellement à l'air libre.
   exteriorPaths: Rect[];
   // Cour d'entrée — espace dimensionné et accessible depuis la rue, JAMAIS le
   // simple reste du terrain (voir exteriorSpaces pour cela).
@@ -2590,17 +2594,32 @@ export function connectGroupsToNetwork(
   // pièces, jamais de l'autre. "Rester dans l'emprise" ou "rejoindre le même
   // graphe que le réseau" ne prouve donc RIEN de plus pour ce trajet qu'un
   // corridor ordinaire ne prouve déjà — ce n'est pas un critère valide pour
-  // le classer "intérieur". Le seul critère qui tient, et qui est DÉJÀ celui
-  // du modèle existant (buildExteriorPath, utilisé plus loin dans
-  // finalizeCandidate) : un trajet dont UNE extrémité est entryDoor
-  // lui-même représente par construction le dernier mètre entre le seuil et
-  // la circulation, jamais un segment entre deux pièces déjà posées — donc
-  // CLASSÉ COMME CHEMINEMENT EXTÉRIEUR (`exteriorRescuePaths`, séparé de
-  // `bridges`), exactement comme l'usage préexistant de cette même fonction,
-  // jamais ajouté à `bridges`/`next.circulations`. Conséquence vérifiée :
-  // le contour bâti recalculé (recomputeDerivedGeometry exclut
-  // exteriorPaths de son calcul) n'inclut plus ce trajet, qui n'est donc
-  // plus présenté à tort comme une façade bâtie.
+  // le classer "intérieur".
+  //
+  // PRÉCISION SUPPLÉMENTAIRE (le point précédent restait insuffisamment
+  // prudent) : le critère retenu ci-dessous — une extrémité posée sur
+  // entryDoor — ne DÉMONTRE pas non plus qu'un trajet est extérieur. Ce
+  // modèle n'a aucune représentation de mur/enveloppe au-delà du contour
+  // englobant (Layout.footprint) : il ne peut physiquement vérifier qu'un
+  // trajet traverse réellement de l'air libre plutôt qu'un volume bâti.
+  // Toucher entryDoor ne prouve rien de plus que toucher n'importe quel
+  // autre point du réseau de circulation. Ce qui suit est donc une
+  // CONVENTION DE CLASSEMENT (bookkeeping), choisie pour sa COHÉRENCE avec
+  // l'usage préexistant de buildExteriorPath ailleurs dans ce fichier
+  // (reconstruction du cheminement entrée→bâti, déjà classée ainsi avant ce
+  // lot), jamais une preuve géométrique : un trajet dont une extrémité est
+  // entryDoor est CLASSÉ COMME CHEMINEMENT EXTÉRIEUR (`exteriorRescuePaths`,
+  // séparé de `bridges`), jamais ajouté à `bridges`/`next.circulations`.
+  // Aucun reclassement opportuniste ici selon le résultat recherché — le
+  // même critère s'applique systématiquement, qu'il avantage ou non le
+  // score de circulation d'un candidat donné. Le libellé utilisateur doit
+  // rester prudent en conséquence (voir PlanEditor.tsx/PrototypeClient.tsx :
+  // "cheminement extérieur" y décrit cette convention, jamais une enveloppe
+  // bâtie vérifiée). Conséquence mécanique vérifiée : le contour bâti
+  // recalculé (recomputeDerivedGeometry exclut exteriorPaths de son calcul)
+  // n'inclut plus ce trajet, qui n'est donc plus présenté à tort comme une
+  // façade bâtie — ceci reste une conséquence du calcul, pas une
+  // confirmation indépendante que le trajet est physiquement extérieur.
   //
   // Jamais essayé avant la fusion normale : une jonction directe entre
   // segments de circulation reste toujours préférée. Mesuré sur un cas réel

@@ -472,7 +472,7 @@ export function PrototypeClient() {
                     <tr><td>Surface utile habitable</td><td>{selected.surfaces.utileHabitable.toFixed(1)} m²</td></tr>
                     <tr><td>Circulation intérieure (union réelle)</td><td>{selected.surfaces.circulation.toFixed(1)} m²</td></tr>
                     {selected.surfaces.cheminementExterieur > 0.05 ? (
-                      <tr><td>Cheminement extérieur (entrée → bâti)</td><td>{selected.surfaces.cheminementExterieur.toFixed(1)} m²</td></tr>
+                      <tr><td title="Trajet dont une extrémité touche l'entrée : classé ainsi par convention de ce modèle (il ne représente aucun mur ni enveloppe bâtie au-delà du contour englobant) — jamais une vérification physique d'exposition à l'air libre.">Cheminement extérieur (entrée → bâti, convention)</td><td>{selected.surfaces.cheminementExterieur.toFixed(1)} m²</td></tr>
                     ) : null}
                     {selected.surfaces.nonAffectee > 0.05 ? (
                       <tr><td>Résiduel non affecté (dans le contour englobant)</td><td>{selected.surfaces.nonAffectee.toFixed(1)} m²</td></tr>

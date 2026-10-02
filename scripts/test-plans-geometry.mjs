@@ -976,6 +976,67 @@ try {
       }
     }
 
+    // 17) CONSOLIDATION DE LA TRANSPOSITION — dimensions NON carrées et
+    // reculs NETTEMENT asymétriques (14×24, reculs 4/1/2,5/1 : aucun des
+    // quatre n'est égal à un autre), sur les QUATRE façades d'accès (le lot
+    // précédent ne couvrait que gauche/droite, sur un terrain 15×20 dont les
+    // reculs restaient proches). Réutilise les MÊMES primitives de
+    // vérification que la section 16 (independentVerify couvre déjà
+    // chevauchement, fenêtre réellement extérieure et battant de porte sans
+    // recoupement — jamais revérifié une seconde fois ici) ; ajoute
+    // seulement les contrôles qui ne sont PAS déjà couverts par
+    // independentVerify : l'emprise elle-même est calculée avec les reculs
+    // RÉELS (jamais ceux du repère virtuel front/back utilisé en interne
+    // pour gauche/droite), chaque pièce a au moins une porte, et le sens du
+    // corridor suit la convention de rotation (perpendiculaire au mur
+    // d'accès latéral, parallèle à un accès avant/arrière).
+    {
+      const SETBACKS = { front: 4, back: 1, left: 2.5, right: 1 };
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 2, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 1, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+        { type: "garage", label: "Garage", count: 0, minWidth: 3, minDepth: 5, targetWidth: 3.5, targetDepth: 5.5 },
+      ];
+      const BASE = { orientation: "N", setbacks: SETBACKS, entryMode: "direct", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor" };
+      const WALL_FOR_SIDE = { front: "top", back: "bottom", left: "left", right: "right" };
+      for (const accessSide of ["front", "back", "left", "right"]) {
+        const input = { ...BASE, terrainWidth: 14, terrainDepth: 24, accessSide, needs: NEEDS };
+        const res = g.generateVariants(input);
+        record(`Transposition consolidée (14×24, reculs asymétriques) — ${accessSide} : au moins une disposition complète trouvée`, res.variants.length > 0, `${res.variants.length} variante(s)`);
+        if (res.variants.length === 0) continue;
+        const v = res.variants[0];
+        record(`Transposition consolidée — ${accessSide} : 0 erreur independentVerify (chevauchement, fenêtre, battant déjà couverts)`, g.independentVerify(v).filter((i) => i.severity === "error").length === 0);
+        record(`Transposition consolidée — ${accessSide} : l'entrée est bien sur le mur ${WALL_FOR_SIDE[accessSide]}`, v.entryDoor?.wall === WALL_FOR_SIDE[accessSide]);
+        record(
+          `Transposition consolidée — ${accessSide} : dimensions du terrain inchangées (14×24, jamais échangées par le repère virtuel)`,
+          v.terrain.w === 14 && v.terrain.d === 24
+        );
+        const expectedEmpriseW = input.terrainWidth - SETBACKS.left - SETBACKS.right;
+        const expectedEmpriseD = input.terrainDepth - SETBACKS.front - SETBACKS.back;
+        record(
+          `Transposition consolidée — ${accessSide} : limites d'emprise calculées avec les reculs RÉELS (${expectedEmpriseW}×${expectedEmpriseD}, jamais ceux du repère virtuel)`,
+          Math.abs(v.emprise.w - expectedEmpriseW) < 1e-6 && Math.abs(v.emprise.d - expectedEmpriseD) < 1e-6,
+          `obtenu ${v.emprise.w}×${v.emprise.d}`
+        );
+        const activeRooms = v.rooms.filter((r) => !r.parked);
+        const roomsWithoutDoor = activeRooms.filter((r) => g.doorsOf(v, v.rooms.indexOf(r)).length === 0);
+        record(`Transposition consolidée — ${accessSide} : chaque pièce posée a au moins une porte`, roomsWithoutDoor.length === 0, `${roomsWithoutDoor.length} pièce(s) sans porte`);
+        const roomsWithoutOpening = activeRooms.filter((r) => {
+          const idx = v.rooms.indexOf(r);
+          const hasWindow = g.windowsOf(v, idx).length > 0;
+          const hasExteriorDoor = g.doorsOf(v, idx).some((d) => d.to.kind === "exterior" || d.to.kind === "courtyard");
+          return !hasWindow && !hasExteriorDoor && !r.exteriorWall;
+        });
+        record(`Transposition consolidée — ${accessSide} : chaque pièce posée a au moins une ouverture extérieure`, roomsWithoutOpening.length === 0, `${roomsWithoutOpening.length} pièce(s) sans ouverture`);
+        record(
+          `Transposition consolidée — ${accessSide} : sens du corridor conforme à la convention de rotation (${accessSide === "left" || accessSide === "right" ? "perpendiculaire" : "parallèle"} au mur d'accès)`,
+          v.corridor && (accessSide === "left" || accessSide === "right" ? v.corridor.w > v.corridor.d : v.corridor.d > v.corridor.w)
+        );
+      }
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);
