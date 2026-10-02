@@ -753,12 +753,46 @@ function buildDoubleLoadedLayoutStraight(
 // passant un recul avant augmenté pour réserver la profondeur de la cour et
 // du salon, puis la cour et le salon sont posés par-dessus.
 //
-// Limite explicite de cette première version : seul un accès "avant" est
-// pris en charge pour la cour et le salon central (le calque de symétrie
-// utilisé pour "arrière" et le déplacement latéral pour "gauche/droite" ne
-// sont pas recombinés avec cette organisation ici) — une combinaison non
-// prise en charge est refusée avec une raison explicite, jamais ignorée.
+// Point d'entrée public — étend buildGuidedLayoutStraight aux 4 façades en
+// RÉUTILISANT exactement les deux transformations déjà éprouvées par
+// buildDoubleLoadedLayout/buildSharedCorridorLayout : gauche/droite passent
+// par le repère virtuel transposé (transposeDoubleLoadedResult, inchangé),
+// arrière est pris en charge NATIVEMENT par buildGuidedLayoutStraight (voir
+// son corps) via un reflet vertical — jamais une seconde géométrie.
 function buildGuidedLayout(
+  input: GenerationInput,
+  leftNeeds: RoomNeed[],
+  rightNeeds: RoomNeed[],
+  salonNeed: RoomNeed | null,
+  leftSlot: RoomNeed | null,
+  rightSlot: RoomNeed | null,
+  label: string
+): Layout {
+  if (input.accessSide === "left" || input.accessSide === "right") {
+    const virtualInput: GenerationInput = {
+      ...input,
+      terrainWidth: input.terrainDepth,
+      terrainDepth: input.terrainWidth,
+      setbacks: { front: input.setbacks.left, back: input.setbacks.right, left: input.setbacks.front, right: input.setbacks.back },
+      accessSide: input.accessSide === "left" ? "front" : "back",
+    };
+    const virtual = buildGuidedLayoutStraight(virtualInput, leftNeeds, rightNeeds, salonNeed, leftSlot, rightSlot, label);
+    return transposeDoubleLoadedResult(virtual, input);
+  }
+  return buildGuidedLayoutStraight(input, leftNeeds, rightNeeds, salonNeed, leftSlot, rightSlot, label);
+}
+
+// Construit TOUJOURS comme un accès avant (même quand input.accessSide
+// vaut réellement "back" — y compris le "back" virtuel reçu du dispatcher
+// ci-dessus pour un accès droite), puis reflète l'ENSEMBLE du résultat en Y
+// à la toute fin si c'est réellement "back" demandé — même technique que
+// buildSharedCorridorLayoutStraight pour son propre accès arrière : le
+// contour englobant et l'emprise ne dépendent que des reculs avant/arrière
+// (pas de la façade d'accès), donc un reflet autour du centre vertical de
+// l'emprise déjà construite relocalise correctement la cour/le salon
+// (toujours posés "près de l'entrée" par cette fonction) vers le mur
+// physique réel — jamais besoin de réécrire chaque coordonnée Y à la main.
+function buildGuidedLayoutStraight(
   input: GenerationInput,
   leftNeeds: RoomNeed[],
   rightNeeds: RoomNeed[],
@@ -793,9 +827,9 @@ function buildGuidedLayout(
   });
 
   const needsGuidedLayout = input.entryMode === "courtyard" || (input.centralSalon && salonNeed);
-  if (needsGuidedLayout && input.accessSide !== "front") {
+  if (needsGuidedLayout && input.accessSide !== "front" && input.accessSide !== "back") {
     return fail([
-      "Cour d'entrée / salon central non pris en charge dans cette version pour une façade d'accès autre qu'avant — combinaison non traitée, choix ignoré nulle part : réessayez avec « Avant », ou désactivez la cour et le salon central.",
+      "Cour d'entrée / salon central non pris en charge dans cette version pour une façade d'accès autre qu'avant/arrière/gauche/droite — combinaison non traitée, choix ignoré nulle part.",
     ]);
   }
 
@@ -804,7 +838,15 @@ function buildGuidedLayout(
   const salonDepth = salonNeed ? sizeFor(salonNeed.targetDepth, salonNeed.minDepth) : 0;
   const reservedFrontDepth = courtyardDepth + (salonNeed ? WALL_EXT + salonDepth + WALL_INT : 0);
 
-  const modifiedInput: GenerationInput = { ...input, setbacks: { ...input.setbacks, front: F + reservedFrontDepth } };
+  // accessSide forcé à "front" ici : cette fonction construit TOUJOURS la
+  // cour/le salon près du haut de l'emprise (près de l'entrée, convention
+  // "avant"), quel que soit l'accès réel demandé — le reflet en Y tout en
+  // bas de cette fonction relocalise ensuite l'ensemble vers le mur réel
+  // si l'accès est "back". Passer l'accessSide réel ici aurait fait
+  // construire `lower` avec SON PROPRE reflet natif (buildDoubleLoadedLayout
+  // gère aussi "back"), produisant un repère incohérent avec la cour/le
+  // salon posés ci-dessous (qui, eux, supposent toujours un repère "avant").
+  const modifiedInput: GenerationInput = { ...input, accessSide: "front", setbacks: { ...input.setbacks, front: F + reservedFrontDepth } };
   const lower = buildDoubleLoadedLayout(modifiedInput, leftNeeds, rightNeeds, label);
   if (!lower.feasible || !lower.footprint || !lower.corridor || !lower.emprise) {
     return fail(lower.failureReasons.length > 0 ? lower.failureReasons : ["Disposition impossible sous le salon/la cour demandés."]);
@@ -906,29 +948,77 @@ function buildGuidedLayout(
   const entryDoor: DoorGeometry = salonRect
     ? { wall: "top", cx: salonRect.x + salonRect.w / 2, cy: salonRect.y, width: DOOR_WIDTH }
     : lower.entryDoor!;
+  const allFillers = [...lower.corridorFillers, ...extraFillers];
 
+  if (input.accessSide !== "back") {
+    return {
+      variantLabel: label,
+      feasible: true,
+      failureReasons: [],
+      rejected: false,
+      rejectionReasons: [],
+      accessSide: input.accessSide,
+      terrain,
+      emprise: realEmprise,
+      footprint: combinedFootprint,
+      corridor: lower.corridor,
+      corridorFillers: allFillers,
+      circulations: [],
+      exteriorPaths: [],
+      courtyard,
+      streetDoor,
+      entryDoor,
+      rooms,
+      doors,
+      windows,
+      exteriorSpaces: computeExteriorSpaces(terrain, realEmprise, combinedFootprint, input.accessSide),
+      surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, allFillers, [], rooms, courtyard, []),
+    };
+  }
+
+  // Reflet vertical vers l'accès arrière RÉEL (voir le commentaire en tête
+  // de fonction) : tout ce qui précède a été construit comme si l'accès
+  // était "avant" (cour/salon près du haut de l'emprise) — reflété ici
+  // autour du centre vertical de `realEmprise` (jamais du terrain entier),
+  // qui ne dépend que des reculs avant/arrière, identiques quel que soit
+  // l'accès réel.
+  const mirrorRect = (r: Rect): Rect => ({ x: r.x, y: realEmprise.y + realEmprise.d - (r.y - realEmprise.y) - r.d, w: r.w, d: r.d });
+  const mirrorCy = (cy: number) => realEmprise.y + realEmprise.d - (cy - realEmprise.y);
+  const mirrorWall = (w: WallSide): WallSide => (w === "top" ? "bottom" : w === "bottom" ? "top" : w);
+  const footprintM = mirrorRect(combinedFootprint);
+  const corridorM = mirrorRect(lower.corridor);
+  const fillersM = allFillers.map(mirrorRect);
+  const courtyardM = courtyard ? mirrorRect(courtyard) : null;
+  const streetDoorM = streetDoor ? { ...streetDoor, wall: mirrorWall(streetDoor.wall), cy: mirrorCy(streetDoor.cy) } : null;
+  const roomsM: PlacedRoom[] = rooms.map((r) => {
+    const t = mirrorRect(r);
+    return { ...r, x: t.x, y: t.y, exteriorWall: r.exteriorWall ? mirrorWall(r.exteriorWall) : null };
+  });
+  const doorsM: Door[] = doors.map((d) => ({ ...d, wall: mirrorWall(d.wall), cy: mirrorCy(d.cy) }));
+  const windowsM: Window[] = windows.map((w) => ({ ...w, wall: mirrorWall(w.wall), cy: mirrorCy(w.cy) }));
+  const entryDoorM: DoorGeometry = { ...entryDoor, wall: mirrorWall(entryDoor.wall), cy: mirrorCy(entryDoor.cy) };
   return {
     variantLabel: label,
     feasible: true,
     failureReasons: [],
     rejected: false,
     rejectionReasons: [],
-    accessSide: input.accessSide,
+    accessSide: "back",
     terrain,
     emprise: realEmprise,
-    footprint: combinedFootprint,
-    corridor: lower.corridor,
-    corridorFillers: [...lower.corridorFillers, ...extraFillers],
+    footprint: footprintM,
+    corridor: corridorM,
+    corridorFillers: fillersM,
     circulations: [],
     exteriorPaths: [],
-    courtyard,
-    streetDoor,
-    entryDoor,
-    rooms,
-    doors,
-    windows,
-    exteriorSpaces: computeExteriorSpaces(terrain, realEmprise, combinedFootprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, realEmprise, combinedFootprint, lower.corridor, [...lower.corridorFillers, ...extraFillers], [], rooms, courtyard, []),
+    courtyard: courtyardM,
+    streetDoor: streetDoorM,
+    entryDoor: entryDoorM,
+    rooms: roomsM,
+    doors: doorsM,
+    windows: windowsM,
+    exteriorSpaces: computeExteriorSpaces(terrain, realEmprise, footprintM, "back"),
+    surfaces: computeSurfaces(terrain, realEmprise, footprintM, corridorM, fillersM, [], roomsM, courtyardM, []),
   };
 }
 
@@ -949,13 +1039,41 @@ function buildGuidedLayout(
 // (c'est lui que l'entrée doit atteindre) ; le segment bas est ajouté à
 // Layout.circulations — exactement le mécanisme généralisé prévu pour
 // plusieurs espaces de circulation identifiés.
-// Limite EXACTE de cette version : seul un accès par la façade GAUCHE est
-// pris en charge (l'entrée rejoint directement le segment haut par le mur
-// gauche du bâti, un contact réel, pas une approximation) — toute autre
-// façade est refusée explicitement. Toutes les pièces d'un même besoin
-// partagent encore une seule taille (comme le moteur existant) ; un
-// redimensionnement manuel ultérieur reste possible en édition.
-function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNeeds: RoomNeed[], rightNeeds: RoomNeed[], label: string): Layout {
+// Toutes les pièces d'un même besoin partagent encore une seule taille
+// (comme le moteur existant) ; un redimensionnement manuel ultérieur reste
+// possible en édition.
+//
+// Point d'entrée public — étend buildLShapedLayoutStraight aux 4 façades en
+// RÉUTILISANT les deux transformations déjà éprouvées, mais dans l'ordre
+// inverse des autres familles : ici le NATIF est gauche/droite (gauche tel
+// quel, droite via un reflet horizontal interne à Straight — voir son
+// corps), et c'est avant/arrière qui passent par le repère virtuel
+// transposé (même fonction générique transposeDoubleLoadedResult, jamais
+// réimplémentée : une transposition diagonale est une involution, la même
+// formule sert dans les deux sens).
+export function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNeeds: RoomNeed[], rightNeeds: RoomNeed[], label: string): Layout {
+  if (input.accessSide === "front" || input.accessSide === "back") {
+    const virtualInput: GenerationInput = {
+      ...input,
+      terrainWidth: input.terrainDepth,
+      terrainDepth: input.terrainWidth,
+      setbacks: { front: input.setbacks.left, back: input.setbacks.right, left: input.setbacks.front, right: input.setbacks.back },
+      accessSide: input.accessSide === "front" ? "left" : "right",
+    };
+    const virtual = buildLShapedLayoutStraight(virtualInput, topNeeds, leftNeeds, rightNeeds, label);
+    return transposeDoubleLoadedResult(virtual, input);
+  }
+  return buildLShapedLayoutStraight(input, topNeeds, leftNeeds, rightNeeds, label);
+}
+
+// Construit TOUJOURS comme un accès gauche (la géométrie native d'origine,
+// inchangée), puis reflète l'ENSEMBLE du résultat horizontalement si l'accès
+// réel (ou virtuel, reçu du dispatcher ci-dessus pour un accès arrière) est
+// "right" — même technique que le reflet vertical déjà utilisé par
+// buildSharedCorridorLayoutStraight/buildGuidedLayoutStraight pour leur
+// propre accès arrière, appliquée ici à l'axe horizontal (emprise.x/w ne
+// dépendent que des reculs gauche/droite, jamais de la façade d'accès).
+function buildLShapedLayoutStraight(input: GenerationInput, topNeeds: RoomNeed[], leftNeeds: RoomNeed[], rightNeeds: RoomNeed[], label: string): Layout {
   const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
   const fail = (reasons: string[]): Layout => ({
     variantLabel: label,
@@ -981,9 +1099,9 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
     surfaces: { terrain: input.terrainWidth * input.terrainDepth, emprise: 0, batie: 0, utileHabitable: 0, circulation: 0, cheminementExterieur: 0, exterieure: 0, cour: 0, nonAffectee: 0 },
   });
 
-  if (input.accessSide !== "left") {
+  if (input.accessSide !== "left" && input.accessSide !== "right") {
     return fail([
-      "Circulation en L non prise en charge dans cette version pour une façade d'accès autre que gauche — combinaison non traitée, choix ignoré nulle part : réessayez avec « Gauche ».",
+      "Circulation en L non prise en charge dans cette version pour une façade d'accès autre que gauche/droite/avant/arrière — combinaison non traitée, choix ignoré nulle part.",
     ]);
   }
   if (topNeeds.length === 0) return fail(["Circulation en L : aucune pièce disponible pour le segment haut (rangée simple charge)."]);
@@ -1051,13 +1169,51 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
   const bottomCorridorX = emprise.x + WALL_EXT + (left ? left.maxWidth + WALL_INT : 0);
   const bottomCorridor: Rect = { x: bottomCorridorX, y: bottomBandY + WALL_EXT, w: CORRIDOR_WIDTH, d: bottomRoomsDepth };
 
+  // DÉFAUT MESURÉ (programme où la rangée haute est plus large que le
+  // segment bas — ex. un salon large en haut, une colonne droite étroite en
+  // bas) : la colonne DROITE était ancrée à `bottomCorridor` (géométrie
+  // purement LOCALE au segment bas), jamais au bord RÉEL du contour
+  // englobant — qui peut s'étendre plus loin à droite quand la rangée haute
+  // l'impose (voir `footprintW` = max(rangée haute, segment bas) plus bas).
+  // Son mur extérieur ne touchait alors plus réellement ce bord, rejetant sa
+  // fenêtre ("ne débouche plus sur un mur extérieur réel"). La colonne
+  // GAUCHE n'a jamais ce défaut : son ancrage (`emprise.x + WALL_EXT`) EST
+  // déjà le bord réel, quelle que soit la largeur relative des deux
+  // segments. Corrigé en ancrant la colonne droite au bord réel du contour
+  // englobant (calculé ici, avant son tracé) plutôt qu'à la géométrie locale
+  // du segment bas — un écart résiduel entre le corridor et cette colonne
+  // devient alors un résidu non affecté honnête (jamais masqué), pas une
+  // pièce qui chevauche ou qui perd son ouverture.
+  const rowFootprintSpan = rowWidth + 2 * WALL_EXT;
+  const rightColumnEdgeX = emprise.x + Math.max(rowFootprintSpan, bottomFootprintW) - WALL_EXT;
+  // Écart RÉEL entre le corridor bas et la colonne droite une fois ancrée au
+  // bord réel (ci-dessus) — JAMAIS seulement le reliquat interne à la
+  // colonne (gap = colMaxWidth - cr.width, déjà comblé pièce par pièce plus
+  // bas) : même quand chaque pièce fait déjà colMaxWidth (gap=0), tout
+  // l'écart dû à l'élargissement par la rangée haute reste à combler ICI,
+  // une seule fois, sur toute la profondeur du segment bas — sinon la porte
+  // de chaque pièce traverse un vide non couvert par aucune circulation
+  // (mesuré : accès non garanti / chaîne de portes incomplète).
+  if (right) {
+    // Rejoint le bord RÉEL du corridor (bottomCorridor.x+bottomCorridor.w),
+    // jamais +WALL_INT : un raccord qui ne sert qu'à une PORTE (convention de
+    // mur) peut s'arrêter à WALL_INT, mais un raccord dont dépend la
+    // CONNECTIVITÉ géométrique pure (rectsAdjacent, épsilon ~0,01) doit
+    // toucher directement — même défaut d'asymétrie déjà rencontré et
+    // corrigé plusieurs fois ailleurs dans ce fichier (corridor partagé).
+    const rightBridgeGap = rightColumnEdgeX - right.maxWidth - (bottomCorridor.x + bottomCorridor.w);
+    if (rightBridgeGap > 1e-6) {
+      extraFillers.push({ x: bottomCorridor.x + bottomCorridor.w, y: bottomBandY + WALL_EXT, w: rightBridgeGap, d: bottomRoomsDepth });
+    }
+  }
+
   function placeBottomColumn(col: { rooms: ColumnRoom[]; maxWidth: number } | null, needsArr: RoomNeed[], side: "left" | "right") {
     if (!col) return;
     let cursorY = bottomBandY + WALL_EXT;
     const colMaxWidth = col.maxWidth;
     col.rooms.forEach((cr, i) => {
       const need = needsArr[i];
-      const x = side === "left" ? emprise.x + WALL_EXT : bottomCorridor.x + bottomCorridor.w + WALL_INT + (colMaxWidth - cr.width);
+      const x = side === "left" ? emprise.x + WALL_EXT : rightColumnEdgeX - cr.width;
       const exteriorWall: WallSide = side === "left" ? "left" : "right";
       const roomIndex = rooms.length;
       rooms.push({ type: need.type, label: need.label, number: numberWithin(needsArr, i, need.type), x, y: cursorY, w: cr.width, d: cr.depth, minW: need.minWidth, minD: need.minDepth, exteriorWall, vehicleDoor: null });
@@ -1067,10 +1223,13 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
       windows.push({ roomIndex, wall: exteriorWall, cx: exteriorWall === "left" ? x : x + cr.width, cy: cursorY + cr.depth / 2, width: cr.depth * 0.5 });
       // Même correction d'asymétrie gauche/droite que placeColumn
       // (buildDoubleLoadedLayout) ci-dessus — voir ce commentaire pour le
-      // détail du calcul.
+      // détail du calcul. Le raccord gauche rejoint toujours le corridor
+      // réel ; le raccord droit rejoint maintenant `innerX` (mur intérieur
+      // réel de la colonne droite, potentiellement décalé par le correctif
+      // ci-dessus), jamais une position supposée adjacente au corridor.
       const gap = colMaxWidth - cr.width;
       if (gap > 1e-6) {
-        const fillerX = side === "left" ? x + cr.width : bottomCorridor.x + bottomCorridor.w + WALL_INT;
+        const fillerX = side === "left" ? x + cr.width : innerX - gap;
         const fillerW = side === "left" ? gap + WALL_INT : gap;
         extraFillers.push({ x: fillerX, y: cursorY, w: fillerW, d: cr.depth });
       }
@@ -1106,31 +1265,78 @@ function buildLShapedLayout(input: GenerationInput, topNeeds: RoomNeed[], leftNe
   // Entrée : rejoint le segment HAUT directement par le mur GAUCHE du bâti —
   // un contact géométrique réel (le segment haut commence exactement à ce
   // mur, x=emprise.x+WALL_EXT=footprint.x+WALL_EXT), jamais une approxima-
-  // tion numérique sans appui physique.
+  // tion numérique sans appui physique. Construit ainsi même pour un accès
+  // "right" réel (ou virtuel, reçu du dispatcher pour "back") — reflété
+  // horizontalement juste en dessous si c'est réellement le cas.
   const entryDoor: DoorGeometry = { wall: "left", cx: footprint.x, cy: topCorridor.y + topCorridor.d / 2, width: DOOR_WIDTH };
+  const circulations = junction ? [bottomCorridor, junction] : [bottomCorridor];
 
+  if (input.accessSide !== "right") {
+    return {
+      variantLabel: label,
+      feasible: true,
+      failureReasons: [],
+      rejected: false,
+      rejectionReasons: [],
+      accessSide: input.accessSide,
+      terrain,
+      emprise,
+      footprint,
+      corridor: topCorridor,
+      corridorFillers: extraFillers,
+      circulations,
+      exteriorPaths: [],
+      courtyard: null,
+      streetDoor: null,
+      entryDoor,
+      rooms,
+      doors,
+      windows,
+      exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
+      surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, extraFillers, circulations, rooms, null, []),
+    };
+  }
+
+  // Reflet horizontal vers l'accès droite RÉEL : tout ce qui précède a été
+  // construit comme un accès gauche — reflété ici autour du centre
+  // horizontal de `emprise` (jamais du terrain entier), qui ne dépend que
+  // des reculs gauche/droite, identiques quel que soit l'accès réel.
+  const mirrorRectX = (r: Rect): Rect => ({ x: emprise.x + emprise.w - (r.x - emprise.x) - r.w, y: r.y, w: r.w, d: r.d });
+  const mirrorCx = (cx: number) => emprise.x + emprise.w - (cx - emprise.x);
+  const mirrorWallX = (w: WallSide): WallSide => (w === "left" ? "right" : w === "right" ? "left" : w);
+  const footprintM = mirrorRectX(footprint);
+  const corridorM = mirrorRectX(topCorridor);
+  const fillersM = extraFillers.map(mirrorRectX);
+  const circulationsM = circulations.map(mirrorRectX);
+  const roomsM: PlacedRoom[] = rooms.map((r) => {
+    const t = mirrorRectX(r);
+    return { ...r, x: t.x, y: t.y, exteriorWall: r.exteriorWall ? mirrorWallX(r.exteriorWall) : null };
+  });
+  const doorsM: Door[] = doors.map((d) => ({ ...d, wall: mirrorWallX(d.wall), cx: mirrorCx(d.cx) }));
+  const windowsM: Window[] = windows.map((w) => ({ ...w, wall: mirrorWallX(w.wall), cx: mirrorCx(w.cx) }));
+  const entryDoorM: DoorGeometry = { ...entryDoor, wall: mirrorWallX(entryDoor.wall), cx: mirrorCx(entryDoor.cx) };
   return {
     variantLabel: label,
     feasible: true,
     failureReasons: [],
     rejected: false,
     rejectionReasons: [],
-    accessSide: input.accessSide,
+    accessSide: "right",
     terrain,
     emprise,
-    footprint,
-    corridor: topCorridor,
-    corridorFillers: extraFillers,
-    circulations: junction ? [bottomCorridor, junction] : [bottomCorridor],
+    footprint: footprintM,
+    corridor: corridorM,
+    corridorFillers: fillersM,
+    circulations: circulationsM,
     exteriorPaths: [],
     courtyard: null,
     streetDoor: null,
-    entryDoor,
-    rooms,
-    doors,
-    windows,
-    exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, emprise, footprint, topCorridor, extraFillers, junction ? [bottomCorridor, junction] : [bottomCorridor], rooms, null, []),
+    entryDoor: entryDoorM,
+    rooms: roomsM,
+    doors: doorsM,
+    windows: windowsM,
+    exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprintM, "right"),
+    surfaces: computeSurfaces(terrain, emprise, footprintM, corridorM, fillersM, circulationsM, roomsM, null, []),
   };
 }
 
@@ -1500,7 +1706,7 @@ export function buildSharedCorridorLayout(input: GenerationInput, frontNeeds: Ro
 // connectGroupsToNetwork, qui accepte ou refuse selon ses propres règles déjà
 // vérifiées ailleurs. Garage exclu explicitement (même motif que
 // regenerateUnlocked) : ce moteur général ne pose aucune porte véhicule.
-function buildFreePackedLayout(input: GenerationInput, needs: RoomNeed[], label: string): Layout[] {
+export function buildFreePackedLayout(input: GenerationInput, needs: RoomNeed[], label: string): Layout[] {
   const terrain: Rect = { x: 0, y: 0, w: input.terrainWidth, d: input.terrainDepth };
   const fail = (reasons: string[]): Layout => ({
     variantLabel: label,

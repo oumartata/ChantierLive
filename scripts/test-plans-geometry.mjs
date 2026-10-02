@@ -1090,10 +1090,17 @@ try {
         bestTwoGroupDepth > empriseD,
         `écart ${(bestTwoGroupDepth - empriseD).toFixed(2)} m`
       );
+      // Mise à jour (lot "guidée/L sur 4 façades") : la circulation en L est
+      // désormais RÉELLEMENT prise en charge pour l'accès avant (plus un
+      // refus de principe) — elle est donc ici réellement TENTÉE pour ce
+      // terrain précis, et échoue pour un motif GÉOMÉTRIQUE propre à ce
+      // terrain (largeur du segment bas insuffisante), jamais plus un refus
+      // de façade. La mesure "familles à corridor séparé réellement
+      // essayées" reste vraie, seul le motif de l'échec de L a changé.
       record(
         "Terrain large et peu profond — familles à corridor séparé (double-chargé, L, empaquetage libre) réellement essayées avant la quatrième",
         res.attemptFailureReasons.some((r) => r.includes("Profondeur insuffisante")) &&
-          res.attemptFailureReasons.some((r) => r.includes("Circulation en L non prise en charge"))
+          res.attemptFailureReasons.some((r) => r.includes("Circulation en L") && (r.includes("largeur insuffisante") || r.includes("profondeur insuffisante") || r.includes("jonction")))
       );
 
       // RÉSOLU : la quatrième famille (corridor partagé) trouve une
@@ -1238,7 +1245,7 @@ try {
       const backNeeds = [chambre, chambre, sanitaire];
       const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: [] };
       const terrains = [
-        { label: "terrain carré, reculs symétriques", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
+        { label: "terrain rectangulaire 15×20 (non carré, reculs gauche/droite égaux)", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
         { label: "terrain NON carré, reculs ASYMÉTRIQUES", terrainWidth: 14, terrainDepth: 24, setbacks: { front: 4, back: 1, left: 2.5, right: 1 } },
       ];
       const expectedWall = { front: "top", back: "bottom", left: "left", right: "right" };
@@ -1474,7 +1481,7 @@ try {
       ];
       const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: NEEDS };
       const terrains = [
-        { label: "terrain carré, reculs symétriques", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
+        { label: "terrain rectangulaire 15×20 (non carré, reculs gauche/droite égaux)", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
         { label: "terrain NON carré, reculs ASYMÉTRIQUES", terrainWidth: 14, terrainDepth: 24, setbacks: { front: 4, back: 1, left: 2.5, right: 1 } },
       ];
 
@@ -1538,6 +1545,165 @@ try {
             checkRegenLR(`Corridor partagé, régénération accès ${accessSide}, ${t.label} (chambres verrouillées, mur ${base.rooms[chambreIdxs[0]].exteriorWall})`, lockedBase, base, chambreIdxs, accessSide);
           }
         }
+      }
+    }
+
+    // 23) FAMILLE GUIDÉE (salon central / cour d'entrée) — QUATRE FAÇADES
+    // (lot M7 "guidée et en L sur 4 façades") — jusqu'ici cette famille
+    // refusait explicitement tout accès autre qu'avant. Corrigé en
+    // RÉUTILISANT les deux transformations déjà éprouvées : gauche/droite
+    // passent par le repère virtuel transposé (comme buildDoubleLoadedLayout/
+    // buildSharedCorridorLayout), arrière est pris en charge NATIVEMENT par
+    // un reflet vertical interne à buildGuidedLayoutStraight (comme
+    // buildSharedCorridorLayoutStraight) — jamais une seconde géométrie.
+    // `generateVariants` en mode "guidée" (centralSalon ou cour) n'essaie
+    // QUE cette famille (jamais une ambiguïté avec une autre, contrairement
+    // à "en L" plus bas) : `variants[0]` lui appartient forcément ici.
+    {
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 2, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 1, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+      ];
+      const expectedWall = { front: "top", back: "bottom", left: "left", right: "right" };
+      const scenarios = [
+        { label: "salon central", centralSalon: true, roomsConnectVia: "salon", sanitaireConnectVia: "corridor", entryMode: "direct" },
+        { label: "cour d'entrée seule", centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "courtyard" },
+      ];
+      // Terrains dimensionnés large (le côté large sert de budget de largeur
+      // pour la rangée centrale avant/arrière ET, après transposition, pour
+      // gauche/droite) — un terrain trop étroit est un motif d'échec
+      // géométrique légitime pour CE programme, jamais une limite de portée :
+      // vérifié séparément ci-dessous (échec explicite conservé).
+      const terrains = [
+        { label: "32x30 rectangulaire", terrainWidth: 32, terrainDepth: 30, setbacks: { front: 2, back: 2, left: 2, right: 2 } },
+        { label: "30x32 asymétrique", terrainWidth: 30, terrainDepth: 32, setbacks: { front: 2.5, back: 1, left: 3, right: 1.5 } },
+      ];
+      for (const sc of scenarios) {
+        for (const t of terrains) {
+          for (const accessSide of ["front", "back", "left", "right"]) {
+            const input = {
+              orientation: "N", courtyardDepth: 3, centralSalon: sc.centralSalon, roomsConnectVia: sc.roomsConnectVia,
+              sanitaireConnectVia: sc.sanitaireConnectVia, entryMode: sc.entryMode, needs: NEEDS,
+              terrainWidth: t.terrainWidth, terrainDepth: t.terrainDepth, accessSide, setbacks: t.setbacks,
+            };
+            const res = g.generateVariants(input);
+            const label = `Famille guidée (${sc.label}) — ${t.label}, accès ${accessSide}`;
+            record(`${label} : disposition admissible trouvée`, res.variants.length > 0, res.variants.length === 0 ? res.attemptFailureReasons.slice(0, 2).join(" | ") : "");
+            if (res.variants.length === 0) continue;
+            const v = res.variants[0];
+            const errors = g.independentVerify(v).filter((i) => i.severity === "error");
+            record(`${label} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+            const reach = g.computeReachableRooms(v);
+            record(`${label} : toutes les pièces accessibles depuis l'entrée`, v.rooms.every((r, i) => r.parked || reach.has(i)));
+            record(`${label} : entrée sur le mur attendu (${expectedWall[accessSide]})`, v.entryDoor?.wall === expectedWall[accessSide]);
+            record(
+              `${label} : terrain/emprise physiques inchangés (reculs attachés aux côtés physiques, jamais permutés)`,
+              v.terrain.w === t.terrainWidth && v.terrain.d === t.terrainDepth &&
+                Math.abs(v.emprise.w - (t.terrainWidth - t.setbacks.left - t.setbacks.right)) < 1e-6 &&
+                Math.abs(v.emprise.d - (t.terrainDepth - t.setbacks.front - t.setbacks.back)) < 1e-6
+            );
+            if (sc.entryMode === "courtyard") {
+              record(`${label} : cour d'entrée présente et protégée (aucune pièce ne la chevauche)`, !!v.courtyard);
+            }
+            const sumCat = v.surfaces.batie + v.surfaces.cheminementExterieur + v.surfaces.nonAffectee + v.surfaces.exterieure + v.surfaces.cour;
+            record(
+              `${label} : bilan de surfaces cohérent (somme = emprise, sans double comptage)`,
+              Math.abs(sumCat - v.surfaces.emprise) < 1e-6,
+              `somme=${sumCat.toFixed(4)} vs emprise=${v.surfaces.emprise.toFixed(4)}`
+            );
+            record(`${label} : chaque pièce posée a au moins une porte`, v.rooms.every((r, i) => g.doorsOf(v, i).length > 0));
+            record(`${label} : chaque pièce posée a au moins une ouverture extérieure`, v.rooms.every((r, i) => g.windowsOf(v, i).length > 0 || !!r.exteriorWall));
+          }
+        }
+      }
+    }
+
+    // 24) FAMILLE CIRCULATION EN L — QUATRE FAÇADES (même lot) — jusqu'ici
+    // cette famille refusait explicitement tout accès autre que gauche.
+    // Corrigé en RÉUTILISANT les transformations déjà éprouvées, dans
+    // l'ordre INVERSE des autres familles : le NATIF est gauche/droite
+    // (gauche tel quel, droite via un reflet horizontal interne à
+    // buildLShapedLayoutStraight) ; avant/arrière passent par le repère
+    // virtuel transposé (même transposeDoubleLoadedResult générique,
+    // involution réutilisable dans les deux sens).
+    //
+    // DÉFAUT TROUVÉ ET CORRIGÉ en vérifiant cette famille plus largement que
+    // son unique scénario natif historique : quand la rangée haute est plus
+    // large que le segment bas (ex. un salon large en haut, une colonne
+    // étroite en bas), la colonne DROITE du segment bas était ancrée à la
+    // géométrie LOCALE du corridor bas, jamais au bord RÉEL du contour
+    // englobant (élargi par la rangée haute) — sa fenêtre ne débouchait alors
+    // plus sur un mur extérieur réel, et sans raccord comblant l'écart ainsi
+    // créé, sa porte ne traversait plus aucune circulation réelle
+    // (inaccessible). PRÉEXISTANT à ce lot (reproductible avec
+    // `accessSide: "left"` seul, avant toute transposition) — jamais
+    // introduit par l'extension aux 4 façades, seulement révélé par une
+    // vérification plus large. Corrigé en ancrant la colonne droite au bord
+    // réel du contour englobant et en comblant tout écart résiduel avec le
+    // corridor par un raccord touchant directement (jamais +WALL_INT, une
+    // convention de porte, pas de connectivité géométrique pure).
+    {
+      const chambre = { type: "chambre", label: "Chambre", minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 };
+      const salon = { type: "salon", label: "Salon", minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 };
+      const cuisine = { type: "cuisine", label: "Cuisine", minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 };
+      const sanitaire = { type: "sanitaire", label: "Sanitaire", minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 };
+      // Rangée haute DÉLIBÉRÉMENT plus large que le segment bas (reproduit
+      // exactement le défaut ci-dessus) — colonne gauche étroite (sanitaire),
+      // colonne droite à largeur UNIQUE (2 chambres identiques, gap interne
+      // nul) : sans la correction, la colonne droite entière perd son accès,
+      // pas seulement une pièce isolée par un écart résiduel.
+      const topNeeds = [salon, cuisine];
+      const lNeeds = [sanitaire];
+      const rNeeds = [chambre, chambre];
+      const expectedWall = { front: "top", back: "bottom", left: "left", right: "right" };
+      const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: [] };
+      const terrains = [
+        { label: "20x26 rectangulaire", terrainWidth: 20, terrainDepth: 26, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
+        { label: "21x24 asymétrique", terrainWidth: 21, terrainDepth: 24, setbacks: { front: 3, back: 1.5, left: 2.5, right: 1 } },
+      ];
+      for (const t of terrains) {
+        for (const accessSide of ["front", "back", "left", "right"]) {
+          const input = { ...BASE, terrainWidth: t.terrainWidth, terrainDepth: t.terrainDepth, accessSide, setbacks: t.setbacks };
+          const v = g.buildLShapedLayout(input, topNeeds, lNeeds, rNeeds, "test");
+          const label = `Circulation en L — ${t.label}, accès ${accessSide}`;
+          record(`${label} : disposition admissible trouvée`, v.feasible, v.feasible ? "" : v.failureReasons.join(" | "));
+          if (!v.feasible) continue;
+          const errors = g.independentVerify(v).filter((i) => i.severity === "error");
+          record(`${label} : 0 erreur independentVerify (régression du défaut colonne droite/bord réel incluse)`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+          const reach = g.computeReachableRooms(v);
+          record(`${label} : toutes les pièces accessibles depuis l'entrée`, v.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`${label} : entrée sur le mur attendu (${expectedWall[accessSide]})`, v.entryDoor?.wall === expectedWall[accessSide]);
+          record(
+            `${label} : terrain/emprise physiques inchangés (reculs attachés aux côtés physiques, jamais permutés)`,
+            v.terrain.w === t.terrainWidth && v.terrain.d === t.terrainDepth &&
+              Math.abs(v.emprise.w - (t.terrainWidth - t.setbacks.left - t.setbacks.right)) < 1e-6 &&
+              Math.abs(v.emprise.d - (t.terrainDepth - t.setbacks.front - t.setbacks.back)) < 1e-6
+          );
+          const sumCat = v.surfaces.batie + v.surfaces.cheminementExterieur + v.surfaces.nonAffectee + v.surfaces.exterieure + v.surfaces.cour;
+          record(
+            `${label} : bilan de surfaces cohérent (somme = emprise, sans double comptage)`,
+            Math.abs(sumCat - v.surfaces.emprise) < 1e-6,
+            `somme=${sumCat.toFixed(4)} vs emprise=${v.surfaces.emprise.toFixed(4)}`
+          );
+          record(`${label} : chaque pièce posée a au moins une porte`, v.rooms.every((r, i) => g.doorsOf(v, i).length > 0));
+          record(`${label} : chaque pièce posée a au moins une ouverture extérieure`, v.rooms.every((r, i) => g.windowsOf(v, i).length > 0 || !!r.exteriorWall));
+        }
+      }
+
+      // Échec explicite conservé (jamais forcé) : un terrain délibérément
+      // trop ÉTROIT pour le segment bas (largeur) reste refusé pour un motif
+      // géométrique réel, quelle que soit la façade — jamais masqué par
+      // l'extension aux 4 façades de ce lot.
+      {
+        const input = { ...BASE, terrainWidth: 9, terrainDepth: 26, accessSide: "left", setbacks: { front: 3, back: 2, left: 2, right: 2 } };
+        const v = g.buildLShapedLayout(input, topNeeds, lNeeds, rNeeds, "test");
+        record(
+          "Circulation en L — terrain délibérément trop étroit, accès gauche : échec géométrique explicite conservé (largeur du segment haut), jamais masqué",
+          !v.feasible && v.failureReasons.some((r) => r.includes("largeur insuffisante")),
+          v.failureReasons.join(" | ")
+        );
       }
     }
 

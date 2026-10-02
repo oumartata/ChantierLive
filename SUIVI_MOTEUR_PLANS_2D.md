@@ -32,34 +32,140 @@ Liste finie, établie depuis le périmètre déjà convenu au fil des lots
 (aucune fonctionnalité ajoutée ici). **6/7 jalons terminés.** Un jalon
 partiel ne compte jamais comme terminé.
 
-**Correction de portée (M7, ce lot)** : le lot précédent avait marqué M7
-"Terminé" sur la seule preuve de deux familles (double-chargé, corridor
-partagé). Vérification demandée explicitement sur la portée réelle de
-« CHAQUE famille » : **FAUX** — `buildLShapedLayout` (circulation en L)
-refuse explicitement tout `accessSide` autre que `"left"`
-(`geometry.ts:979`, message "non prise en charge... autre que gauche"),
-et `buildGuidedLayout` (salon central / cour d'entrée) refuse explicitement
-tout `accessSide` autre que `"front"` (`geometry.ts:791`, "non pris en
-charge... autre qu'avant"). Ce sont des refus EXPLICITES et documentés
-(jamais un résultat silencieusement incorrect), mais ils signifient que
-M7 n'est PAS satisfait pour l'ensemble des familles — remis à **Partiel**,
-jamais reformulé pour conserver artificiellement 7/7.
+**Correction de portée (M7, lot précédent)** : un lot antérieur avait marqué
+M7 "Terminé" sur la seule preuve de deux familles (double-chargé, corridor
+partagé) — remis à "Partiel" une fois la portée réelle de « CHAQUE
+famille » vérifiée.
+
+**Ce lot** : étend la génération aux 4 façades pour LES DEUX familles
+encore limitées à une seule (guidée : avant seulement → 4/4 ; circulation
+en L : gauche seulement → 4/4, voir le journal pour le défaut corrigé au
+passage). **M7 reste "Partiel"** : en vérifiant par acquit de conscience
+la cinquième famille (empaquetage libre, jusqu'ici jamais testée par
+façade malgré son code générique), une LIMITE PRÉEXISTANTE jusqu'ici
+jamais mesurée a été découverte — voir la matrice ci-dessous et le
+journal. Le critère de M7 n'a pas été modifié pour compenser cette
+découverte.
+
+**Matrice famille × façade (génération)** — établie ce lot, remplace
+l'ancienne ligne M7 trop agrégée :
+
+| Famille | Avant | Arrière | Gauche | Droite | Limite restante |
+|---|---|---|---|---|---|
+| Double-chargé | ✅ | ✅ | ✅ | ✅ | Aucune (déjà 4/4, lots antérieurs) |
+| Corridor partagé | ✅ | ✅ | ✅ | ✅ | Aucune en génération (régénération dédiée aussi 4/4, voir M3) |
+| Guidée (salon central / cour) | ✅ | ✅ (ce lot) | ✅ (ce lot) | ✅ (ce lot) | Aucune en génération ; régénération non dédiée (recherche générale uniquement, non testée spécifiquement) |
+| Circulation en L | ✅ | ✅ (ce lot) | ✅ (ce lot, natif) | ✅ (ce lot) | Aucune en génération (défaut colonne droite/bord réel corrigé, voir journal) ; régénération non dédiée |
+| Empaquetage libre | ❌ **(découvert ce lot)** | ✅ | ✅ | ✅ | **Échoue systématiquement pour l'accès avant** sur 6 terrains testés (15×20 à 22×18) — motif constant : "aucune position d'entrée... ne rejoint tous les groupes posés". Cause probable : biais directionnel du remplissage par retour-arrière (`backtrackPackNeedsIntoFreeSpace`), jamais le calcul du mur d'accès lui-même (déjà générique, vérifié). **Hors périmètre de ce lot** (objectif = guidée + L uniquement) — à traiter séparément, jamais masqué. |
+
+M7 ne peut donc pas être clôturé : 4 familles sur 5 sont à 4/4 en
+génération, la cinquième (empaquetage libre) a une limite désormais
+PRÉCISÉMENT identifiée (avant seulement, pas "façades non testées").
 
 | # | Jalon | Statut | Critère de clôture | Preuve disponible |
 |---|---|---|---|---|
-| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 380 tests `scripts/test-plans-geometry.mjs` |
+| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 602 tests `scripts/test-plans-geometry.mjs` |
 | M2 | Vérification géométrique indépendante (chevauchement, accessibilité réelle, ouvertures réellement extérieures) | **Terminé** | `independentVerify`/`computeReachableRooms` recalculent depuis la géométrie brute, jamais depuis un champ enregistré | Sections dédiées de `test-plans-geometry.mjs` (ex. recalcul d'union indépendant des surfaces) |
 | M3 | Verrouillage + régénération partielle (préserve exactement position/dimensions/portes/fenêtres verrouillées) | **Terminé** | `regenerateUnlocked` ne modifie jamais une pièce verrouillée NI une pièce non verrouillée sous sa dimension cible (un placement qui l'exigerait est rejeté, jamais proposé réduit) ; propose ≥1 disposition nouvelle quand une existe géométriquement | Fixtures `plans-c8-resolu`/`plans-c2-resolu`/`plans-scenario*-post-regen`, scénario C9 salon verrouillé, accès avant/arrière/gauche/droite (sections 20/22, `scripts/test-plans-geometry.mjs`) — stratégie dédiée corridor partagé désormais réutilisée sur les 4 façades, voir journal |
-| M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte (dimensions, verrou, bilan de surfaces) | Fixtures `scripts/fixtures/plans-*.projet.json` ; section 21 (`serializeProject`→écriture→`validateProjectFile`, round-trip vérifié y compris le bilan de surfaces) ; vérifié en navigateur |
-| M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*` (SVG+PNG/JSON+fichiers de projet réels) envoyés et inspectés |
-| M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot — C8/C9 régénération CORRIGÉS ce lot (voir journal) |
-| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Partiel** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour TOUTES les familles listées en M1 | Double-chargé : 4/4 (tests section 16/17). Corridor partagé : 4/4, 2 terrains dont un asymétrique (section 19). Empaquetage libre : `accessSide` géré nativement pour les 4 côtés dans le code (`geometry.ts:1562`), **non couvert par une preuve dédiée** dans ce lot. Salon central/cour (guidée) : **1/4 (avant seulement)**, refus explicite et documenté pour les 3 autres. Circulation en L : **1/4 (gauche seulement)**, refus explicite et documenté pour les 3 autres. |
+| M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte (dimensions, verrou, bilan de surfaces) | Fixtures `scripts/fixtures/plans-*.projet.json` ; section 21 (`serializeProject`→écriture→`validateProjectFile`, round-trip vérifié y compris le bilan de surfaces) ; vérifié en navigateur pour avant/arrière/gauche/droite (guidée, corridor partagé) |
+| M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*`/`guidee_arriere_*`/`acces_gauche_*` (SVG+PNG/JSON+fichiers de projet réels) envoyés et inspectés |
+| M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot, tous les nombres inchangés |
+| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Partiel** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour TOUTES les familles listées en M1 | Voir la matrice famille × façade ci-dessus : 4/5 familles à 4/4, empaquetage libre bloqué sur l'accès avant (limite précisément identifiée ce lot, hors périmètre à corriger séparément) |
 
 ---
 
 ## 3. Journal des lots
 
-### Lot (en cours, après `33d0a11`) — régénération corridor partagé étendue à gauche/droite
+### Lot (en cours, après `5c54b0a`) — familles guidée et en L sur 4 façades
+
+**Objectif** : compléter M7 selon son critère existant en étendant la
+génération des familles guidée (salon central/cour) et circulation en L
+aux 4 façades physiques, en réutilisant les transformations déjà éprouvées.
+
+**Correction de doc** : "terrain carré 15×20" (plusieurs mentions dans ce
+fichier et dans `test-plans-geometry.mjs`) était géométriquement faux
+(15≠20, un rectangle) — corrigé partout en "terrain rectangulaire 15×20
+(non carré, reculs gauche/droite égaux)", la propriété RÉELLEMENT testée
+par ces scénarios n'ayant jamais été la forme carrée du terrain.
+
+**Famille guidée (salon central / cour d'entrée)** :
+- `buildGuidedLayout` devient un point d'entrée public qui RÉUTILISE les
+  deux transformations déjà éprouvées : gauche/droite passent par le même
+  repère virtuel transposé que `buildDoubleLoadedLayout`/
+  `buildSharedCorridorLayout` ; arrière est pris en charge NATIVEMENT par
+  `buildGuidedLayoutStraight` via un reflet vertical interne (même
+  technique que `buildSharedCorridorLayoutStraight`) — construit toujours
+  comme un accès avant (cour/salon réservés près du haut de l'emprise),
+  reflété autour du centre vertical de l'emprise réelle (qui ne dépend que
+  des reculs avant/arrière, jamais de l'accès) si l'accès réel est arrière.
+- Vérifié : 4 façades × 2 scénarios (salon central ; cour d'entrée seule)
+  × 2 terrains (rectangulaire, asymétrique), 0 erreur, entrée sur le mur
+  attendu, terrain/reculs jamais permutés, cour protégée (jamais
+  chevauchée), bilan de surfaces cohérent. Round-trip réel vérifié en
+  navigateur (accès arrière, 32×30, génération → export du vrai fichier de
+  projet → réimport, surfaces identiques).
+
+**Famille circulation en L** :
+- `buildLShapedLayout` devient un point d'entrée public qui réutilise les
+  MÊMES deux transformations, mais dans l'ordre INVERSE des autres
+  familles : le NATIF est gauche/droite (gauche inchangé, droite via un
+  reflet HORIZONTAL interne à `buildLShapedLayoutStraight`, nouveau mais
+  symétrique du reflet vertical déjà utilisé ailleurs) ; avant/arrière
+  passent par le repère virtuel transposé (`transposeDoubleLoadedResult`,
+  la même fonction générique — une transposition diagonale est une
+  involution, valable dans les deux sens, jamais réimplémentée).
+- **Défaut PRÉEXISTANT trouvé et corrigé** (reproductible avec
+  `accessSide: "left"` seul, avant toute transposition — jamais introduit
+  par ce lot, seulement révélé par une vérification plus large que son
+  unique scénario natif historique) : quand la rangée haute (simple
+  charge) est plus large que le segment bas (double-chargé), la colonne
+  DROITE du segment bas était ancrée à la géométrie LOCALE du corridor
+  bas, jamais au bord RÉEL du contour englobant (élargi par la rangée
+  haute) — sa fenêtre ne débouchait alors plus sur un mur extérieur réel,
+  et l'écart ainsi créé n'étant comblé par aucun raccord, sa porte ne
+  traversait plus aucune circulation réelle (chambre inaccessible).
+  Corrigé en ancrant la colonne droite au bord réel du contour englobant
+  et en comblant l'écart résiduel par un raccord touchant le corridor
+  DIRECTEMENT (jamais +WALL_INT, une convention de porte, pas une
+  connectivité géométrique pure — même défaut d'asymétrie déjà rencontré
+  et corrigé plusieurs fois ailleurs dans ce fichier).
+- Vérifié : 4 façades × 2 terrains (rectangulaire, asymétrique), avec un
+  programme choisi pour reproduire EXACTEMENT le défaut ci-dessus (rangée
+  haute large, colonne droite à largeur unique) — 0 erreur, entrée sur le
+  mur attendu, terrain/reculs jamais permutés, bilan de surfaces cohérent.
+  Échec explicite conservé (terrain délibérément trop étroit) : refusé
+  pour un motif géométrique réel, jamais masqué.
+
+**Découverte hors périmètre de ce lot (empaquetage libre)** : en
+vérifiant par prudence la cinquième famille avant de statuer sur M7,
+`buildFreePackedLayout` échoue SYSTÉMATIQUEMENT pour l'accès avant (testé
+sur 6 terrains : 15×20, 16×18, 18×22, 22×18, 20×20, 17×24 — 0/6), alors
+que arrière/gauche/droite réussissent au moins une fois chacun sur les
+mêmes essais. Le calcul du mur d'accès lui-même est déjà générique et
+correct (`geometry.ts`, `accessWall`/`fixedCoord`, vérifié par lecture) —
+la cause probable est un biais directionnel du remplissage par
+retour-arrière (`backtrackPackNeedsIntoFreeSpace`), qui semble placer les
+groupes d'une façon qui bloque systématiquement une position d'entrée
+praticable sur le mur "top" spécifiquement. **Non corrigé ce lot**
+(objectif limité à guidée + L) — limite consignée précisément (façade et
+famille nommées, jamais une conclusion d'impossibilité générale) pour un
+lot séparé.
+
+**Tests** : 602/602 (`scripts/test-plans-geometry.mjs`, +196 : sections 23
+et 24 dédiées). Une assertion existante devenue obsolète par la levée du
+refus de principe sur "en L" (le motif d'échec attendu pour le terrain C2
+est passé de "non prise en charge" à un motif géométrique réel) a été mise
+à jour, jamais supprimée. Typecheck et lint : 0 erreur. Batterie 11 cas
+rejouée sans modification de paramètres, tous les nombres inchangés.
+
+**Livraison** : fichiers de projet réels (.json), SVG et PNG pour les
+nouveaux résultats (guidée accès arrière ; corridor partagé accès gauche
+du lot précédent), stockés durablement dans `exports/plans/` sur E:
+(non versionnés — artefacts générés, voir `.gitignore`) ; le PNG déjà
+vérifié localement n'a pas été re-livré en cas d'échec de téléversement
+pour éviter des relances inutiles.
+
+### Lot `5c54b0a` — régénération corridor partagé étendue à gauche/droite
 
 **Objectif** : la stratégie dédiée corridor partagé de `regenerateUnlocked`
 ne réutilisait sa géométrie (Cas A/B) que pour avant/arrière — gauche/droite
@@ -98,8 +204,9 @@ qu'elle trouvait nativement. Corrigé en FUSIONNANT les deux appels
 disposition déjà trouvable avant ce lot n'est perdue, et les nouvelles
 dispositions corridor partagé s'y ajoutent.
 
-**Vérifié** : accès gauche et droite, terrain carré symétrique (15×20) et
-terrain non carré à reculs asymétriques (14×24), verrou côté entrée
+**Vérifié** : accès gauche et droite, terrain rectangulaire 15×20 (non
+carré — reculs gauche/droite égaux, avant/arrière différents : 3/2/2/2)
+et terrain non carré à reculs asymétriques (14×24 : 4/1/2.5/1), verrou côté entrée
 (salon) et verrou côté opposé (chambres) — dans chaque cas où une
 disposition corridor partagé existe : pièces verrouillées strictement
 inchangées, aucune pièce non verrouillée réduite sous sa cible, 0 erreur
@@ -154,8 +261,8 @@ confirmé à jour (présence de `roomsKeyOf`/`regenerateUnlockedCore`).
   `circulations`/`exteriorPaths` — jamais remarqué par le double-chargé,
   qui ne les utilise jamais ; le foyer de cette famille y est rangé et
   restait dans le mauvais repère après transposition pour gauche/droite).
-- Vérifié : 4 façades × 2 terrains (carré symétrique, non carré à reculs
-  asymétriques) × construction directe de la famille, 0 erreur
+- Vérifié : 4 façades × 2 terrains (15×20 rectangulaire, 14×24 non carré à
+  reculs asymétriques) × construction directe de la famille, 0 erreur
   `independentVerify`, entrée sur le mur physique attendu, terrain/emprise
   exacts (reculs attachés aux côtés physiques, jamais réinterprétés).
 
@@ -390,8 +497,8 @@ corrigé une fois la portée réelle de « chaque famille » vérifiée, voir lo
 de génération atteint et vérifié sur 4 façades, régénération étendue avec
 succès à l'accès arrière) / résultat utilisateur : corridor partagé
 désormais disponible sur les 4 façades en génération initiale (avant/
-arrière/gauche/droite, terrain carré et non carré à reculs asymétriques),
-et en régénération pour avant/arrière avec verrou strictement préservé /
+arrière/gauche/droite, terrain rectangulaire 15×20 et non carré 14×24 à
+reculs asymétriques), et en régénération pour avant/arrière avec verrou strictement préservé /
 limite principale : régénération à corridor partagé non étendue à gauche/
 droite (repère virtuel entier, limite ouverte documentée, jamais forcée —
 recherche générale utilisée à la place, sans résultat invalide) / commit
