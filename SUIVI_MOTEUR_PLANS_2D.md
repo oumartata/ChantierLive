@@ -415,3 +415,23 @@ vérifié) / limite principale : régénération à corridor partagé toujours
 non étendue à gauche/droite ; empaquetage libre non couvert par une preuve
 dédiée 4 façades ; familles guidée et L restent à 1 façade chacune par
 conception (non un défaut de ce lot) / commit `f835ee5`.
+
+---
+
+**Bilan de ce lot** (régénération corridor partagé — gauche/droite) :
+28/68 (41 %) / 6/7 jalons moteur terminés (M7 reste "Partiel", critère
+inchangé — ce lot ne touche que la régénération, hors de sa portée ;
+guidée et L restent à 1/4 façade chacune) / 1 cycle effectué (sur 5
+autorisés, arrêt anticipé — réussite vérifiée au premier cycle, un défaut
+de symétrie de la recherche générale corrigé en cours de route par
+fusion plutôt que remplacement) / résultat utilisateur : régénération
+corridor partagé disponible sur les 4 façades (avant/arrière/gauche/
+droite), verrou préservé et aucune pièce réduite dans les deux sens
+(verrou côté entrée, verrou côté opposé), terrain/reculs physiques jamais
+permutés, bilan de surfaces cohérent, round-trip génération→verrouillage→
+régénération→choix→export→réimport vérifié en navigateur pour gauche et
+droite / limite restante : familles guidée (salon central/cour) et
+circulation en L restent chacune à 1/4 façade par conception (hors
+périmètre de ce lot) / commit `5c54b0a` / serveur confirmé depuis E: :
+http://127.0.0.1:3002 (port 3000 occupé par un processus orphelin de
+`C:\ChantierLive`, non arrêté cette fois).
