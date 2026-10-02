@@ -799,6 +799,12 @@ try {
     checkPostRegenFixture("Fixture scénario 2 régénéré (40,56 m²)", "plans-scenario2-post-regen.projet.json", 40.56, "chambre", {
       chambre: 2, salon: 1, cuisine: 1, sanitaire: 1,
     });
+    // C8 (lot "corriger le placement à l'origine du conflit") — la toute
+    // première disposition NEUVE et admissible jamais retrouvée pour ce cas
+    // fixe, auparavant bloqué à 0 variante sur deux lots consécutifs.
+    checkPostRegenFixture("Fixture C8 régénéré (36,12 m²)", "plans-c8-resolu.projet.json", 36.12, "chambre", {
+      chambre: 3, salon: 1, cuisine: 1, sanitaire: 2,
+    });
 
     // 13) RACCORDEMENT PAR N'IMPORTE QUEL SEGMENT D'UN GROUPE (lot "évaluer et
     // améliorer la génération") — connectGroupsToNetwork ne sondait la
@@ -861,6 +867,46 @@ try {
       record(
         "Recours depuis l'entrée — refusé si le trajet direct traverserait réellement un obstacle (jamais un assouplissement du contrôle)",
         blocked.strandedNeeds.length === 1 && blocked.strandedNeeds[0].label === "Test"
+      );
+    }
+
+    // 15) SEUIL DE PORTE VERROUILLÉE : OBSTACLE POUR UNE PIÈCE, JAMAIS POUR
+    // LA CIRCULATION (lot "corriger le placement à l'origine du conflit sur
+    // C8") — reproduit le blocage EXACT diagnostiqué sur le cas fixe C8
+    // (mêmes coordonnées relatives : sonde d'entrée x:[7.45,8.35], seuil de
+    // porte verrouillée x:[8.28,8.6], chevauchement de 0,07 m). Ce seuil
+    // (lockedDoorProbes) protège contre une chose précise : qu'une NOUVELLE
+    // PIÈCE l'occupe, ce qui bloquerait réellement la porte (toujours gardé
+    // dans mode.obstacles pour le placement des pièces, inchangé). Ce n'est
+    // ni un mur ni le battant de la porte (doorSwingRect balaie vers
+    // l'intérieur de la pièce verrouillée, jamais vers ce seuil extérieur) :
+    // une CIRCULATION qui le touche ne bloque rien, c'est au contraire ce
+    // qui rend la porte praticable. Avant ce lot, connectGroupsToNetwork le
+    // traitait aussi comme un obstacle pour la JONCTION entre segments de
+    // circulation — une réservation algorithmique trop large, jamais un mur
+    // ni une obstruction de passage réelle — qui rejetait à tort des
+    // dispositions par ailleurs complètes. Corrigé en l'excluant des
+    // obstacles passés à connectGroupsToNetwork (jamais de mode.obstacles
+    // lui-même, qui reste inchangé pour packNeedsIntoFreeSpace).
+    {
+      const entryDoor = { wall: "top", cx: 7.9, cy: 0, width: 0.9 };
+      const bounds = { x: 0, y: 0, w: 15, d: 15 };
+      const group = {
+        corridor: { x: 0, y: 8, w: 12, d: 1.2 },
+        fillers: [],
+        placements: [{ need: { idx: 0, label: "Test", type: "chambre", width: 3, depth: 1, minW: 3, minD: 1 }, x: 0, y: 8, w: 3, d: 1, exteriorWall: "bottom", doorWall: "top" }],
+      };
+      const lockedDoorProbe = { x: 8.28, y: 2, w: 0.32, d: 2 };
+      const beforeFix = g.connectGroupsToNetwork([], [group], [lockedDoorProbe], { entryDoor, bounds });
+      record(
+        "Seuil de porte verrouillée — préalable : reproduit le blocage exact (traité comme obstacle de circulation, 0,07 m de chevauchement)",
+        beforeFix.strandedNeeds.length === 1 && beforeFix.strandedNeeds[0].label === "Test"
+      );
+      const afterFix = g.connectGroupsToNetwork([], [group], [], { entryDoor, bounds });
+      record(
+        "Seuil de porte verrouillée — une circulation peut désormais le traverser (le seuil reste un obstacle pour une pièce, jamais pour la jonction)",
+        afterFix.strandedNeeds.length === 0,
+        `ponts: ${JSON.stringify(afterFix.bridges)}`
       );
     }
 

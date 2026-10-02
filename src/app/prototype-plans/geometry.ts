@@ -2468,17 +2468,35 @@ export function connectGroupsToNetwork(
   // DERNIER RECOURS, pour un cluster encore isolé de la racine après la
   // fusion normale ci-dessus : un trajet réel depuis l'ENTRÉE elle-même
   // (segment droit, largeur réelle CORRIDOR_WIDTH, jamais au travers d'une
-  // pièce — exactement buildExteriorPath, mais compté ici comme circulation
-  // INTÉRIEURE, pas un cheminement extérieur : le groupe visé reste dans le
-  // contour bâti, seule sa jonction par segments de circulation avait
-  // échoué). Jamais essayé avant la fusion normale : une jonction directe
-  // entre segments de circulation reste toujours préférée. Mesuré sur un
-  // cas réel (régénération, terrain standard, pièce verrouillée) où
-  // plusieurs placements complets existaient mais où AUCUN groupe ne
-  // touchait la zone d'entrée — rejetés jusqu'ici comme "coupés", alors
-  // qu'un trajet direct depuis l'entrée existait réellement vers l'un
-  // d'eux, ce qui aurait ensuite rapproché les autres par la fusion
-  // normale.
+  // pièce — MÊME GÉOMÉTRIE que buildExteriorPath, sa fonction ne le dit pas
+  // elle-même). CLASSÉ ICI COMME CIRCULATION INTÉRIEURE (ajouté à `bridges`,
+  // jamais à Layout.exteriorPaths), et ce choix se justifie depuis le
+  // MODÈLE, pas depuis le nom de la fonction réutilisée :
+  // - il reste entièrement dans `entryRescue.bounds` (l'emprise de
+  //   recherche elle-même, jamais le terrain au-delà) — jamais un
+  //   cheminement sur un sol non bâti EXTÉRIEUR à ce contour ;
+  // - il participe à la fusion de clusters comme un membre ORDINAIRE du
+  //   réseau (un autre groupe encore isolé peut ensuite s'y raccorder via
+  //   `mergeAllPossible`, voir plus bas) — jamais un terminus isolé comme
+  //   l'est un vrai trajet extérieur (posé une seule fois, en dehors de
+  //   toute fusion, voir son usage dans finalizeCandidate) ;
+  // - le trajet EXTÉRIEUR existant répond à une question différente
+  //   (« le bâti reconstruit s'est-il éloigné de l'entrée ? ») une fois la
+  //   circulation intérieure déjà entièrement résolue entre elle-même ;
+  //   celui-ci répond à « cette circulation intérieure se résout-elle
+  //   jusqu'à l'entrée ? », PENDANT cette résolution.
+  // Aucun double comptage : ce rectangle n'est jamais poussé que dans
+  // `bridges` ici (jamais aussi dans exteriorPaths), et `bridges` n'alimente
+  // que `next.circulations`/`surfaces.circulation` dans finalizeCandidate —
+  // jamais les deux à la fois pour un même rectangle.
+  //
+  // Jamais essayé avant la fusion normale : une jonction directe entre
+  // segments de circulation reste toujours préférée. Mesuré sur un cas réel
+  // (régénération, terrain standard, pièce verrouillée) où plusieurs
+  // placements complets existaient mais où AUCUN groupe ne touchait la zone
+  // d'entrée — rejetés jusqu'ici comme "coupés", alors qu'un trajet direct
+  // depuis l'entrée existait réellement vers l'un d'eux, ce qui aurait
+  // ensuite rapproché les autres par la fusion normale.
   if (entryRescue) {
     let rescued = true;
     while (rescued && clusters.length > 1) {
@@ -2960,10 +2978,29 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     corridorFillers: Rect[],
     groups: PackedGroup[]
   ): { layout: Layout; note: string } | { error: string } {
+    // Le seuil immédiat d'une porte verrouillée (lockedDoorProbes, dans
+    // mode.obstacles) protège contre une chose précise : qu'une NOUVELLE
+    // PIÈCE y soit posée, ce qui bloquerait littéralement cette porte (plus
+    // aucun mur extérieur à ce seuil). ÇA, c'est un vrai mur en devenir —
+    // jamais relâché ici, toujours gardé dans mode.obstacles pour
+    // packNeedsIntoFreeSpace (le placement des pièces, inchangé). Mais ce
+    // même seuil n'est ni un mur ni le battant de la porte (doorSwingRect,
+    // vérifié séparément, balaie vers l'INTÉRIEUR de la pièce verrouillée,
+    // jamais vers ce seuil extérieur) : une CIRCULATION qui le touche ou le
+    // traverse ne bloque rien du tout — c'est au contraire exactement ce
+    // qui rend cette porte praticable (voir genuinelyTouches/doorOutsideProbe,
+    // utilisés PARTOUT ailleurs pour PROUVER qu'une porte débouche sur la
+    // circulation, jamais pour l'interdire). Le traiter comme un obstacle
+    // pour la jonction entre segments de circulation était une réservation
+    // algorithmique trop large — jamais un mur, un battant ni une
+    // obstruction de passage réelle — qui écartait à tort des candidats par
+    // ailleurs complets. Exclu ici uniquement (jamais retiré de
+    // mode.obstacles lui-même, qui reste inchangé pour le placement).
+    const circulationObstacles = mode.obstacles.filter((o) => !lockedDoorProbes.includes(o));
     const { bridges, strandedNeeds } = connectGroupsToNetwork(
       mode.networkAnchors,
       groups,
-      mode.obstacles,
+      circulationObstacles,
       layout.entryDoor ? { entryDoor: layout.entryDoor, bounds: emprise } : null
     );
     if (strandedNeeds.length > 0) {
