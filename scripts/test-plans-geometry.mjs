@@ -1208,6 +1208,162 @@ try {
       }
     }
 
+    // 19) CORRIDOR PARTAGÉ — QUATRE FAÇADES D'ACCÈS (lot "corridor partagé
+    // sur les quatre façades") — jusqu'ici cette famille ne gérait l'accès
+    // arrière que par un refus explicite, et l'accès gauche/droite (déjà
+    // "géré" par le même transpose générique que buildDoubleLoadedLayout)
+    // n'avait jamais été vérifié : deux défauts trouvés et corrigés ici.
+    //
+    // Défaut 1 (arrière) : buildSharedCorridorLayoutStraight ignorait
+    // entièrement accessSide pour sa géométrie (toujours "avant"), le refus
+    // explicite de "back" dans le dispatcher était donc la seule protection
+    // contre un résultat silencieusement incorrect. Corrigé en ajoutant un
+    // reflet vertical interne (rects ET étiquettes de mur "top"/"bottom"
+    // inversées ensemble — contrairement à buildDoubleLoadedLayout, qui
+    // n'utilise jamais ces murs pour ses pièces en colonnes).
+    //
+    // Défaut 2 (gauche/droite) : transposeDoubleLoadedResult (réutilisé
+    // tel quel) ne transposait jamais `circulations` ni `exteriorPaths` —
+    // jamais remarqué par buildDoubleLoadedLayout, qui ne les utilise
+    // jamais. Le foyer de cette famille y est rangé : resté dans le repère
+    // VIRTUEL après transposition, il chevauchait les pièces du repère
+    // réel. Corrigé en généralisant ce transpose (désormais réutilisable
+    // par n'importe quelle famille future, pas seulement celle-ci).
+    {
+      const salon = { type: "salon", label: "Salon", minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 };
+      const cuisine = { type: "cuisine", label: "Cuisine", minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 };
+      const chambre = { type: "chambre", label: "Chambre", minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 };
+      const sanitaire = { type: "sanitaire", label: "Sanitaire", minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 };
+      const frontNeeds = [salon, cuisine];
+      const backNeeds = [chambre, chambre, sanitaire];
+      const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: [] };
+      const terrains = [
+        { label: "terrain carré, reculs symétriques", terrainWidth: 15, terrainDepth: 20, setbacks: { front: 3, back: 2, left: 2, right: 2 } },
+        { label: "terrain NON carré, reculs ASYMÉTRIQUES", terrainWidth: 14, terrainDepth: 24, setbacks: { front: 4, back: 1, left: 2.5, right: 1 } },
+      ];
+      const expectedWall = { front: "top", back: "bottom", left: "left", right: "right" };
+      for (const t of terrains) {
+        for (const accessSide of ["front", "back", "left", "right"]) {
+          const input = { ...BASE, terrainWidth: t.terrainWidth, terrainDepth: t.terrainDepth, accessSide, setbacks: t.setbacks };
+          const v = g.buildSharedCorridorLayout(input, frontNeeds, backNeeds, "test");
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : disposition admissible trouvée`, v.feasible, v.feasible ? "" : v.failureReasons.join(" | "));
+          if (!v.feasible) continue;
+          const errors = g.independentVerify(v).filter((i) => i.severity === "error");
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+          const reach = g.computeReachableRooms(v);
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : toutes les pièces accessibles depuis l'entrée`, v.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : entrée sur le mur attendu (${expectedWall[accessSide]})`, v.entryDoor?.wall === expectedWall[accessSide]);
+          record(
+            `Corridor partagé — ${t.label}, accès ${accessSide} : dimensions du terrain inchangées (${t.terrainWidth}×${t.terrainDepth}, reculs attachés aux côtés physiques)`,
+            v.terrain.w === t.terrainWidth && v.terrain.d === t.terrainDepth &&
+              Math.abs(v.emprise.w - (t.terrainWidth - t.setbacks.left - t.setbacks.right)) < 1e-6 &&
+              Math.abs(v.emprise.d - (t.terrainDepth - t.setbacks.front - t.setbacks.back)) < 1e-6
+          );
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : chaque pièce posée a au moins une porte`, v.rooms.every((r, i) => g.doorsOf(v, i).length > 0));
+          record(`Corridor partagé — ${t.label}, accès ${accessSide} : chaque pièce posée a au moins une ouverture extérieure`, v.rooms.every((r, i) => g.windowsOf(v, i).length > 0 || !!r.exteriorWall));
+        }
+      }
+    }
+
+    // 20) CORRIDOR PARTAGÉ — RÉGÉNÉRATION ÉTENDUE À L'ACCÈS ARRIÈRE (même lot
+    // que la section 19) — jusqu'ici la stratégie dédiée dans
+    // regenerateUnlocked() (Cas A/B, lot bdd22fd) était gardée par
+    // `layout.accessSide === "front"` : un verrouillage dans cette
+    // configuration sur un plan à accès ARRIÈRE retombait sur la recherche
+    // générale (packNeedsIntoFreeSpace), qui ne partage jamais de corridor
+    // entre deux rangées (même limite déjà chiffrée pour la génération
+    // initiale) — correction en 2 temps :
+    // - la porte d'entrée (devenue "bottom" pour l'accès arrière) peut
+    //   toucher soit la rangée VERROUILLÉE (plus besoin de foyer, comme le
+    //   Cas A d'origine), soit la rangée FRAÎCHE (foyer nécessaire côté
+    //   entrée, comme le Cas B d'origine) — selon laquelle des deux rangées
+    //   est verrouillée, jamais selon un "Cas A/B" figé sur "avant/arrière".
+    // - généralisé via `entryWallForRegen`/`foyerOnBackRow`/`foyerOnFrontRow`
+    //   dans regenerateUnlocked(), chaque Cas gardant sa construction
+    //   géométrique (quelle rangée touche quel mur) mais décidant QUI porte
+    //   le foyer selon le mur d'entrée réel plutôt qu'un sens supposé.
+    // "left"/"right" restent HORS PÉRIMÈTRE de cette extension (passent par
+    // un repère virtuel entier via transposeDoubleLoadedResult, jamais par
+    // cette logique directement) — limite documentée ci-dessous, jamais
+    // forcée : la recherche générale reste utilisée pour ces deux façades,
+    // sans le partage de corridor entre rangées lors d'une régénération.
+    {
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 3, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 2, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+      ];
+      const SETBACKS = { front: 3, back: 2, left: 2, right: 2 };
+      const BASE = { orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", entryMode: "direct", needs: NEEDS };
+
+      function checkRegen(label, lockedBase, base, lockedIdxs, accessSide) {
+        const regen = g.regenerateUnlocked(lockedBase);
+        const newOnes = regen.variants.filter((l, i) => !regen.preferenceNotes[i].startsWith("Disposition actuelle conservée"));
+        record(`${label} : au moins une disposition nouvelle et admissible trouvée`, newOnes.length > 0, regen.failureReasons.slice(0, 2).join(" | "));
+        for (const layout of newOnes) {
+          const lockedOk = lockedIdxs.every((idx) => {
+            const r = layout.rooms[idx];
+            const b = base.rooms[idx];
+            return r && Math.abs(r.x - b.x) < 1e-6 && Math.abs(r.y - b.y) < 1e-6 && Math.abs(r.w - b.w) < 1e-6 && Math.abs(r.d - b.d) < 1e-6;
+          });
+          record(`${label} : pièce(s) verrouillée(s) strictement inchangée(s) (position/dimensions)`, lockedOk);
+          const errors = g.independentVerify(layout).filter((e) => e.severity === "error");
+          record(`${label} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
+          const reach = g.computeReachableRooms(layout);
+          record(`${label} : toutes les pièces accessibles depuis l'entrée`, layout.rooms.every((r, i) => r.parked || reach.has(i)));
+          record(`${label} : entrée sur le mur attendu (${accessSide === "front" ? "top" : "bottom"})`, layout.entryDoor?.wall === (accessSide === "front" ? "top" : "bottom"));
+        }
+      }
+
+      for (const accessSide of ["front", "back"]) {
+        const input = { ...BASE, terrainWidth: 20, terrainDepth: 14, accessSide, setbacks: SETBACKS };
+        const res = g.generateVariants(input);
+        record(`Corridor partagé, régénération accès ${accessSide} : au moins une disposition de départ générée`, res.variants.length > 0);
+        if (res.variants.length === 0) continue;
+        const base = res.variants[0];
+
+        // Rangée verrouillée du côté de l'entrée (pas de foyer nécessaire,
+        // généralisation du Cas A d'origine).
+        const salonIdx = base.rooms.findIndex((r) => r.type === "salon");
+        if (salonIdx >= 0) {
+          const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (i === salonIdx ? { ...r, locked: true } : r)) };
+          checkRegen(`Corridor partagé, régénération accès ${accessSide} (salon verrouillé, rangée côté entrée)`, lockedBase, base, [salonIdx], accessSide);
+        }
+
+        // Rangée verrouillée du côté OPPOSÉ à l'entrée (foyer nécessaire côté
+        // entrée dans la rangée fraîche, généralisation du Cas B d'origine).
+        const chambreIdxs = base.rooms.map((r, i) => (r.type === "chambre" ? i : -1)).filter((i) => i >= 0);
+        if (chambreIdxs.length > 0) {
+          const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (chambreIdxs.includes(i) ? { ...r, locked: true } : r)) };
+          checkRegen(`Corridor partagé, régénération accès ${accessSide} (chambres verrouillées, rangée côté opposé à l'entrée)`, lockedBase, base, chambreIdxs, accessSide);
+        }
+      }
+
+      // Échec explicite pertinent conservé (jamais forcé) : accès
+      // gauche/droite reste hors périmètre pour la RÉGÉNÉRATION de cette
+      // famille — vérifie que la recherche ne plante pas et ne prétend pas
+      // à tort réutiliser le corridor partagé (elle peut retomber sur la
+      // recherche générale ou sur le repli "disposition actuelle"), jamais
+      // qu'elle réussisse de cette façon précise.
+      for (const accessSide of ["left", "right"]) {
+        const input = { ...BASE, terrainWidth: 20, terrainDepth: 14, accessSide, setbacks: SETBACKS };
+        const res = g.generateVariants(input);
+        if (res.variants.length === 0) continue;
+        const base = res.variants[0];
+        const salonIdx = base.rooms.findIndex((r) => r.type === "salon");
+        if (salonIdx < 0) continue;
+        const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (i === salonIdx ? { ...r, locked: true } : r)) };
+        const regen = g.regenerateUnlocked(lockedBase);
+        const allValid = regen.variants.every((layout) => g.independentVerify(layout).filter((e) => e.severity === "error").length === 0);
+        record(
+          `Corridor partagé, régénération accès ${accessSide} (hors périmètre de ce lot) : aucune disposition invalide produite même sans la stratégie dédiée`,
+          allValid,
+          allValid ? "" : "une disposition retournée contient des erreurs independentVerify"
+        );
+      }
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

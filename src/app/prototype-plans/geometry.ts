@@ -455,6 +455,16 @@ function transposeDoubleLoadedResult(v: Layout, input: GenerationInput): Layout 
   const footprint = transposeRect(v.footprint);
   const corridor = v.corridor ? transposeRect(v.corridor) : null;
   const corridorFillers = v.corridorFillers.map(transposeRect);
+  // `circulations` (ex. le foyer de buildSharedCorridorLayout) et
+  // `exteriorPaths` manquaient ici : jamais utilisés par
+  // buildDoubleLoadedLayout (toujours [] pour lui), donc jamais remarqué
+  // avant qu'une AUTRE famille réutilise ce même transpose générique avec
+  // ces champs non vides — restaient alors dans le repère VIRTUEL après
+  // transposition, chevauchant les pièces du repère réel (mesuré :
+  // "Chevauchement détecté entre « Salon 1 » et « circulation 1 »").
+  // Toujours transposés maintenant, quel que soit l'appelant.
+  const circulations = v.circulations.map(transposeRect);
+  const exteriorPaths = (v.exteriorPaths ?? []).map(transposeRect);
   const rooms: PlacedRoom[] = v.rooms.map((r) => {
     const t = transposeRect(r);
     return {
@@ -478,12 +488,14 @@ function transposeDoubleLoadedResult(v: Layout, input: GenerationInput): Layout 
     footprint,
     corridor,
     corridorFillers,
+    circulations,
+    exteriorPaths,
     rooms,
     doors,
     windows,
     entryDoor,
     exteriorSpaces: computeExteriorSpaces(terrain, emprise, footprint, input.accessSide),
-    surfaces: computeSurfaces(terrain, emprise, footprint, corridor, corridorFillers, [], rooms, null, []),
+    surfaces: computeSurfaces(terrain, emprise, footprint, corridor, corridorFillers, circulations, rooms, null, exteriorPaths),
   };
 }
 
@@ -3966,7 +3978,17 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   // entre deux rangées — chaque groupe qu'elle construit paie sa propre
   // circulation, exactement la limite déjà chiffrée pour la génération
   // initiale sur un terrain large et peu profond.
-  if (layout.accessSide === "front" && lockedRooms.length > 0 && needs.length > 0) {
+  // Étendu à l'accès "back" (même famille, reflet vertical déjà pris en
+  // charge nativement par buildSharedCorridorLayoutStraight en génération
+  // initiale — voir son corps) : la SEULE chose qui change entre "front" et
+  // "back" est quelle rangée (verrouillée ou fraîche) touche le mur
+  // d'entrée, donc quelle rangée a besoin du foyer réservé pour
+  // entryRescue. "left"/"right" restent hors périmètre de ce lot : ils
+  // passent par transposeDoubleLoadedResult (un repère virtuel entier,
+  // jamais par cette logique directement en coordonnées réelles) — non
+  // traités ici faute de temps, limite documentée plutôt que forcée.
+  const entryWallForRegen = layout.accessSide === "front" ? "top" : layout.accessSide === "back" ? "bottom" : null;
+  if (entryWallForRegen && lockedRooms.length > 0 && needs.length > 0) {
     const empriseBottom = emprise.y + emprise.d;
     const usableRowWidth = emprise.w - 2 * WALL_EXT;
 
@@ -4004,13 +4026,19 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     const typeKeys = [...typeGroups.keys()];
     const k = typeKeys.length;
 
-    // Cas A : la rangée verrouillée est la rangée AVANT (mur "top") — la
-    // rangée arrière est reconstruite librement, son corridor partagé se
-    // raccorde à l'entrée via le même recours (connectGroupsToNetwork,
-    // entryRescue) que finalizeCandidate essaie déjà pour toute tentative :
-    // aucun foyer à construire ici, l'entrée touche l'espace juste à côté
-    // de la rangée verrouillée exactement comme à la génération initiale.
+    // Cas A : la rangée verrouillée est la rangée AVANT (mur "top"). Si
+    // l'entrée est aussi sur "top" (accès avant), l'entrée touche déjà
+    // l'espace juste à côté de la rangée verrouillée : aucun foyer à
+    // construire, recours entryRescue seul (comme la génération initiale).
+    // Si l'entrée est sur "bottom" (accès arrière), c'est au contraire la
+    // rangée fraîche (arrière) qui touche l'entrée : un foyer (même
+    // largeur que le corridor) doit alors lui être réservé sur son côté
+    // gauche, exactement comme le Cas B le fait pour sa propre rangée
+    // fraîche — seule la rangée qui porte le foyer change, jamais sa
+    // construction (toujours une réservation de largeur, jamais un rect
+    // posé à la main, voir le commentaire du Cas B).
     const frontY = emprise.y + WALL_EXT;
+    const foyerOnBackRow = entryWallForRegen === "bottom";
     if (lockedRooms.every((r) => r.exteriorWall === "top" && Math.abs(r.y - frontY) < 1e-2) && k > 0) {
       const depthFrontFixed = Math.max(...lockedRooms.map((r) => r.d));
       const corridorY = frontY + depthFrontFixed + WALL_INT;
@@ -4019,6 +4047,8 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       const lockedRightEdge = Math.max(...lockedRooms.map((r) => r.x + r.w));
       const joinStartX = lockedRightEdge + WALL_INT;
       const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
+      const backRowWidth = foyerOnBackRow ? usableRowWidth - (CORRIDOR_WIDTH + WALL_INT) : usableRowWidth;
+      const backRowStartX = foyerOnBackRow ? emprise.x + WALL_EXT + CORRIDOR_WIDTH + WALL_INT : emprise.x + WALL_EXT;
       if (availableBackDepth > 1e-6) {
         for (let mask = 0; mask < (1 << k) - 1; mask++) {
           const joinNeeds: FreeSpaceNeed[] = [];
@@ -4047,13 +4077,14 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
               return p;
             });
           }
+          if (foyerOnBackRow && backRowWidth <= 0) continue;
           const bFloorDepth = Math.max(...backNeeds.map((n) => n.minD));
           if (bFloorDepth > availableBackDepth + 1e-6) continue;
-          const bWidths = fitProportional(backNeeds.map((n) => n.width), backNeeds.map((n) => n.minW), usableRowWidth);
+          const bWidths = fitProportional(backNeeds.map((n) => n.width), backNeeds.map((n) => n.minW), backRowWidth);
           if (!bWidths) continue;
           const rowDepth = Math.min(Math.max(...backNeeds.map((n) => n.depth)), availableBackDepth);
           const backFillers: Rect[] = [];
-          let cursorX = emprise.x + WALL_EXT;
+          let cursorX = backRowStartX;
           const backPlacements: FreeSpacePlacement[] = backNeeds.map((n, i) => {
             const w = bWidths[i];
             const d = Math.min(n.depth, rowDepth);
@@ -4069,7 +4100,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
           const corridorRect: Rect = { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH };
           const joinLabel = joinNeeds.length ? `, +${[...new Set(joinNeeds.map((n) => n.type))].join("/")} côté avant` : "";
           tryShared(
-            `corridor partagé entre deux rangées (rangée avant verrouillée réutilisée${joinLabel})`,
+            `corridor partagé entre deux rangées (rangée avant verrouillée réutilisée${joinLabel})${foyerOnBackRow ? ", accès arrière" : ""}`,
             [...joinPlacements, ...backPlacements],
             corridorRect,
             [...joinFillers, ...backFillers]
@@ -4078,24 +4109,29 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
       }
     }
 
-    // Cas B : la rangée verrouillée est la rangée ARRIÈRE (mur "bottom") —
-    // la rangée avant est reconstruite librement, CONTRE la façade
-    // d'accès : un foyer (largeur réelle de corridor, même convention que
-    // buildSharedCorridorLayoutStraight) est donc réservé sur son côté
-    // gauche pour que l'entrée rejoigne le corridor partagé, faute de quoi
-    // la rangée fraîchement posée pourrait occuper toute la largeur et
-    // couper tout accès direct depuis l'entrée. Même partage par type que
-    // le Cas A : certains types peuvent rejoindre la rangée verrouillée
-    // (largeur restante à côté d'elle) plutôt que d'être tous reconstruits
-    // dans l'unique rangée avant fraîche.
+    // Cas B : la rangée verrouillée est la rangée ARRIÈRE (mur "bottom").
+    // Si l'entrée est sur "top" (accès avant), c'est la rangée fraîche
+    // (avant) qui touche l'entrée : un foyer (largeur réelle de corridor,
+    // même convention que buildSharedCorridorLayoutStraight) est réservé
+    // sur son côté gauche pour que l'entrée rejoigne le corridor partagé,
+    // faute de quoi la rangée fraîchement posée pourrait occuper toute la
+    // largeur et couper tout accès direct depuis l'entrée. Si l'entrée est
+    // sur "bottom" (accès arrière), c'est au contraire la rangée verrouillée
+    // qui touche déjà l'entrée : aucun foyer nécessaire côté avant, comme
+    // le Cas A sans foyer. Même partage par type que le Cas A : certains
+    // types peuvent rejoindre la rangée verrouillée (largeur restante à
+    // côté d'elle) plutôt que d'être tous reconstruits dans l'unique
+    // rangée avant fraîche.
     const empriseBottomEdge = empriseBottom - WALL_EXT;
+    const foyerOnFrontRow = entryWallForRegen === "top";
     if (lockedRooms.every((r) => r.exteriorWall === "bottom" && Math.abs(r.y + r.d - empriseBottomEdge) < 1e-2) && k > 0) {
       const depthBackFixed = Math.max(...lockedRooms.map((r) => r.d));
       const corridorBottom = empriseBottomEdge - depthBackFixed - WALL_INT;
       const corridorY = corridorBottom - CORRIDOR_WIDTH;
       const availableFrontDepth = corridorY - WALL_INT - frontY;
       const foyerX = emprise.x + WALL_EXT;
-      const usableFrontWidth = usableRowWidth - (CORRIDOR_WIDTH + WALL_INT);
+      const usableFrontWidth = foyerOnFrontRow ? usableRowWidth - (CORRIDOR_WIDTH + WALL_INT) : usableRowWidth;
+      const frontRowStartX = foyerOnFrontRow ? foyerX + CORRIDOR_WIDTH + WALL_INT : foyerX;
       const lockedRightEdge = Math.max(...lockedRooms.map((r) => r.x + r.w));
       const joinStartX = lockedRightEdge + WALL_INT;
       const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
@@ -4131,7 +4167,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
           if (!fWidths) continue;
           const rowDepth = Math.min(Math.max(...frontNeeds.map((n) => n.depth)), availableFrontDepth);
           const frontFillers: Rect[] = [];
-          let cursorX = foyerX + CORRIDOR_WIDTH + WALL_INT;
+          let cursorX = frontRowStartX;
           const frontPlacements: FreeSpacePlacement[] = frontNeeds.map((n, i) => {
             const w = fWidths[i];
             const d = Math.min(n.depth, rowDepth);
@@ -4147,17 +4183,18 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
             return p;
           });
           const corridorRect: Rect = { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH };
-          // Aucun foyer construit à la main ici : la rangée avant fraîche
-          // laisse déjà la largeur [foyerX, foyerX+CORRIDOR_WIDTH] libre de
-          // toute pièce (cursorX démarre après), et finalizeCandidate essaie
-          // déjà un recours depuis l'entrée (connectGroupsToNetwork,
-          // entryRescue) vers CE groupe — un foyer posé à la main en plus
-          // produisait un VRAI chevauchement avec ce recours (mesuré :
-          // "circulation" et "cheminement extérieur" se recouvraient), les
-          // deux revendiquant la même largeur par deux chemins différents.
+          // Aucun foyer construit à la main ici quand foyerOnFrontRow : la
+          // rangée avant fraîche laisse déjà la largeur
+          // [foyerX, foyerX+CORRIDOR_WIDTH] libre de toute pièce (cursorX
+          // démarre après), et finalizeCandidate essaie déjà un recours
+          // depuis l'entrée (connectGroupsToNetwork, entryRescue) vers CE
+          // groupe — un foyer posé à la main en plus produisait un VRAI
+          // chevauchement avec ce recours (mesuré : "circulation" et
+          // "cheminement extérieur" se recouvraient), les deux revendiquant
+          // la même largeur par deux chemins différents.
           const joinLabel = joinNeeds.length ? `, +${[...new Set(joinNeeds.map((n) => n.type))].join("/")} côté arrière` : "";
           tryShared(
-            `corridor partagé entre deux rangées (rangée arrière verrouillée réutilisée${joinLabel})`,
+            `corridor partagé entre deux rangées (rangée arrière verrouillée réutilisée${joinLabel})${foyerOnFrontRow ? "" : ", accès arrière"}`,
             [...joinPlacements, ...frontPlacements],
             corridorRect,
             [...joinFillers, ...frontFillers]
