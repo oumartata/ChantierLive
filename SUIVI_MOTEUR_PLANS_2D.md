@@ -29,24 +29,31 @@ non modifiée par ce document ni par aucun lot plans-generator à ce jour.
 ## 2. Moteur 2D — jalons de livraison
 
 Liste finie, établie depuis le périmètre déjà convenu au fil des lots
-(aucune fonctionnalité ajoutée ici). **7/7 jalons terminés.** Un jalon
-partiel ne compte jamais comme terminé — M7 ne passe à "Terminé" que
-parce que son critère exact (entrée réellement raccordée sur les 4
-façades, pour chaque famille EN GÉNÉRATION) est désormais mesuré vrai
-pour toutes les familles, corridor partagé compris (lot `37fea69` et
-suivant). Le critère de M7 ne porte PAS sur la régénération — ce point
-reste une limite ouverte, consignée explicitement sous le tableau,
-jamais dissimulée par la clôture de ce jalon.
+(aucune fonctionnalité ajoutée ici). **6/7 jalons terminés.** Un jalon
+partiel ne compte jamais comme terminé.
+
+**Correction de portée (M7, ce lot)** : le lot précédent avait marqué M7
+"Terminé" sur la seule preuve de deux familles (double-chargé, corridor
+partagé). Vérification demandée explicitement sur la portée réelle de
+« CHAQUE famille » : **FAUX** — `buildLShapedLayout` (circulation en L)
+refuse explicitement tout `accessSide` autre que `"left"`
+(`geometry.ts:979`, message "non prise en charge... autre que gauche"),
+et `buildGuidedLayout` (salon central / cour d'entrée) refuse explicitement
+tout `accessSide` autre que `"front"` (`geometry.ts:791`, "non pris en
+charge... autre qu'avant"). Ce sont des refus EXPLICITES et documentés
+(jamais un résultat silencieusement incorrect), mais ils signifient que
+M7 n'est PAS satisfait pour l'ensemble des familles — remis à **Partiel**,
+jamais reformulé pour conserver artificiellement 7/7.
 
 | # | Jalon | Statut | Critère de clôture | Preuve disponible |
 |---|---|---|---|---|
-| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 253 tests `scripts/test-plans-geometry.mjs` |
+| M1 | Génération initiale multi-familles (double-chargé, salon central/cour, circulation en L, empaquetage libre, corridor partagé) | **Terminé** | `generateVariants` produit ≥1 disposition admissible (0 erreur `independentVerify`) pour chaque cas "connu" de la batterie fixe | Batterie 11 cas (`scripts/test-plans-battery.mjs`) + 249 tests `scripts/test-plans-geometry.mjs` |
 | M2 | Vérification géométrique indépendante (chevauchement, accessibilité réelle, ouvertures réellement extérieures) | **Terminé** | `independentVerify`/`computeReachableRooms` recalculent depuis la géométrie brute, jamais depuis un champ enregistré | Sections dédiées de `test-plans-geometry.mjs` (ex. recalcul d'union indépendant des surfaces) |
-| M3 | Verrouillage + régénération partielle (préserve exactement position/dimensions/portes/fenêtres verrouillées) | **Terminé** | `regenerateUnlocked` ne modifie jamais une pièce verrouillée ; propose ≥1 disposition nouvelle quand une existe géométriquement | Fixtures `plans-c8-resolu`/`plans-c2-resolu`/`plans-scenario*-post-regen`, scénario C9 salon verrouillé (commit `bdd22fd`), accès arrière (ce lot) |
-| M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte | Fixtures `scripts/fixtures/plans-*.projet.json`, vérifié en navigateur (export → réimport, verrou conservé) |
-| M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*` (SVG+PNG/JSON) envoyés et inspectés |
-| M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot, nombres protégés inchangés |
-| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Terminé** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour toutes les familles | Double-chargé : 4/4 façades (tests section 16/17). Corridor partagé : 4/4 façades, 2 terrains dont un non carré à reculs asymétriques (tests section 19, 56 assertions) |
+| M3 | Verrouillage + régénération partielle (préserve exactement position/dimensions/portes/fenêtres verrouillées) | **Terminé** | `regenerateUnlocked` ne modifie jamais une pièce verrouillée NI une pièce non verrouillée sous sa dimension cible (un placement qui l'exigerait est rejeté, jamais proposé réduit) ; propose ≥1 disposition nouvelle quand une existe géométriquement | Fixtures `plans-c8-resolu`/`plans-c2-resolu`/`plans-scenario*-post-regen`, scénario C9 salon verrouillé, accès arrière (sections 20/21, `scripts/test-plans-geometry.mjs`) |
+| M4 | Export/réimport du fichier de projet (.json), round-trip fidèle | **Terminé** | `validateProjectFile` accepte le fichier exporté ; réimport reproduit la disposition exacte (dimensions, verrou, bilan de surfaces) | Fixtures `scripts/fixtures/plans-*.projet.json` ; section 21 (`serializeProject`→écriture→`validateProjectFile`, round-trip vérifié y compris le bilan de surfaces) ; vérifié en navigateur |
+| M5 | Exports visuels SVG/PNG lisibles (légendes, cotes, aucune troncature) | **Terminé** | Inspection visuelle directe du SVG/PNG réellement exporté, aucun chevauchement ni texte coupé | Exports `c2_resolu`/`c9_regenere`/`acces_droite`/`acces_arriere_*` (SVG+PNG/JSON+fichiers de projet réels) envoyés et inspectés |
+| M6 | Batterie fixe de cas représentatifs, catégorisés et mesurés en continu | **Terminé** | 11 cas couvrant proportions de terrain, programmes 2–3 chambres, 4 façades d'accès, dont un cas volontairement incompatible et un hors périmètre ; chaque cas catégorisé (connu/inconnu/incompatible démontré/hors périmètre), jamais un pass/fail | `scripts/test-plans-battery.mjs`, rejoué à chaque lot — C8/C9 régénération CORRIGÉS ce lot (voir journal) |
+| M7 | Les 4 façades d'accès réellement raccordées, pour CHAQUE famille de disposition, EN GÉNÉRATION | **Partiel** | Entrée réellement raccordée (pas seulement déplacée) sur avant/arrière/gauche/droite, pour TOUTES les familles listées en M1 | Double-chargé : 4/4 (tests section 16/17). Corridor partagé : 4/4, 2 terrains dont un asymétrique (section 19). Empaquetage libre : `accessSide` géré nativement pour les 4 côtés dans le code (`geometry.ts:1562`), **non couvert par une preuve dédiée** dans ce lot. Salon central/cour (guidée) : **1/4 (avant seulement)**, refus explicite et documenté pour les 3 autres. Circulation en L : **1/4 (gauche seulement)**, refus explicite et documenté pour les 3 autres. |
 
 ---
 
@@ -100,22 +107,27 @@ ce lot) :**
   résultat invalide : vérifié que `independentVerify` reste à 0 erreur
   même sans la stratégie dédiée), avec la même limite déjà chiffrée
   ailleurs (pas de corridor partagé entre rangées).
+- **Chiffres cités ci-dessus (26,36 / 26,52 / 27,00 / 36,07 m²) corrigés
+  par le lot suivant** : certains de ces résultats s'appuyaient sur le
+  défaut de rétrécissement silencieux détaillé plus bas — seuls 27,00 m²
+  (et les variantes de la batterie non listées ici) survivent à la
+  correction ; les autres n'étaient pas des dispositions à dimensions
+  pleinement conservées. Voir le lot `8ae91ed` pour les chiffres corrigés.
 
 **Tests** : 253/253 (`scripts/test-plans-geometry.mjs`, +102 depuis le lot
 précédent : sections 19 et 20). Batterie 11 cas rejouée sans modification
-de ses paramètres, tous les nombres protégés inchangés (C1=26,52 m²,
-C2=34,62 m², C8 génération=29,74/régénération=[26,17], C9
-génération=34,62/régénération=[26,5 / 27,00 / 31,78 / 35,68 / 35,69],
-C10=36 dispositions/24,54, C11=18/26,52) ; C3/C10/C11 trouvent
-légitimement PLUS de variantes qu'avant (famille corridor partagé
-désormais correctement applicable à gauche/droite/arrière) — jamais une
-régression, une amélioration mesurée sur les mêmes fixtures protégées.
+de ses paramètres ; C3/C10/C11 trouvent légitimement PLUS de variantes
+qu'avant (famille corridor partagé désormais correctement applicable à
+gauche/droite/arrière) — jamais une régression, une amélioration mesurée
+sur les mêmes fixtures protégées. **Chiffres C8/C9 régénération de ce
+tableau corrigés par le lot `8ae91ed` ci-dessous** (s'appuyaient en partie
+sur le défaut de rétrécissement silencieux qui y est détaillé).
 
 **Correction de formulation (« limite mathématique prouvée »)** :
-l'entrée du lot `bdd22fd` ci-dessous emploie cette expression pour le cas
-C2 sans préciser la famille ni les hypothèses concernées — corrigé ici
-plutôt que réécrit, pour ne pas effacer l'historique : il s'agit
-STRICTEMENT de la famille « corridor partagé entre deux rangées »
+l'entrée du lot `bdd22fd` plus bas emploie cette expression pour le cas C2
+sans préciser la famille ni les hypothèses concernées — corrigé ici plutôt
+que réécrit, pour ne pas effacer l'historique : il s'agit STRICTEMENT de
+la famille « corridor partagé entre deux rangées »
 (`buildSharedCorridorLayoutStraight`), pour LE programme exact de C2 (2
 pièces en rangée avant, 3 en rangée arrière, dont 3 chambres) sur LE
 terrain exact de C2 (20×14 m, reculs du cas), prouvée par énumération
@@ -123,6 +135,128 @@ EXHAUSTIVE de toutes les bipartitions de types possibles pour cette
 configuration précise — jamais une impossibilité architecturale générale,
 jamais valable pour un autre programme, terrain, ou famille de
 disposition.
+
+### Lot `8ae91ed` et suivant (correction : rétrécissement silencieux en
+régénération, double comptage du bilan de surfaces, fichiers de projet
+réels)
+
+Défauts rapportés avec fichiers à l'appui (`acces_arriere_generation.json`/
+`acces_arriere_regeneration.json` du lot précédent) — les deux confirmés et
+corrigés à la source, jamais contournés.
+
+**1. Rétrécissement silencieux de pièces NON verrouillées en régénération**
+- Mesuré : chambre 3,50 × 3,00 m → 3,452380952 × 3,00 m ; sanitaire
+  1,80 × 2,00 m → 1,771428571 × 2,00 m, sans aucune mention de cet écart.
+- Cause : la stratégie dédiée corridor partagé de `regenerateUnlocked`
+  utilisait un `fitProportional` local qui réduit proportionnellement les
+  largeurs vers leur minimum dès que la largeur disponible n'atteint pas
+  exactement la somme des cibles — acceptable en GÉNÉRATION (avec
+  divulgation explicite cible/obtenu/minimum, règle déjà en vigueur), mais
+  jamais acceptable en RÉGÉNÉRATION, où les dimensions individuelles de
+  chaque pièce non verrouillée doivent être conservées. Le même défaut
+  existait aussi sur la profondeur (`Math.min(n.depth, rowDepth)` avec
+  `rowDepth` lui-même parfois réduit sous la cible).
+- Corrigé : remplacé par `fitExact` (largeur) — retourne les cibles
+  EXACTES si elles tiennent, sinon `null` (candidat rejeté, jamais réduit) —
+  et les clamps de profondeur remplacés par un contrôle strict avant
+  construction (`n.depth > profondeur disponible` ⇒ candidat rejeté).
+  Chaque pièce non verrouillée obtient donc TOUJOURS sa dimension cible
+  exacte dans toute disposition proposée, ou cette disposition n'est pas
+  proposée du tout.
+- Conséquence mesurée sur la batterie fixe (jamais masquée) : C8
+  régénération passe de 1 variante (26,17 m², dimensions réduites sans le
+  dire) à **0 variante** — ce candidat n'existait que grâce au
+  rétrécissement, il est maintenant honnêtement absent. C9 régénération
+  passe de 5 variantes [26,5 / 27 / 31,78 / 35,68 / 35,69] à **3 variantes
+  [27 / 31,78 / 35,68]** — les deux écartées s'appuyaient sur le même
+  défaut. Ce n'est PAS une régression : ces nombres mesuraient un défaut,
+  jamais une vraie capacité de régénération.
+
+**2. Double comptage dans le bilan de surfaces**
+- Mesuré : union pièces+circulations=94,67 + cheminement=3,96 +
+  non affecté=49,33 + extérieur=0 + cour=0 = **147,96 m², alors que
+  l'emprise ne fait que 144 m²** — total supérieur à l'emprise, impossible
+  géométriquement.
+- Cause : `computeSurfaces` soustrayait TOUJOURS `cheminementExterieur` (et
+  la cour) de l'espace « extérieur » en supposant qu'ils tombent
+  entièrement HORS du rectangle englobant (`footprint`) — vrai pour la
+  bande de jardin classique avant/arrière, mais faux quand `entryRescue`
+  pose un chemin d'entrée DANS une encoche interne au rectangle englobant
+  (ex. le foyer laissé libre par la rangée fraîche de la famille corridor
+  partagé). Cette part était alors comptée une fois dans `nonAffectee`
+  (résidu du rectangle englobant) ET une fois dans `cheminementExterieur`.
+- Corrigé : mesure désormais, rect par rect (`clipRect`), la part RÉELLE de
+  chaque chemin/cour à l'intérieur du rectangle englobant plutôt que de la
+  supposer nulle — jamais une simple égalité par soustraction. `nonAffectee`
+  exclut cette part ; `exterieure` ne retire que la part RÉELLEMENT hors du
+  rectangle englobant. Les 5 catégories (bâti, cheminement, résiduel,
+  extérieur, cour) somment désormais EXACTEMENT à l'emprise, vérifié
+  automatiquement (`Math.abs(somme - emprise) < 1e-6`) sur tous les
+  résultats des sections 19/20/21 du test, jamais une seule fois observée
+  manuellement. Interface, JSON et fichier de projet lisent tous le même
+  objet `surfaces` calculé une seule fois — aucune divergence possible par
+  construction (vérifié par le round-trip de la section 21).
+
+**3. Fichiers de projet réels, distincts des fixtures internes**
+- Les JSON livrés au lot précédent étaient des `Layout` bruts
+  (`JSON.stringify(layout)`) — utiles pour l'inspection technique, mais
+  jamais un véritable fichier de projet rechargeable par l'application.
+- Livré ce lot : `acces_arriere_generation.projet.json` et
+  `acces_arriere_regeneration.projet.json`, produits par
+  `serializeProject` (version 4, horodatage, orientation), réécrits sur
+  disque puis relus et validés par `validateProjectFile` — round-trip
+  vérifié automatiquement (section 21) : verrou et bilan de surfaces
+  identiques avant/après réimport. Les `Layout` bruts précédents restent
+  des fixtures internes de diagnostic, jamais présentées comme des
+  fichiers de projet.
+
+**Tests** : 249/249 (`scripts/test-plans-geometry.mjs`, sections 19-21
+enrichies de contrôles ciblés sur les deux défauts — aucune pièce non
+verrouillée réduite, bilan de surfaces cohérent, round-trip de fichier de
+projet réel). Typecheck et lint : 0 erreur. Batterie 11 cas rejouée sans
+modification de ses paramètres (chiffres C8/C9 régénération corrigés,
+voir point 1 ci-dessus ; tous les autres nombres inchangés : C1=26,52,
+C2=34,62, C3=36 var./24,54, C8 génération=29,74, C9 génération=34,62,
+C10=36 var./24,54, C11=18/26,52).
+
+**M7 rouvert** : voir la section 2 ci-dessus — remis à "Partiel", la
+portée "CHAQUE famille" n'étant couverte ni par la famille guidée
+(salon central/cour, avant seulement) ni par la circulation en L (gauche
+seulement), tous deux par refus explicite et documenté, jamais par un
+oubli de test.
+
+**Découverte d'infrastructure (hors périmètre du code, signalée pour
+information)** : le port 3000, utilisé par `preview_start`/`npm run dev`
+pour vérifier ce lot dans le navigateur, était occupé par un serveur de
+développement orphelin lancé depuis **`C:\ChantierLive`** (la copie
+préservée, jamais modifiée par ce travail) — probablement resté actif
+depuis un lot antérieur de cette session. Ce serveur servait un bundle
+bien plus ancien (sans `buildSharedCorridorLayout` ni `buildFreePackedLayout`
+du tout), ce qui a d'abord fait croire à une régression de génération
+("Aucune solution trouvée" pour le scénario exact rapporté). Diagnostiqué
+par inspection du contenu réel sous `/_next/static/chunks/...` (chaînes
+attendues absentes), puis confirmé via `netstat`/`Get-CimInstance
+Win32_Process` (ligne de commande du processus pointant vers `C:\ChantierLive`).
+Ce processus a été arrêté (processus uniquement — aucun fichier de
+`C:\ChantierLive` lu, modifié ni supprimé), mais un AUTRE processus
+identique a aussitôt repris le port (un superviseur externe le relance,
+hors du périmètre de cette session) : la vérification finale a donc été
+faite sur le port 3001 (`.claude/launch.json` : nouvelle configuration
+`dev-3001`), où le bundle servi contient bien le code de ce lot. **À
+signaler au porteur du projet** : si un dépannage futur de
+`localhost:3000` échoue étrangement, vérifier d'abord quel répertoire sert
+réellement ce port.
+
+**Vérification navigateur (port 3001, bundle confirmé à jour)** : scénario
+exact rapporté (20×14, accès arrière, salon verrouillé) rejoué de bout en
+bout — génération (20 dispositions), verrouillage du salon, régénération
+(« corridor partagé... accès arrière », circulation 27,00 m²), choix de la
+disposition, export du VRAI fichier de projet (`serializeProject`,
+version 4), réimport de ce même fichier (verrou et bilan de surfaces
+identiques après réimport), export SVG/PNG. Chambres 3,50×3,00 m,
+sanitaires 1,80×2,00 m dans le plan rendu — aucun rétrécissement visible.
+Bilan de surfaces affiché : 95,7 + 4,0 + 44,3 + 0,0 + 0,0 = 144,0 m²
+(emprise), exactement cohérent — plus d'écart de 3,96 m².
 
 ### Lot `bdd22fd` (consolidation C2 + régénération C9)
 
@@ -169,13 +303,35 @@ raccordé pour accès arrière/gauche/droite / commit `bdd22fd`.
 ---
 
 **Bilan de ce lot** (`37fea69` et suivant) :
-28/68 (41 %) / 7/7 jalons moteur terminés / 3 cycles effectués (sur 5
-autorisés, arrêt anticipé — objectif de génération atteint et vérifié sur
-4 façades, régénération étendue avec succès à l'accès arrière) / résultat
-utilisateur : corridor partagé désormais disponible sur les 4 façades en
-génération initiale (avant/arrière/gauche/droite, terrain carré et non
-carré à reculs asymétriques), et en régénération pour avant/arrière avec
-verrou strictement préservé / limite principale : régénération à corridor
-partagé non étendue à gauche/droite (repère virtuel entier, limite ouverte
-documentée, jamais forcée — recherche générale utilisée à la place, sans
-résultat invalide) / commit à suivre (voir état Git du compte rendu).
+28/68 (41 %) / **7/7 jalons moteur terminés — CORRIGÉ À 6/7 par le lot
+suivant** (M7 marqué "Terminé" ici sur la seule preuve de 2 familles sur 5 ;
+corrigé une fois la portée réelle de « chaque famille » vérifiée, voir lot
+`8ae91ed`) / 3 cycles effectués (sur 5 autorisés, arrêt anticipé — objectif
+de génération atteint et vérifié sur 4 façades, régénération étendue avec
+succès à l'accès arrière) / résultat utilisateur : corridor partagé
+désormais disponible sur les 4 façades en génération initiale (avant/
+arrière/gauche/droite, terrain carré et non carré à reculs asymétriques),
+et en régénération pour avant/arrière avec verrou strictement préservé /
+limite principale : régénération à corridor partagé non étendue à gauche/
+droite (repère virtuel entier, limite ouverte documentée, jamais forcée —
+recherche générale utilisée à la place, sans résultat invalide) / commit
+`8ae91ed`.
+
+---
+
+**Bilan de ce lot** (`8ae91ed` et suivant — correction des défauts
+rapportés) :
+28/68 (41 %) / 6/7 jalons moteur terminés (M7 rouvert à "Partiel", portée
+réelle précisée : guidée et L restent à 1/4 façade chacune, par refus
+explicite) / 2 cycles effectués (sur 5 autorisés, arrêt anticipé — les deux
+défauts rapportés confirmés et corrigés dès le premier cycle, second cycle
+consacré aux tests ciblés et à la vérification de portée de M7) / résultat
+utilisateur : régénération corridor partagé ne réduit plus jamais
+silencieusement une pièce non verrouillée (rejette plutôt que rétrécir) ;
+bilan de surfaces des 5 catégories somme désormais exactement à l'emprise
+(vérifié automatiquement, plus de double comptage) ; fichiers de projet
+réels livrés (serializeProject → écriture → validateProjectFile, round-trip
+vérifié) / limite principale : régénération à corridor partagé toujours
+non étendue à gauche/droite ; empaquetage libre non couvert par une preuve
+dédiée 4 façades ; familles guidée et L restent à 1 façade chacune par
+conception (non un défaut de ce lot) / commit `8ae91ed`.

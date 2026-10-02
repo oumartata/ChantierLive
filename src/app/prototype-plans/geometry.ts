@@ -1759,6 +1759,20 @@ function rectsUnionArea(rects: Rect[]): number {
 // circulation : recalculé ici comme l'union réelle (pièces + circulation),
 // et l'écart avec le rectangle englobant devient sa propre catégorie
 // (`nonAffectee`) plutôt que d'être silencieusement compté comme bâti.
+// Intersection géométrique RÉELLE de `r` avec le rectangle `bounds` — jamais
+// supposée nulle ou totale : nécessaire pour savoir, rect par rect, quelle
+// PART de `cheminementExterieur`/`cour` tombe matériellement À L'INTÉRIEUR
+// du rectangle englobant (footprint) plutôt que dans la bande qui l'entoure
+// (voir le défaut corrigé ci-dessous dans computeSurfaces).
+function clipRect(r: Rect, bounds: Rect): Rect | null {
+  const x0 = Math.max(r.x, bounds.x);
+  const y0 = Math.max(r.y, bounds.y);
+  const x1 = Math.min(r.x + r.w, bounds.x + bounds.w);
+  const y1 = Math.min(r.y + r.d, bounds.y + bounds.d);
+  if (x1 - x0 <= 1e-9 || y1 - y0 <= 1e-9) return null;
+  return { x: x0, y: y0, w: x1 - x0, d: y1 - y0 };
+}
+
 function computeSurfaces(
   terrain: Rect,
   emprise: Rect,
@@ -1775,30 +1789,43 @@ function computeSurfaces(
   const circulation = rectsUnionArea(circulationRects);
   const batie = rectsUnionArea([...circulationRects, ...rooms.map(roomRect)]);
   const footprintArea = footprint.w * footprint.d;
-  // Portion du rectangle englobant qui n'est ni une pièce ni une circulation
-  // — jamais transformée automatiquement en bâti ni en cour : un résidu
-  // géométrique réel, à combler ou à retirer de l'emprise constructible
-  // selon ce que l'utilisateur choisit d'en faire.
-  const nonAffectee = Math.max(0, footprintArea - batie);
   const empriseArea = emprise.w * emprise.d;
   const courArea = courtyard ? courtyard.w * courtyard.d : 0;
   // Union réelle des trajets extérieurs (voir buildExteriorPath) — JAMAIS
-  // mêlée à `circulation` (strictement intérieure au contour bâti) ; son
-  // aire est retirée du résidu extérieur ci-dessous pour ne jamais la
-  // compter deux fois (une fois ici, une fois dans l'ancien "reste flou").
+  // mêlée à `circulation` (strictement intérieure au contour bâti).
   const cheminementExterieur = rectsUnionArea(exteriorPaths);
+  // DÉFAUT MESURÉ (régénération accès arrière, famille corridor partagé) :
+  // `cheminementExterieur` était toujours soustrait de `exterieure` en
+  // supposant qu'il tombe ENTIÈREMENT hors du rectangle englobant (vrai pour
+  // la bande de jardin classique avant/arrière) — mais le recours
+  // `entryRescue` peut aussi poser un chemin d'entrée DANS une encoche
+  // laissée libre à l'intérieur même de ce rectangle (ex. foyer réservé
+  // avant qu'une pièce ne l'occupe). Dans ce cas il était ET dans
+  // `nonAffectee` (résidu du rectangle englobant) ET dans
+  // `cheminementExterieur` — compté deux fois, jamais détecté par la seule
+  // égalité par soustraction. Corrigé en mesurant, rect par rect, la part
+  // RÉELLEMENT à l'intérieur du rectangle englobant (clipRect) plutôt que
+  // de la supposer nulle.
+  const cheminementDansFootprint = rectsUnionArea(exteriorPaths.map((r) => clipRect(r, footprint)).filter((r): r is Rect => r !== null));
+  const cheminementHorsFootprint = Math.max(0, cheminementExterieur - cheminementDansFootprint);
+  const courDansFootprint = courtyard ? rectsUnionArea([clipRect(courtyard, footprint)].filter((r): r is Rect => r !== null)) : 0;
+  const courHorsFootprint = Math.max(0, courArea - courDansFootprint);
+  // Portion du rectangle englobant qui n'est ni une pièce, ni une
+  // circulation, ni un chemin d'entrée, ni une cour qui s'y trouverait —
+  // jamais transformée automatiquement en bâti : un résidu géométrique réel.
+  const nonAffectee = Math.max(0, footprintArea - batie - cheminementDansFootprint - courDansFootprint);
   return {
     terrain: terrain.w * terrain.d,
     emprise: empriseArea,
     cour: courArea,
     batie,
     utileHabitable: habitable,
-    // La cour est exclue d'ici (comptée une seule fois, séparément) — jamais
-    // dans le "reste" ET dans "cour" à la fois. Basé sur le rectangle
-    // englobant (footprint), pas sur `batie` : c'est la limite du contour
-    // bâti vis-à-vis de l'emprise qui définit l'espace véritablement
-    // extérieur, indépendamment des éventuels résidus internes (nonAffectee).
-    exterieure: Math.max(0, empriseArea - footprintArea - courArea - cheminementExterieur),
+    // Basé sur le rectangle englobant (footprint), pas sur `batie` : c'est
+    // la limite du contour bâti vis-à-vis de l'emprise qui définit l'espace
+    // véritablement extérieur. Seules les PARTS de cour/cheminement
+    // réellement hors de ce rectangle en sont retirées (jamais la totalité
+    // suposée hors, voir cheminementHorsFootprint/courHorsFootprint).
+    exterieure: Math.max(0, empriseArea - footprintArea - courHorsFootprint - cheminementHorsFootprint),
     circulation,
     cheminementExterieur,
     nonAffectee,
@@ -3939,21 +3966,22 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   // déclaré) : la cible est gardée telle quelle si la somme tient déjà,
   // sinon l'excédent est retiré PROPORTIONNELLEMENT à la marge (cible −
   // minimum) de chaque pièce — jamais en dessous d'aucun minimum. Même
-  // algorithme que fitRowWidths dans buildSharedCorridorLayout (fonction
-  // locale à cet autre builder, non exportée) : réimplémenté ici à
-  // l'identique, partagé par les deux cas (rangée verrouillée avant/arrière)
-  // ci-dessous plutôt que dupliqué deux fois avec une formule qui pourrait
-  // diverger.
-  function fitProportional(ideal: number[], floor: number[], available: number): number[] | null {
+  // Contrairement à fitRowWidths/fitProportional de la génération initiale
+  // (buildSharedCorridorLayout, où un repli proportionnel vers le minimum
+  // est acceptable À CONDITION d'être annoncé explicitement — cibles vs
+  // obtenu vs minimum), la RÉGÉNÉRATION doit conserver les dimensions
+  // INDIVIDUELLES de chaque pièce non verrouillée : un placement ne tenant
+  // qu'en réduisant une pièce sous sa cible n'est jamais une disposition
+  // valide ici, il est REJETÉ (jamais silencieusement rétréci). Défaut
+  // mesuré : un ancien `fitProportional` local rétrécissait silencieusement
+  // (ex. chambre 3,50 m → 3,452 m, sanitaire 1,80 m → 1,771 m) dès que la
+  // largeur disponible n'atteignait pas exactement la somme des cibles —
+  // remplacé par ce test strict, aucun retour autre que les cibles exactes
+  // ou `null` (candidat rejeté par l'appelant).
+  function fitExact(ideal: number[], available: number): number[] | null {
     const gaps = WALL_INT * Math.max(0, ideal.length - 1);
     const idealSum = ideal.reduce((s, w) => s + w, 0) + gaps;
-    if (idealSum <= available + 1e-6) return ideal;
-    const floorSum = floor.reduce((s, w) => s + w, 0) + gaps;
-    if (floorSum > available + 1e-6) return null;
-    const totalSlack = ideal.reduce((s, w, i) => s + (w - floor[i]), 0);
-    if (totalSlack <= 1e-9) return null;
-    const reduction = idealSum - available;
-    return ideal.map((w, i) => w - ((w - floor[i]) / totalSlack) * reduction);
+    return idealSum <= available + 1e-6 ? ideal : null;
   }
 
   // Stratégie "corridor partagé entre deux rangées" (voir
@@ -4054,17 +4082,17 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
           const joinNeeds: FreeSpaceNeed[] = [];
           const backNeeds: FreeSpaceNeed[] = [];
           for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : backNeeds).push(...typeGroups.get(typeKeys[i])!);
-          if (backNeeds.length === 0 || joinNeeds.some((n) => n.minD > depthFrontFixed + 1e-6)) continue;
+          if (backNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthFrontFixed + 1e-6)) continue;
           let joinPlacements: FreeSpacePlacement[] = [];
           const joinFillers: Rect[] = [];
           if (joinNeeds.length > 0) {
             if (joinAvailableWidth <= 0) continue;
-            const jWidths = fitProportional(joinNeeds.map((n) => n.width), joinNeeds.map((n) => n.minW), joinAvailableWidth);
+            const jWidths = fitExact(joinNeeds.map((n) => n.width), joinAvailableWidth);
             if (!jWidths) continue;
             let cx = joinStartX;
             joinPlacements = joinNeeds.map((n, i) => {
               const w = jWidths[i];
-              const d = Math.min(n.depth, depthFrontFixed);
+              const d = n.depth;
               // Le raccord doit couvrir le mur intérieur JUSQU'AU corridor
               // réel (corridorY), pas seulement jusqu'à depthFrontFixed —
               // même défaut d'asymétrie que placeColumn/buildSharedCorridorLayout
@@ -4078,16 +4106,16 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
             });
           }
           if (foyerOnBackRow && backRowWidth <= 0) continue;
-          const bFloorDepth = Math.max(...backNeeds.map((n) => n.minD));
-          if (bFloorDepth > availableBackDepth + 1e-6) continue;
-          const bWidths = fitProportional(backNeeds.map((n) => n.width), backNeeds.map((n) => n.minW), backRowWidth);
+          const bTargetDepth = Math.max(...backNeeds.map((n) => n.depth));
+          if (bTargetDepth > availableBackDepth + 1e-6) continue;
+          const bWidths = fitExact(backNeeds.map((n) => n.width), backRowWidth);
           if (!bWidths) continue;
-          const rowDepth = Math.min(Math.max(...backNeeds.map((n) => n.depth)), availableBackDepth);
+          const rowDepth = bTargetDepth;
           const backFillers: Rect[] = [];
           let cursorX = backRowStartX;
           const backPlacements: FreeSpacePlacement[] = backNeeds.map((n, i) => {
             const w = bWidths[i];
-            const d = Math.min(n.depth, rowDepth);
+            const d = n.depth;
             const y = backY + (rowDepth - d);
             // Même correction : rejoint le bord réel du corridor
             // (corridorY+CORRIDOR_WIDTH), jamais seulement backY.
@@ -4140,17 +4168,17 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
           const joinNeeds: FreeSpaceNeed[] = [];
           const frontNeeds: FreeSpaceNeed[] = [];
           for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : frontNeeds).push(...typeGroups.get(typeKeys[i])!);
-          if (frontNeeds.length === 0 || joinNeeds.some((n) => n.minD > depthBackFixed + 1e-6)) continue;
+          if (frontNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthBackFixed + 1e-6)) continue;
           let joinPlacements: FreeSpacePlacement[] = [];
           const joinFillers: Rect[] = [];
           if (joinNeeds.length > 0) {
             if (joinAvailableWidth <= 0) continue;
-            const jWidths = fitProportional(joinNeeds.map((n) => n.width), joinNeeds.map((n) => n.minW), joinAvailableWidth);
+            const jWidths = fitExact(joinNeeds.map((n) => n.width), joinAvailableWidth);
             if (!jWidths) continue;
             let cx = joinStartX;
             joinPlacements = joinNeeds.map((n, i) => {
               const w = jWidths[i];
-              const d = Math.min(n.depth, depthBackFixed);
+              const d = n.depth;
               const y = empriseBottomEdge - d;
               // Rejoint le bord réel du corridor (corridorY+CORRIDOR_WIDTH),
               // jamais seulement la profondeur de la rangée verrouillée.
@@ -4161,21 +4189,19 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
               return p;
             });
           }
-          const fFloorDepth = Math.max(...frontNeeds.map((n) => n.minD));
-          if (fFloorDepth > availableFrontDepth + 1e-6) continue;
-          const fWidths = fitProportional(frontNeeds.map((n) => n.width), frontNeeds.map((n) => n.minW), usableFrontWidth);
+          const fTargetDepth = Math.max(...frontNeeds.map((n) => n.depth));
+          if (fTargetDepth > availableFrontDepth + 1e-6) continue;
+          const fWidths = fitExact(frontNeeds.map((n) => n.width), usableFrontWidth);
           if (!fWidths) continue;
-          const rowDepth = Math.min(Math.max(...frontNeeds.map((n) => n.depth)), availableFrontDepth);
           const frontFillers: Rect[] = [];
           let cursorX = frontRowStartX;
           const frontPlacements: FreeSpacePlacement[] = frontNeeds.map((n, i) => {
             const w = fWidths[i];
-            const d = Math.min(n.depth, rowDepth);
+            const d = n.depth;
             // Rejoint le bord réel du corridor (corridorY), jamais seulement
-            // rowDepth : rowDepth peut être plus court que la profondeur
-            // réellement disponible (besoins naturellement moins profonds),
-            // laissant sinon un écart non comblé jusqu'au corridor fixé par
-            // la rangée verrouillée.
+            // la cible de cette pièce : une pièce moins profonde que la plus
+            // profonde de sa rangée laisse sinon un écart non comblé jusqu'au
+            // corridor fixé par la rangée verrouillée.
             const depthGap = corridorY - (frontY + d);
             if (depthGap > 1e-6) frontFillers.push({ x: cursorX, y: frontY + d, w, d: depthGap });
             const p: FreeSpacePlacement = { need: n, x: cursorX, y: frontY, w, d, exteriorWall: "top", doorWall: "bottom" };

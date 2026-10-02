@@ -1261,6 +1261,12 @@ try {
           );
           record(`Corridor partagé — ${t.label}, accès ${accessSide} : chaque pièce posée a au moins une porte`, v.rooms.every((r, i) => g.doorsOf(v, i).length > 0));
           record(`Corridor partagé — ${t.label}, accès ${accessSide} : chaque pièce posée a au moins une ouverture extérieure`, v.rooms.every((r, i) => g.windowsOf(v, i).length > 0 || !!r.exteriorWall));
+          const sumCat = v.surfaces.batie + v.surfaces.cheminementExterieur + v.surfaces.nonAffectee + v.surfaces.exterieure + v.surfaces.cour;
+          record(
+            `Corridor partagé — ${t.label}, accès ${accessSide} : bilan de surfaces cohérent (catégories géométriques disjointes, somme = emprise, sans double comptage)`,
+            Math.abs(sumCat - v.surfaces.emprise) < 1e-6,
+            `somme=${sumCat.toFixed(4)} vs emprise=${v.surfaces.emprise.toFixed(4)}`
+          );
         }
       }
     }
@@ -1308,11 +1314,39 @@ try {
             return r && Math.abs(r.x - b.x) < 1e-6 && Math.abs(r.y - b.y) < 1e-6 && Math.abs(r.w - b.w) < 1e-6 && Math.abs(r.d - b.d) < 1e-6;
           });
           record(`${label} : pièce(s) verrouillée(s) strictement inchangée(s) (position/dimensions)`, lockedOk);
+          // Défaut mesuré (rapporté avec fichiers à l'appui) : une ancienne
+          // stratégie de répartition proportionnelle rétrécissait
+          // silencieusement des pièces NON verrouillées sous leur cible
+          // (ex. chambre 3,50 m → 3,452 m, sanitaire 1,80 m → 1,771 m) pour
+          // faire tenir une disposition de régénération. Une régénération ne
+          // doit JAMAIS réduire une pièce sous sa cible individuelle : un
+          // placement qui l'exigerait doit être rejeté, jamais proposé
+          // réduit. Vérifié ici pièce par pièce, pour CHAQUE pièce non
+          // verrouillée de CHAQUE disposition nouvelle retournée.
+          const unlockedOk = layout.rooms.every((r, i) => {
+            if (lockedIdxs.includes(i) || r.parked) return true;
+            const b = base.rooms[i];
+            return b && Math.abs(r.w - b.w) < 1e-6 && Math.abs(r.d - b.d) < 1e-6;
+          });
+          record(
+            `${label} : aucune pièce non verrouillée réduite sous sa dimension cible (jamais un repli silencieux)`,
+            unlockedOk,
+            layout.rooms
+              .map((r, i) => (!lockedIdxs.includes(i) && !r.parked && base.rooms[i] && (Math.abs(r.w - base.rooms[i].w) > 1e-6 || Math.abs(r.d - base.rooms[i].d) > 1e-6) ? `${r.label}${r.number}: ${base.rooms[i].w.toFixed(3)}x${base.rooms[i].d.toFixed(3)} → ${r.w.toFixed(3)}x${r.d.toFixed(3)}` : null))
+              .filter(Boolean)
+              .join(" | ")
+          );
           const errors = g.independentVerify(layout).filter((e) => e.severity === "error");
           record(`${label} : 0 erreur independentVerify`, errors.length === 0, errors.map((e) => e.message).join(" | "));
           const reach = g.computeReachableRooms(layout);
           record(`${label} : toutes les pièces accessibles depuis l'entrée`, layout.rooms.every((r, i) => r.parked || reach.has(i)));
           record(`${label} : entrée sur le mur attendu (${accessSide === "front" ? "top" : "bottom"})`, layout.entryDoor?.wall === (accessSide === "front" ? "top" : "bottom"));
+          const sumCat = layout.surfaces.batie + layout.surfaces.cheminementExterieur + layout.surfaces.nonAffectee + layout.surfaces.exterieure + layout.surfaces.cour;
+          record(
+            `${label} : bilan de surfaces cohérent (catégories géométriques disjointes, somme = emprise, sans double comptage)`,
+            Math.abs(sumCat - layout.surfaces.emprise) < 1e-6,
+            `somme=${sumCat.toFixed(4)} vs emprise=${layout.surfaces.emprise.toFixed(4)}`
+          );
         }
       }
 
@@ -1361,6 +1395,62 @@ try {
           allValid,
           allValid ? "" : "une disposition retournée contient des erreurs independentVerify"
         );
+      }
+    }
+
+    // 21) FICHIER DE PROJET VERSIONNÉ — RÉGÉNÉRATION ACCÈS ARRIÈRE (défaut
+    // rapporté avec fichiers à l'appui : les JSON livrés au lot précédent
+    // étaient des Layout bruts, pas de vrais fichiers de projet). Reproduit
+    // EXACTEMENT le scénario rapporté (terrain 20×14, accès arrière, 3
+    // chambres + salon + cuisine + 2 sanitaires, salon verrouillé) en
+    // passant par serializeProject/validateProjectFile (jamais un
+    // JSON.stringify/parse nu) — seul round-trip qui prouve qu'un fichier
+    // RÉELLEMENT écrit sur disque, puis réimporté par l'application, reste
+    // fidèle (verrou, dimensions, bilan de surfaces).
+    {
+      const NEEDS = [
+        { type: "chambre", label: "Chambre", count: 3, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 2, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+      ];
+      const input = {
+        orientation: "N", courtyardDepth: 3, centralSalon: false, roomsConnectVia: "corridor", sanitaireConnectVia: "corridor",
+        entryMode: "direct", needs: NEEDS, terrainWidth: 20, terrainDepth: 14, accessSide: "back",
+        setbacks: { front: 3, back: 2, left: 2, right: 2 },
+      };
+      const res = g.generateVariants(input);
+      record("Fichier projet — régénération accès arrière : disposition de départ générée", res.variants.length > 0);
+      if (res.variants.length > 0) {
+        const base = res.variants[0];
+        const salonIdx = base.rooms.findIndex((r) => r.type === "salon");
+        const lockedBase = { ...base, rooms: base.rooms.map((r, i) => (i === salonIdx ? { ...r, locked: true } : r)) };
+        const regen = g.regenerateUnlocked(lockedBase);
+        const newLayout = regen.variants.find((l, i) => !regen.preferenceNotes[i].startsWith("Disposition actuelle"));
+        record("Fichier projet — régénération accès arrière : au moins une nouvelle disposition", !!newLayout);
+        if (newLayout) {
+          const project = pf.serializeProject(newLayout, input.orientation);
+          const reread = JSON.parse(JSON.stringify(project)); // simule une écriture/lecture disque réelle (round-trip JSON)
+          const validated = pf.validateProjectFile(reread);
+          record("Fichier projet — régénération accès arrière : validateProjectFile accepte le fichier réellement écrit", validated.ok, validated.ok ? "" : validated.error);
+          if (validated.ok) {
+            const rt = validated.value.layout;
+            const rtSalon = rt.rooms[salonIdx];
+            const origSalon = newLayout.rooms[salonIdx];
+            const salonRoundTripOk =
+              Math.abs(rtSalon.x - origSalon.x) < 1e-9 && Math.abs(rtSalon.y - origSalon.y) < 1e-9 &&
+              Math.abs(rtSalon.w - origSalon.w) < 1e-9 && Math.abs(rtSalon.d - origSalon.d) < 1e-9;
+            record("Fichier projet — régénération accès arrière : verrou (salon) identique après réimport", salonRoundTripOk);
+            const surfacesRoundTripOk = JSON.stringify(rt.surfaces) === JSON.stringify(newLayout.surfaces);
+            record("Fichier projet — régénération accès arrière : bilan de surfaces identique après réimport (interface/JSON/rendu lisent le même bilan)", surfacesRoundTripOk);
+            const sumCat = rt.surfaces.batie + rt.surfaces.cheminementExterieur + rt.surfaces.nonAffectee + rt.surfaces.exterieure + rt.surfaces.cour;
+            record(
+              "Fichier projet — régénération accès arrière : bilan de surfaces du fichier réimporté cohérent (somme = emprise)",
+              Math.abs(sumCat - rt.surfaces.emprise) < 1e-6,
+              `somme=${sumCat.toFixed(4)} vs emprise=${rt.surfaces.emprise.toFixed(4)}`
+            );
+          }
+        }
       }
     }
 
