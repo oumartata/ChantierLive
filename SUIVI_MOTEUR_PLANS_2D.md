@@ -334,4 +334,4 @@ réels livrés (serializeProject → écriture → validateProjectFile, round-tr
 vérifié) / limite principale : régénération à corridor partagé toujours
 non étendue à gauche/droite ; empaquetage libre non couvert par une preuve
 dédiée 4 façades ; familles guidée et L restent à 1 façade chacune par
-conception (non un défaut de ce lot) / commit `8ae91ed`.
+conception (non un défaut de ce lot) / commit `f835ee5`.
