@@ -20,7 +20,7 @@ export default async function EntrepriseDepensesPage() {
       <AlertBanner
         variant="information"
         title="Fonctionnalité pas encore disponible"
-        explanation="Le suivi des dépenses internes et des justificatifs n'est pas encore construit. Une proposition séparée (modèle de données, permissions, migrations) doit être validée avant toute mise en service. Réservé à l'entreprise, jamais visible par le client, dès sa construction."
+        explanation="Le suivi des dépenses internes et des justificatifs n'est pas encore construit. Une proposition séparée (modèle de données, permissions, migrations) doit être validée avant toute mise en service. Privé par défaut envers le client dès sa construction (BR098), avec l'exception déjà prévue (seuil configurable ou activation explicite du chantier, BR050)."
       />
     </div>
   );
