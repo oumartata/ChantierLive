@@ -23,10 +23,16 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default async function PrototypePlansPage({
   searchParams,
 }: {
-  searchParams: Promise<{ retour?: string }>;
+  searchParams: Promise<{ retour?: string; demande?: string }>;
 }) {
-  const { retour } = await searchParams;
+  const { retour, demande } = await searchParams;
   const returnHref = retour && UUID_RE.test(retour) ? `/chantiers/${retour}/plans` : null;
+  // "demande" suit la même règle que "retour" : jamais une autorisation,
+  // seulement reconstruit par la session réelle de l'appelant au moment de
+  // l'appel RPC (list_plan_request_variants/get_plan_request_variant, M031b).
+  // "new" signale une intention (créer une demande au premier "Générer"),
+  // jamais un identifiant réel.
+  const requestParam = demande === "new" || (demande && UUID_RE.test(demande)) ? demande : null;
 
   let depositContext: DepositContext | null = null;
   if (returnHref && retour) {
@@ -57,7 +63,7 @@ export default async function PrototypePlansPage({
           </Link>
         </div>
       ) : null}
-      <PrototypeClient depositContext={depositContext} />
+      <PrototypeClient depositContext={depositContext} requestParam={requestParam} />
     </div>
   );
 }

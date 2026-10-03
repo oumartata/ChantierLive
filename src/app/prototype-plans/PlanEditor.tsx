@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
   cloneLayout,
   doorsOf,
@@ -26,12 +26,19 @@ import {
 import { escapeXml, renderSvg, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
 import type { DepositContext } from "./PrototypeClient";
-// Action serveur RÉELLE et INCHANGÉE du chantier (Lot 1,
+// Actions serveur RÉELLES et INCHANGÉES du chantier (Lots 1/2,
 // PREPARATION_INTEGRATION_METIER.md) : aucun second mécanisme de dépôt.
-// Cette même fonction revérifie déjà le rôle CONTRACTOR/OWNER-PRIMARY côté
-// serveur pour le chantier ciblé (prepare_project_plan_upload, M020) —
-// `depositContext.canDeposit` ci-dessous ne sert qu'à l'affichage.
-import { depositProjectPlanAction } from "@/app/(app)/chantiers/[id]/plans/actions";
+// Ces mêmes fonctions revérifient déjà le rôle CONTRACTOR/OWNER-PRIMARY côté
+// serveur pour le chantier/la demande ciblée — `depositContext.canDeposit`
+// ci-dessous ne sert qu'à l'affichage.
+import {
+  depositProjectPlanAction,
+  depositPlanRequestVariantAction,
+  savePlanRequestVariantAction,
+  listPlanRequestVariantsAction,
+  getPlanRequestVariantAction,
+  type PlanRequestVariantRow,
+} from "@/app/(app)/chantiers/[id]/plans/actions";
 
 const SCALE = 26; // px/m — cohérent avec render.ts
 const MARGIN = 40;
@@ -60,11 +67,15 @@ export function PlanEditor({
   orientation,
   onExit,
   depositContext,
+  requestId,
+  initialVariantId,
 }: {
   initialLayout: Layout;
   orientation: string;
   onExit: () => void;
   depositContext: DepositContext | null;
+  requestId: string | null;
+  initialVariantId: string | null;
 }) {
   const [history, setHistory] = useState<Layout[]>([cloneLayout(initialLayout)]);
   const [future, setFuture] = useState<Layout[]>([]);
@@ -229,15 +240,34 @@ export function PlanEditor({
       formData.set("project_id", depositContext.projectId);
       formData.set("operation_uuid", depositOperationUuidRef.current);
       formData.set("file", new File([blob], "avant-projet.png", { type: "image/png" }));
-      const result = await depositProjectPlanAction(formData);
-      if (!result.ok) {
-        setDepositResult({ ok: false, message: result.message });
+      // Demande active ET disposition actuelle = exactement la variante
+      // sauvegardée (jamais des modifications non sauvegardées) : dépôt via
+      // finalize_plan_request_variant_deposit (M031b), jamais le dépôt
+      // direct — un seul chemin de dépôt actif à la fois, jamais les deux.
+      let resultOk: boolean;
+      let resultMessage = "";
+      let versionId = "";
+      if (requestId && isSavedAsVariant && currentVariantId) {
+        formData.set("variant_id", currentVariantId);
+        const r = await depositPlanRequestVariantAction(formData);
+        resultOk = r.ok;
+        if (r.ok) versionId = r.value.versionId;
+        else resultMessage = r.message;
+      } else {
+        const r = await depositProjectPlanAction(formData);
+        resultOk = r.ok;
+        if (r.ok) versionId = r.value.versionId;
+        else resultMessage = r.message;
+      }
+      if (!resultOk) {
+        setDepositResult({ ok: false, message: resultMessage });
         setDepositStep("idle");
         return;
       }
       depositOperationUuidRef.current = null;
-      setDepositResult({ ok: true, versionId: result.value.versionId });
+      setDepositResult({ ok: true, versionId });
       setDepositStep("idle");
+      if (requestId) refreshVariants();
     } catch {
       setDepositResult({
         ok: false,
@@ -246,6 +276,129 @@ export function PlanEditor({
       setDepositStep("idle");
     } finally {
       depositInFlightRef.current = false;
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Variantes de demande (Lot 2/3, PREPARATION_INTEGRATION_METIER.md) — l'état
+  // modifiable est sauvegardé dans le même format de projet VERSIONNÉ et
+  // VALIDÉ que l'export/import de fichier (serializeProject/validateProjectFile,
+  // jamais un format inventé ici). "Sauvegarder" crée toujours une NOUVELLE
+  // variante côté serveur (append-only, M031) ; le brouillon local
+  // (history/future/saveStatus) n'est jamais remplacé par cette opération.
+  // ---------------------------------------------------------------------------
+  const [savedVariants, setSavedVariants] = useState<PlanRequestVariantRow[]>([]);
+  const [variantsError, setVariantsError] = useState<string | null>(null);
+  const [savePending, setSavePending] = useState(false);
+  const [saveVariantError, setSaveVariantError] = useState<string | null>(null);
+  // La variante que `current` représente EXACTEMENT (sauvegardée ou chargée
+  // depuis le serveur) — jamais supposée après une modification : comparée à
+  // chaque rendu, jamais mise à jour "à la main" lors d'une édition.
+  // Amorcé depuis initialVariantId (PrototypeClient) quand cet éditeur
+  // s'ouvre sur une variante RÉELLEMENT chargée depuis le serveur (reprise
+  // après rechargement, ou "Charger dans l'éditeur" ci-dessous) — jamais
+  // supposé pour une génération fraîche, jamais encore sauvegardée.
+  const [currentVariantId, setCurrentVariantId] = useState<string | null>(initialVariantId);
+  const [currentVariantSnapshot, setCurrentVariantSnapshot] = useState<string | null>(
+    initialVariantId ? JSON.stringify({ layout: initialLayout, orientation }) : null
+  );
+  const isSavedAsVariant =
+    currentVariantSnapshot !== null && JSON.stringify({ layout: current, orientation: currentOrientation }) === currentVariantSnapshot;
+  const anyVariantDeposited = savedVariants.some((v) => v.deposited_at_server !== null);
+
+  // Dans le contexte d'une demande, le dépôt porte toujours sur une variante
+  // RÉELLEMENT sauvegardée (choisie explicitement), jamais sur un brouillon
+  // non sauvegardé, et jamais une seconde fois pour la même demande (déjà
+  // DEPOSITED côté serveur, M031 — refusé de toute façon, affiché ici pour
+  // expliquer le refus avant même d'essayer).
+  const effectiveDepositBlockedReasons = !requestId
+    ? depositBlockedReasons
+    : [
+        ...depositBlockedReasons,
+        ...(anyVariantDeposited
+          ? ["une variante de cette demande est déjà déposée — créez une nouvelle demande pour en déposer une autre."]
+          : isSavedAsVariant
+            ? []
+            : ["sauvegardez d'abord cette disposition comme variante (ci-dessous) avant de la déposer."]),
+      ];
+
+  function refreshVariants() {
+    if (!requestId) return;
+    listPlanRequestVariantsAction(requestId).then((result) => {
+      if (!result.ok) {
+        setVariantsError(result.message);
+        return;
+      }
+      setVariantsError(null);
+      setSavedVariants(result.value);
+    });
+  }
+
+  useEffect(() => {
+    refreshVariants();
+    // Une fois par demande active — un rafraîchissement explicite suit
+    // chaque sauvegarde/dépôt (refreshVariants appelé directement), jamais
+    // un intervalle ni une dépendance sur `current`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestId]);
+
+  async function handleSaveVariant() {
+    if (!requestId) return;
+    setSavePending(true);
+    setSaveVariantError(null);
+    try {
+      const file = serializeProject(current, currentOrientation);
+      const formData = new FormData();
+      formData.set("request_id", requestId);
+      if (currentVariantId) formData.set("parent_variant_id", currentVariantId);
+      formData.set("layout", JSON.stringify(file));
+      const result = await savePlanRequestVariantAction(formData);
+      if (!result.ok) {
+        setSaveVariantError(result.message);
+        return;
+      }
+      setCurrentVariantId(result.value.id);
+      setCurrentVariantSnapshot(JSON.stringify({ layout: current, orientation: currentOrientation }));
+      refreshVariants();
+    } finally {
+      setSavePending(false);
+    }
+  }
+
+  const [loadingVariantId, setLoadingVariantId] = useState<string | null>(null);
+
+  // Charger une variante NE doit jamais écraser silencieusement le brouillon
+  // local : confirmation explicite avant tout remplacement, même principe
+  // que handleImportProjectClick (import de fichier) déjà en place ci-dessous.
+  async function handleLoadVariant(variantId: string) {
+    if (
+      !window.confirm(
+        "Charger cette variante remplacera le brouillon actuellement ouvert (avec son historique Annuler/Rétablir). Continuer ?"
+      )
+    ) {
+      return;
+    }
+    setLoadingVariantId(variantId);
+    setVariantsError(null);
+    try {
+      const result = await getPlanRequestVariantAction(variantId);
+      if (!result.ok) {
+        setVariantsError(result.message);
+        return;
+      }
+      const validated = validateProjectFile(result.value.layout);
+      if (!validated.ok) {
+        setVariantsError("Variante sauvegardée illisible (format inattendu).");
+        return;
+      }
+      setHistory([cloneLayout(validated.value.layout)]);
+      setFuture([]);
+      setCurrentOrientation(validated.value.orientation);
+      setCurrentVariantId(variantId);
+      setCurrentVariantSnapshot(JSON.stringify({ layout: validated.value.layout, orientation: validated.value.orientation }));
+      saveNow(validated.value.layout, validated.value.orientation);
+    } finally {
+      setLoadingVariantId(null);
     }
   }
 
@@ -873,6 +1026,61 @@ export function PlanEditor({
       </p>
       <canvas ref={canvasRef} className="hidden" />
 
+      {requestId && depositContext?.canDeposit ? (
+        <div className="flex flex-col gap-2 rounded border-2 border-indigo-400 bg-indigo-50 p-3">
+          <h3 className="font-semibold text-indigo-900">Demande — variantes sauvegardées</h3>
+          <p className="text-xs text-indigo-900">
+            Une variante sauvegardée est un état modifiable complet (même format que le fichier de projet .json),
+            conservé côté chantier. Modifier une variante sauvegardée puis sauvegarder à nouveau crée toujours une{" "}
+            <strong>nouvelle</strong> variante — l&apos;ancienne reste intacte et consultable.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleSaveVariant}
+              disabled={savePending || anyVariantDeposited}
+              className="w-fit rounded bg-indigo-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {savePending ? "Sauvegarde…" : isSavedAsVariant ? "Déjà sauvegardée (aucun changement)" : "Sauvegarder cette disposition comme nouvelle variante"}
+            </button>
+            {isSavedAsVariant && currentVariantId ? (
+              <span className="text-xs font-semibold text-indigo-900">
+                ✓ correspond à la variante actuellement sauvegardée
+              </span>
+            ) : null}
+          </div>
+          {saveVariantError ? <p className="text-xs font-semibold text-red-700">{saveVariantError}</p> : null}
+          {variantsError ? <p className="text-xs font-semibold text-red-700">{variantsError}</p> : null}
+          {savedVariants.length === 0 ? (
+            <p className="text-xs italic text-indigo-700">Aucune variante sauvegardée pour cette demande pour l&apos;instant.</p>
+          ) : (
+            <ul className="flex flex-col gap-1">
+              {savedVariants.map((v) => (
+                <li key={v.id} className="flex flex-wrap items-center gap-2 rounded border border-indigo-300 bg-white p-2 text-xs">
+                  <span className="font-semibold">Variante {v.variant_number}</span>
+                  <span className="text-slate-500">{new Date(v.created_at_server).toLocaleString("fr-FR")}</span>
+                  {v.deposited_at_server ? (
+                    <span className="font-semibold text-green-700">Déposée — immuable</span>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => handleLoadVariant(v.id)}
+                        disabled={loadingVariantId === v.id}
+                        className="rounded border border-indigo-400 px-2 py-0.5 font-semibold text-indigo-900 disabled:opacity-50"
+                      >
+                        {loadingVariantId === v.id ? "Chargement…" : "Charger dans l'éditeur"}
+                      </button>
+                      {currentVariantId === v.id && isSavedAsVariant ? (
+                        <span className="text-indigo-700">(actuellement ouverte — utilisez « Déposer cette variante » ci-dessous)</span>
+                      ) : null}
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      ) : null}
+
       {depositContext ? (
         <div className="flex flex-col gap-2 rounded border-2 border-slate-400 bg-slate-50 p-3">
           <h3 className="font-semibold">Chantier {depositContext.projectName}</h3>
@@ -922,14 +1130,14 @@ export function PlanEditor({
             <div className="flex flex-col gap-1">
               <button
                 onClick={openDepositConfirm}
-                disabled={depositBlockedReasons.length > 0 || depositStep === "pending"}
+                disabled={effectiveDepositBlockedReasons.length > 0 || depositStep === "pending"}
                 className="w-fit rounded bg-slate-900 px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
-                {depositStep === "pending" ? "Dépôt en cours…" : "Déposer ce plan sur ce chantier"}
+                {depositStep === "pending" ? "Dépôt en cours…" : requestId ? "Déposer cette variante" : "Déposer ce plan sur ce chantier"}
               </button>
-              {depositBlockedReasons.length > 0 ? (
+              {effectiveDepositBlockedReasons.length > 0 ? (
                 <ul className="list-disc pl-5 text-xs text-red-700">
-                  {depositBlockedReasons.map((r, i) => (
+                  {effectiveDepositBlockedReasons.map((r, i) => (
                     <li key={i}>{r}</li>
                   ))}
                 </ul>

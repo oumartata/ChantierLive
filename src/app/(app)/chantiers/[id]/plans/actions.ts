@@ -43,6 +43,15 @@ function mapPlanError(message: string | undefined): string {
       return "Ce chantier n'est rattaché à aucune organisation : aucun catalogue ni ingénieur disponible.";
     case "already_pending":
       return "Une demande de validation est déjà en attente pour ce plan.";
+    case "request_not_open":
+      return "Cette demande n'accepte plus de nouvelle variante ni de dépôt (déjà déposée ou annulée). Créez une nouvelle demande.";
+    case "version_project_mismatch":
+      return "Incohérence détectée entre la demande et la version déposée. Réessayez.";
+    case "generation_params_required":
+    case "layout_required":
+      return "Requête invalide.";
+    case "parent_variant_not_found":
+      return "La variante d'origine est introuvable.";
     case "version_not_retained":
       return "Seul le plan retenu par le propriétaire peut être publié.";
     case "version_not_validated":
@@ -87,32 +96,26 @@ function requireUuid(value: FormDataEntryValue | null): value is string {
   return typeof value === "string" && UUID_RE.test(value);
 }
 
-// Dépôt direct d'un plan candidat (OWNER/PRIMARY ou CONTRACTOR, D101) — même
-// flux que depositCatalogItemVersionAction (B061) : operation_uuid fourni par
-// le client et persisté entre tentatives, état serveur relu AVANT toute
-// écriture, format attesté sur les octets réellement relus dans Storage.
-export async function depositProjectPlanAction(formData: FormData): Promise<ActionResult<{ versionId: string }>> {
-  const guard = await requireVerifiedAccount();
-  if (!guard.ok) return { ok: false, message: guard.message };
-
-  const projectId = formData.get("project_id");
-  const file = formData.get("file");
-  const operationUuidRaw = formData.get("operation_uuid");
-
-  if (!requireUuid(projectId) || !requireUuid(operationUuidRaw)) {
-    return { ok: false, message: "Requête invalide." };
-  }
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, message: "Choisissez un fichier à déposer." };
-  }
-  const operationUuid = operationUuidRaw;
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
+// Étapes partagées prepare/claim/écriture-Storage/attest, EXTRAITES de
+// depositProjectPlanAction (comportement inchangé) pour être réutilisées par
+// depositPlanRequestVariantAction (Lot 1/2, PREPARATION_INTEGRATION_METIER.md)
+// SANS dupliquer cette logique : seul le RPC de finalisation appelé ENSUITE
+// diffère selon l'appelant (finalize_project_plan_upload ici,
+// finalize_plan_request_variant_deposit pour un dépôt de variante — jamais
+// réimplémenté, jamais contourné). Ne décide PAS quelle fonction de
+// finalisation appeler : signale seulement que c'est désormais sûr
+// (réconciliation, prepare/claim/écriture/attest déjà faits), y compris
+// quand une finalisation a déjà eu lieu ou est en cours (l'appelant rejoue
+// alors SON propre RPC de finalisation, idempotent par construction, M020).
+async function ensureReadyToFinalize(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  service: ReturnType<typeof createServiceClient>,
+  projectId: string,
+  operationUuid: string,
+  bytes: Uint8Array,
+  declaredMimeType: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const checksum = createHash("sha256").update(bytes).digest("hex");
-  const declaredMimeType = file.type || "application/octet-stream";
-
-  const supabase = await createClient();
-  const service = createServiceClient();
 
   const { data: status, error: statusErr } = await supabase.rpc("get_upload_status", {
     p_operation_uuid: operationUuid,
@@ -139,13 +142,10 @@ export async function depositProjectPlanAction(formData: FormData): Promise<Acti
     }
 
     if (status.status === "FINALIZED") {
-      // Réponse perdue après une finalisation réussie : finalize_project_plan_upload
-      // est idempotente et revalide les droits avant de renvoyer la version existante.
-      const { data: version, error: finErr } = await supabase.rpc("finalize_project_plan_upload", {
-        p_operation_uuid: operationUuid,
-      });
-      if (finErr) return { ok: false, message: mapPlanError(finErr.message) };
-      return { ok: true, value: { versionId: version.id } };
+      // Réponse perdue après une finalisation réussie : le RPC de
+      // finalisation de l'appelant (idempotent) revalide les droits avant
+      // de renvoyer l'état existant.
+      return { ok: true };
     }
 
     let effectiveRow = status;
@@ -159,12 +159,7 @@ export async function depositProjectPlanAction(formData: FormData): Promise<Acti
     }
 
     if (effectiveRow.status === "FINALIZING") {
-      const { data: version, error: finErr } = await supabase.rpc("finalize_project_plan_upload", {
-        p_operation_uuid: operationUuid,
-      });
-      if (finErr) return { ok: false, message: mapPlanError(finErr.message) };
-      revalidatePath(`/chantiers/${projectId}/plans`);
-      return { ok: true, value: { versionId: version.id } };
+      return { ok: true };
     }
     if (effectiveRow.status === "PENDING" && effectiveRow.write_claimed_at) {
       const { data: existingCandidate } = await service.storage.from(BUCKET).download(effectiveRow.candidate_key);
@@ -220,6 +215,44 @@ export async function depositProjectPlanAction(formData: FormData): Promise<Acti
   });
   if (attestErr) return { ok: false, message: mapPlanError(attestErr.message) };
 
+  return { ok: true };
+}
+
+function readDepositFormData(formData: FormData): { projectId: string; operationUuid: string; file: File } | { error: string } {
+  const projectId = formData.get("project_id");
+  const file = formData.get("file");
+  const operationUuidRaw = formData.get("operation_uuid");
+
+  if (!requireUuid(projectId) || !requireUuid(operationUuidRaw)) {
+    return { error: "Requête invalide." };
+  }
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choisissez un fichier à déposer." };
+  }
+  return { projectId, operationUuid: operationUuidRaw, file };
+}
+
+// Dépôt direct d'un plan candidat (OWNER/PRIMARY ou CONTRACTOR, D101) — même
+// flux que depositCatalogItemVersionAction (B061) : operation_uuid fourni par
+// le client et persisté entre tentatives, état serveur relu AVANT toute
+// écriture, format attesté sur les octets réellement relus dans Storage.
+export async function depositProjectPlanAction(formData: FormData): Promise<ActionResult<{ versionId: string }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const parsed = readDepositFormData(formData);
+  if ("error" in parsed) return { ok: false, message: parsed.error };
+  const { projectId, operationUuid, file } = parsed;
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const declaredMimeType = file.type || "application/octet-stream";
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  const prep = await ensureReadyToFinalize(supabase, service, projectId, operationUuid, bytes, declaredMimeType);
+  if (!prep.ok) return { ok: false, message: prep.message };
+
   const { data: version, error: finErr } = await supabase.rpc("finalize_project_plan_upload", {
     p_operation_uuid: operationUuid,
   });
@@ -227,6 +260,44 @@ export async function depositProjectPlanAction(formData: FormData): Promise<Acti
 
   revalidatePath(`/chantiers/${projectId}/plans`);
   return { ok: true, value: { versionId: version.id } };
+}
+
+// Dépôt d'une variante de demande (Lot 1/2, PREPARATION_INTEGRATION_METIER.md)
+// — RÉUTILISE les mêmes étapes prepare/claim/écriture/attest que le dépôt
+// direct ci-dessus, mais finalise via finalize_plan_request_variant_deposit
+// (M031b) : SEULE fonction qui rattache la variante à la version réellement
+// déposée ET fait passer la demande à DEPOSITED — jamais cette action
+// elle-même, jamais en contournant prepare/upload/finalize.
+export async function depositPlanRequestVariantAction(
+  formData: FormData
+): Promise<ActionResult<{ variantId: string; versionId: string }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const parsed = readDepositFormData(formData);
+  if ("error" in parsed) return { ok: false, message: parsed.error };
+  const { projectId, operationUuid, file } = parsed;
+
+  const variantId = formData.get("variant_id");
+  if (!requireUuid(variantId)) return { ok: false, message: "Requête invalide." };
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const declaredMimeType = file.type || "application/octet-stream";
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  const prep = await ensureReadyToFinalize(supabase, service, projectId, operationUuid, bytes, declaredMimeType);
+  if (!prep.ok) return { ok: false, message: prep.message };
+
+  const { data: variant, error: finErr } = await supabase.rpc("finalize_plan_request_variant_deposit", {
+    p_operation_uuid: operationUuid,
+    p_variant_id: variantId,
+  });
+  if (finErr) return { ok: false, message: mapPlanError(finErr.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return { ok: true, value: { variantId: variant.id, versionId: variant.project_plan_version_id } };
 }
 
 // Rattachement depuis le catalogue (D107) : attach_catalog_plan_to_project
@@ -410,4 +481,129 @@ export async function revokeSiteManagerShareAction(
 
   revalidatePath(`/chantiers/${projectId}/plans`);
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Demandes de plan et variantes (Lot 2, PREPARATION_INTEGRATION_METIER.md,
+// M031/M031b) — "demande" = paramètres de génération rattachés au chantier ;
+// "variante" = disposition générée/éditée EXPLICITEMENT sauvegardée pour une
+// demande (jamais le brouillon local de l'éditeur, qui reste côté
+// navigateur). Chaque RPC revérifie déjà CONTRACTOR/OWNER-PRIMARY côté
+// serveur pour le chantier exact de la demande/variante visée — ces actions
+// ne font que relayer formData <-> RPC, aucune logique d'autorisation ici.
+// ---------------------------------------------------------------------------
+
+export interface PlanRequestRow {
+  id: string;
+  created_by_profile_id: string;
+  created_as_role: "OWNER_PRIMARY" | "CONTRACTOR";
+  generation_params: unknown;
+  status: "OPEN" | "DEPOSITED" | "CANCELLED";
+  created_at_server: string;
+  variant_count: number;
+  deposited_variant_id: string | null;
+}
+
+export interface PlanRequestVariantRow {
+  id: string;
+  parent_variant_id: string | null;
+  variant_number: number;
+  created_by_profile_id: string;
+  created_at_server: string;
+  project_plan_version_id: string | null;
+  deposited_at_server: string | null;
+}
+
+export interface PlanRequestVariantFull extends PlanRequestVariantRow {
+  request_id: string;
+  project_id: string;
+  layout: unknown;
+}
+
+export async function createPlanRequestAction(formData: FormData): Promise<ActionResult<{ id: string }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const projectId = formData.get("project_id");
+  const paramsRaw = formData.get("generation_params");
+  if (!requireUuid(projectId) || typeof paramsRaw !== "string") {
+    return { ok: false, message: "Requête invalide." };
+  }
+  let generationParams: unknown;
+  try {
+    generationParams = JSON.parse(paramsRaw);
+  } catch {
+    return { ok: false, message: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("create_plan_request", {
+    p_project_id: projectId,
+    p_generation_params: generationParams,
+  });
+  if (error) return { ok: false, message: mapPlanError(error.message) };
+
+  revalidatePath(`/chantiers/${projectId}/plans`);
+  return { ok: true, value: { id: data.id } };
+}
+
+export async function listPlanRequestsAction(projectId: string): Promise<ActionResult<PlanRequestRow[]>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!requireUuid(projectId)) return { ok: false, message: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_plan_requests", { p_project_id: projectId });
+  if (error) return { ok: false, message: mapPlanError(error.message) };
+  return { ok: true, value: (data ?? []) as PlanRequestRow[] };
+}
+
+export async function savePlanRequestVariantAction(formData: FormData): Promise<ActionResult<{ id: string; variant_number: number }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const requestId = formData.get("request_id");
+  const parentVariantIdRaw = formData.get("parent_variant_id");
+  const layoutRaw = formData.get("layout");
+  if (!requireUuid(requestId) || typeof layoutRaw !== "string") {
+    return { ok: false, message: "Requête invalide." };
+  }
+  const parentVariantId = requireUuid(parentVariantIdRaw) ? parentVariantIdRaw : null;
+  let layout: unknown;
+  try {
+    layout = JSON.parse(layoutRaw);
+  } catch {
+    return { ok: false, message: "Requête invalide." };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("save_plan_request_variant", {
+    p_request_id: requestId,
+    p_parent_variant_id: parentVariantId,
+    p_layout: layout,
+  });
+  if (error) return { ok: false, message: mapPlanError(error.message) };
+  return { ok: true, value: { id: data.id, variant_number: data.variant_number } };
+}
+
+export async function listPlanRequestVariantsAction(requestId: string): Promise<ActionResult<PlanRequestVariantRow[]>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!requireUuid(requestId)) return { ok: false, message: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_plan_request_variants", { p_request_id: requestId });
+  if (error) return { ok: false, message: mapPlanError(error.message) };
+  return { ok: true, value: (data ?? []) as PlanRequestVariantRow[] };
+}
+
+export async function getPlanRequestVariantAction(variantId: string): Promise<ActionResult<PlanRequestVariantFull>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!requireUuid(variantId)) return { ok: false, message: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_plan_request_variant", { p_variant_id: variantId });
+  if (error) return { ok: false, message: mapPlanError(error.message) };
+  return { ok: true, value: data as PlanRequestVariantFull };
 }

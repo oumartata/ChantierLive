@@ -6,6 +6,7 @@ import { AlertBanner, Button, Card, StatusChip, EmptyState } from "@/components/
 import { DepositPlanForm } from "./DepositPlanForm";
 import { AttachCatalogForm } from "./AttachCatalogForm";
 import { PlanVersionActionButton } from "./PlanVersionActionButton";
+import type { PlanRequestRow } from "./actions";
 
 const READ_URL_TTL_SECONDS = 60 * 10;
 // Le fichier d'un plan rattaché depuis le catalogue reste dans le bucket du
@@ -177,6 +178,14 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
   });
   const candidates: PlanCandidate[] = Array.isArray(candidatesData) ? candidatesData : [];
 
+  // Demandes de plan (Lot 2/3, PREPARATION_INTEGRATION_METIER.md, M031) —
+  // mêmes lecteurs que les candidats (OWNER_PRIMARY/CONTRACTOR, déjà garanti
+  // par le refus plus haut) ; list_plan_requests revérifie côté serveur.
+  const { data: planRequestsData, error: planRequestsError } = await supabase.rpc("list_plan_requests", {
+    p_project_id: id,
+  });
+  const planRequests: PlanRequestRow[] = Array.isArray(planRequestsData) ? planRequestsData : [];
+
   // Accès au catalogue (D107) : propriétaire de l'organisation du chantier
   // uniquement. Affichage indicatif, attach_catalog_plan_to_project revérifie.
   let publishedItems: { id: string; label: string }[] = [];
@@ -279,6 +288,45 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
               Essayer le générateur 2D
             </Button>
           </Link>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-sand pt-4">
+          <h2 className="text-h2 font-semibold text-ink">Demandes de plan</h2>
+          <p className="text-caption text-muted">
+            Une demande regroupe les paramètres de génération et les variantes sauvegardées pour les explorer. Modifier
+            les paramètres crée une nouvelle demande ; modifier une variante sauvegardée en crée une nouvelle, sans
+            jamais écraser l&apos;historique.
+          </p>
+          <Link href={`/prototype-plans?retour=${project.id}&demande=new`} className="w-fit">
+            <Button variant="secondary" size="compact">
+              Créer une nouvelle demande
+            </Button>
+          </Link>
+          {planRequestsError ? (
+            <AlertBanner variant="error" title="Lecture impossible" explanation="Réessayez plus tard." />
+          ) : planRequests.length === 0 ? (
+            <p className="text-caption text-muted">Aucune demande pour l&apos;instant.</p>
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {planRequests.map((r) => (
+                <li key={r.id} className="flex flex-wrap items-center gap-2 rounded border border-sand p-2 text-caption">
+                  <StatusChip
+                    variant={r.status === "DEPOSITED" ? "success" : r.status === "CANCELLED" ? "neutral" : "info"}
+                    label={r.status === "OPEN" ? "En cours" : r.status === "DEPOSITED" ? "Déposée" : "Annulée"}
+                  />
+                  <span>{new Date(r.created_at_server).toLocaleString("fr-FR")}</span>
+                  <span className="text-muted">
+                    {r.variant_count} variante{r.variant_count > 1 ? "s" : ""}
+                  </span>
+                  {r.status === "OPEN" ? (
+                    <Link href={`/prototype-plans?retour=${project.id}&demande=${r.id}`} className="font-semibold text-primary">
+                      Reprendre →
+                    </Link>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </Card>
 

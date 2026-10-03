@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useRouter } from "next/navigation";
 import {
   DEFAULT_PRESETS,
   generateVariants,
@@ -15,7 +16,10 @@ import {
 } from "./geometry";
 import { renderSvg, legendFor, STAMP } from "./render";
 import { PlanEditor } from "./PlanEditor";
-import { clearDraftLocally, loadDraftLocally, type ProjectFile } from "./projectFile";
+import { clearDraftLocally, loadDraftLocally, validateProjectFile, type ProjectFile } from "./projectFile";
+// Actions serveur RÉELLES et INCHANGÉES du chantier (Lot 2,
+// PREPARATION_INTEGRATION_METIER.md) : aucun second mécanisme de demande.
+import { createPlanRequestAction, listPlanRequestVariantsAction, getPlanRequestVariantAction, type PlanRequestVariantRow } from "@/app/(app)/chantiers/[id]/plans/actions";
 
 interface RoomRow extends RoomNeed {
   count: number;
@@ -90,7 +94,66 @@ function numberInput(value: number, onChange: (v: number) => void, step = 0.1, d
   );
 }
 
-export function PrototypeClient({ depositContext }: { depositContext: DepositContext | null }) {
+export function PrototypeClient({
+  depositContext,
+  requestParam,
+}: {
+  depositContext: DepositContext | null;
+  requestParam: string | null;
+}) {
+  const router = useRouter();
+  // "new" : pas encore de demande réelle — créée au premier "Générer" dans ce
+  // contexte (generation_params = ceux RÉELLEMENT utilisés, jamais un
+  // paramètre vide). Un UUID existant : reprise après rechargement.
+  const [requestId, setRequestId] = useState<string | null>(requestParam && requestParam !== "new" ? requestParam : null);
+  const [resumedVariants, setResumedVariants] = useState<PlanRequestVariantRow[] | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  const [resumeLoadingId, setResumeLoadingId] = useState<string | null>(null);
+  const lastRequestParamsRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!requestId) return;
+    let cancelled = false;
+    listPlanRequestVariantsAction(requestId).then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setResumeError(result.message);
+        return;
+      }
+      setResumedVariants(result.value);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Volontairement une seule fois par requestId (reprise après
+    // rechargement) — PlanEditor gère lui-même le rafraîchissement de la
+    // liste après une nouvelle sauvegarde, jamais ce composant parent.
+  }, [requestId]);
+
+  // La variante RÉELLEMENT ouverte (null pour une génération fraîche, jamais
+  // encore sauvegardée) — transmise à PlanEditor pour qu'il sache, dès
+  // l'ouverture, que `initialLayout` correspond exactement à cette variante
+  // (sinon "Déposer cette variante" la redemanderait inutilement).
+  const [openedVariantId, setOpenedVariantId] = useState<string | null>(null);
+
+  async function handleResumeVariant(variantId: string) {
+    setResumeLoadingId(variantId);
+    setResumeError(null);
+    const result = await getPlanRequestVariantAction(variantId);
+    setResumeLoadingId(null);
+    if (!result.ok) {
+      setResumeError(result.message);
+      return;
+    }
+    const validated = validateProjectFile(result.value.layout);
+    if (!validated.ok) {
+      setResumeError("Variante sauvegardée illisible (format inattendu).");
+      return;
+    }
+    setOrientation(validated.value.orientation as "N" | "S" | "E" | "O");
+    setOpenedVariantId(variantId);
+    setDraft(validated.value.layout);
+  }
   const [terrainWidth, setTerrainWidth] = useState(15);
   const [terrainDepth, setTerrainDepth] = useState(20);
   const [front, setFront] = useState(3);
@@ -132,11 +195,12 @@ export function PrototypeClient({ depositContext }: { depositContext: DepositCon
     setRooms((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
 
-  function handleGenerate() {
+  async function handleGenerate() {
     if (draft && !window.confirm("Générer de nouvelles variantes ? Le brouillon en cours d'édition sera perdu.")) {
       return;
     }
     setDraft(null);
+    setOpenedVariantId(null);
     const input: GenerationInput = {
       terrainWidth,
       terrainDepth,
@@ -156,6 +220,31 @@ export function PrototypeClient({ depositContext }: { depositContext: DepositCon
     setFailureReasons(result.attemptFailureReasons);
     setSelectedIndex(0);
     setZoom(1);
+
+    // Demande (Lot 2) : créée au premier "Générer" dans ce contexte, avec les
+    // paramètres RÉELLEMENT utilisés. "Modifier les paramètres de génération
+    // crée une nouvelle demande" : une demande déjà active, régénérée avec
+    // des paramètres DIFFÉRENTS, est remplacée par une nouvelle — jamais
+    // réécrite. Mêmes paramètres (simple nouvel essai) : la demande active
+    // est conservée.
+    if (requestParam && depositContext?.canDeposit && result.variants.length > 0) {
+      const paramsJson = JSON.stringify(input);
+      if (!requestId || lastRequestParamsRef.current !== paramsJson) {
+        const formData = new FormData();
+        formData.set("project_id", depositContext.projectId);
+        formData.set("generation_params", paramsJson);
+        const created = await createPlanRequestAction(formData);
+        if (created.ok) {
+          lastRequestParamsRef.current = paramsJson;
+          setResumedVariants([]);
+          setResumeError(null);
+          setRequestId(created.value.id);
+          router.replace(`/prototype-plans?retour=${depositContext.projectId}&demande=${created.value.id}`);
+        } else {
+          setResumeError(created.message);
+        }
+      }
+    }
   }
 
   function downloadBlob(blob: Blob, filename: string) {
@@ -228,6 +317,29 @@ export function PrototypeClient({ depositContext }: { depositContext: DepositCon
             Ignorer et effacer
           </button>
         </section>
+      ) : null}
+      {requestId && resumedVariants && resumedVariants.length > 0 && !draft ? (
+        <section className="flex flex-col gap-2 rounded border border-indigo-300 bg-indigo-50 p-3 text-sm">
+          <p className="font-semibold text-indigo-900">
+            Demande en cours — {resumedVariants.length} variante(s) sauvegardée(s) retrouvée(s) après rechargement.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {resumedVariants.map((v) => (
+              <button
+                key={v.id}
+                onClick={() => handleResumeVariant(v.id)}
+                disabled={resumeLoadingId === v.id}
+                className="rounded border border-indigo-400 bg-white px-3 py-1 text-xs font-semibold text-indigo-900 disabled:opacity-50"
+              >
+                {resumeLoadingId === v.id ? "Chargement…" : `Ouvrir variante ${v.variant_number}`}
+                {v.deposited_at_server ? " — déposée" : ""}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+      {resumeError ? (
+        <section className="rounded border border-red-300 bg-red-50 p-3 text-sm text-red-900">{resumeError}</section>
       ) : null}
       {resumable && "error" in resumable ? (
         <section className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800">
@@ -378,7 +490,17 @@ export function PrototypeClient({ depositContext }: { depositContext: DepositCon
       </button>
 
       {draft ? (
-        <PlanEditor initialLayout={draft} orientation={orientation} onExit={() => setDraft(null)} depositContext={depositContext} />
+        <PlanEditor
+          initialLayout={draft}
+          orientation={orientation}
+          onExit={() => {
+            setDraft(null);
+            setOpenedVariantId(null);
+          }}
+          depositContext={depositContext}
+          requestId={requestId}
+          initialVariantId={openedVariantId}
+        />
       ) : (
       <>
       {variants && variants.length === 0 ? (

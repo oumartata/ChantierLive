@@ -54,3 +54,7 @@ next-env.d.ts
 
 # exports générés (SVG/PNG/JSON du prototype plans) — artefacts, pas du code
 exports/
+
+# sauvegardes pg_dump locales (avant migration) — jamais commitées, peuvent
+# contenir des données de test/démo réelles de l'instance locale
+.local_backups/
