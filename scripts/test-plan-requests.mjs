@@ -256,6 +256,36 @@ async function main() {
     crossAttachErr?.message
   );
 
+  // ===========================================================================
+  // 6. Reprise après ÉCHEC réel (jamais seulement un rejeu après succès) —
+  // prepare/claim/écriture/attest effectués, PUIS plus rien (simule un
+  // navigateur fermé/coupé avant que finalize_plan_request_variant_deposit
+  // soit appelée) : l'appel de reprise doit aboutir et ne créer qu'UNE seule
+  // version, jamais un dépôt silencieusement incomplet.
+  // ===========================================================================
+  const resumeOperationUuid = randomUUID();
+  await prepareClaimAttest(otherContractor.client, otherProjectId, png, resumeOperationUuid);
+  const { data: statusBeforeResume } = await otherContractor.client.rpc("get_upload_status", { p_operation_uuid: resumeOperationUuid });
+  record(
+    "Reprise après échec — upload attesté mais JAMAIS finalisé avant la reprise (état réellement interrompu)",
+    statusBeforeResume?.status === "FINALIZING",
+    JSON.stringify(statusBeforeResume)
+  );
+  const { data: resumedDeposit, error: resumedDepositErr } = await otherContractor.client.rpc("finalize_plan_request_variant_deposit", {
+    p_operation_uuid: resumeOperationUuid,
+    p_variant_id: variantOther.id,
+  });
+  record(
+    "Reprise après échec — la reprise aboutit et rattache réellement la variante",
+    !resumedDepositErr && !!resumedDeposit?.project_plan_version_id,
+    resumedDepositErr?.message
+  );
+  const { count: versionCountAfterResume } = await service
+    .from("project_plan_versions")
+    .select("id", { count: "exact", head: true })
+    .eq("project_id", otherProjectId);
+  record("Reprise après échec — une seule version créée pour ce chantier (aucun doublon silencieux)", versionCountAfterResume === 1);
+
   const total = results.length;
   const passed = results.filter((r) => r.pass).length;
   console.log(`\n${passed}/${total} tests réussis.`);

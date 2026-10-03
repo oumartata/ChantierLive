@@ -84,7 +84,7 @@ conservée) :
 
 ---
 
-## 3. Données et droits (schéma minimal proposé — **non créé, non appliqué**)
+## 3. Données et droits (schéma — **créé et appliqué en local, voir §8**)
 
 ### Schéma minimal proposé
 
@@ -320,7 +320,167 @@ lui seul le cas avec cour d'entrée, distingués explicitement ici.
 
 ---
 
-## 7. Clôture de ce lot
+## 8. Migrations exécutées ce lot (détail exact, aucun secret)
+
+Cible confirmée strictement locale AVANT toute opération : `npx supabase
+projects list` montrait les trois projets distants existants tous
+`"linked": false` ; aucun fichier `supabase/.temp/project-ref` ; toutes les
+commandes ci-dessous passaient explicitement `--local`. Sauvegarde
+`pg_dump` (schéma + données) écrite dans `.local_backups/` avant la
+première opération (fichier ignoré par git, jamais commité, jamais cité ici
+par son contenu).
+
+**Écart préexistant découvert en examinant les migrations en attente**
+(`supabase migration list --local`, avant toute opération) : deux
+migrations déjà commitées dans le dépôt, `20260930100000_m029_*.sql` et
+`20260930110000_m030_*.sql`, avaient `remote: ""` (jamais appliquées sur
+CETTE instance locale) — ni l'une ni l'autre ne concerne ce lot (B014 et
+B015/B016 respectivement, antérieures et sans rapport avec M031). Pas une
+migration "étrangère" au sens d'un contenu inconnu ou non commité (`git log`
+confirmait les deux déjà committées, `git status` les montrait propres) :
+un simple retard d'application locale.
+
+- `supabase migration up --local` → a tenté `20260930100000_m029_*.sql` en
+  premier (ordre chronologique) → a échoué : `constraint
+  "projects_latitude_range" ... already exists`. Lecture directe de l'état
+  réel (`pg_get_functiondef` sur `update_draft_project`) : les 3 contraintes
+  CHECK existaient déjà sur `projects` (posées hors suivi de migration,
+  avant ce lot) MAIS le corps de `update_draft_project` ne portait PAS
+  encore les gardes applicatives M029 — un état partiel, jamais un doublon
+  simple.
+- `supabase migration repair --status applied 20260930100000 --local` (un
+  premier essai, trop hâtif) puis **`--status reverted`** (annulé dès la
+  vérification de `update_draft_project` ci-dessus — jamais laissé en l'état
+  incorrect).
+- Création de `20260930105000_m029_correction_idempotence.sql` (NOUVEAU
+  fichier, le seul moyen sanctionné de corriger M029 sans le réécrire) :
+  bloc `DO` avec `ADD CONSTRAINT` conditionnelle (no-op ici, les 3
+  contraintes existaient déjà) + `CREATE OR REPLACE FUNCTION
+  update_draft_project` (corps identique à celui déjà publié dans
+  `20260930100000_m029_*.sql`, jamais modifié).
+- `supabase migration repair --status applied 20260930100000 --local`
+  (cette fois correcte : le fichier ORIGINAL M029 n'est jamais exécuté une
+  seconde fois, seul l'historique est corrigé pour refléter que son contenu
+  logique est désormais réellement présent via 105000).
+- `supabase migration up --local` → applique `20260930105000_*.sql` (la
+  correction) puis tente `20260930110000_m030_*.sql` → échoue :
+  `column "already_member" ... already exists`. Lecture directe
+  (`pg_get_functiondef` sur `get_invitation_preview`) : cette fois le corps
+  de la fonction portait DÉJÀ la logique `already_member` complète — M030
+  était réellement et entièrement appliquée en substance, seul l'historique
+  manquait.
+- `supabase migration repair --status applied 20260930110000 --local` —
+  aucune correction nécessaire, aucun fichier ajouté pour M030.
+- `supabase migration up --local` → applique `20260930120000_m031_*.sql`
+  (tables `project_plan_requests`/`project_plan_request_variants`,
+  triggers d'immuabilité) puis `20260930130000_m031b_*.sql` (6 fonctions
+  RPC) — les deux réussissent sans erreur.
+- Parcours navigateur réel (chantier de démo local) révèle `list_plan_requests`
+  en échec → `max(uuid) does not exist` reproduit directement via `psql`
+  (rôle `authenticated` simulé par `set_config('request.jwt.claims', ...)`,
+  jamais via le service role, pour reproduire EXACTEMENT le chemin RLS réel)
+  → `20260930140000_m031d_correction_max_uuid.sql` (NOUVEAU fichier,
+  `CREATE OR REPLACE FUNCTION list_plan_requests`, `array_agg(...)[1]` au
+  lieu de `max(uuid)`) → `supabase migration up --local` appliqué.
+- Tests ciblés (`scripts/test-plan-requests.mjs`) révèlent `list_plan_request_variants`
+  en échec → `column reference "id" is ambiguous` (paramètre de sortie
+  `RETURNS TABLE` nommé `id`, en collision avec la colonne du même nom) →
+  `20260930135000_m031c_correction_colonne_ambigue.sql` (NOUVEAU fichier,
+  `CREATE OR REPLACE FUNCTION list_plan_request_variants`, référence
+  qualifiée `r.id`) → appliqué.
+
+**Aucune migration déjà appliquée n'a été modifiée rétroactivement** : les
+fichiers `20260930100000_m029_*.sql`, `20260930120000_m031_*.sql` et
+`20260930130000_m031b_*.sql` sont restés tels qu'écrits/committés ; chaque
+correction est un NOUVEAU fichier (`105000`, `135000`, `140000`), jamais une
+réécriture — seul l'historique de migration (métadonnée `repair`, pas le
+contenu SQL) a été corrigé pour M029/M030, et seulement pour refléter un
+état déjà réellement présent sur cette instance, jamais pour en falsifier
+un autre.
+
+**État final confirmé** (`supabase migration list --local`) : les 40
+migrations du dépôt ont `local == remote` — rien en attente, rien en
+avance, aucun écart restant.
+
+## 9. Couverture des 30 tests (`scripts/test-plan-requests.mjs`) pour les 5 garanties demandées
+
+Aucun test déjà concluant n'a été refait ; un seul ajouté (dernier point
+ci-dessous) après avoir constaté une preuve manquante, pas un défaut.
+
+1. **Accès à un autre chantier refusé** : « Création demande — chantier non
+   autorisé refusé » (`not_authorized`, appelant CONTRACTOR actif sur un
+   AUTRE chantier, zéro adhésion sur la cible) ; voir aussi « Rattachement
+   direct à une version d'un AUTRE chantier refusé » (FK composite, niveau
+   base plutôt que RPC).
+2. **Variante déposée immuable** : « UPDATE direct sur une variante déposée
+   refusé » et « DELETE direct sur une variante refusé » — testés en
+   service_role (accès direct table), pas seulement via le RPC applicatif.
+3. **Changement de paramètres créant une nouvelle demande** : « Changement
+   de paramètres — nouvelle demande distincte, jamais un écrasement » (deux
+   `generation_params` différents → deux lignes `id` distinctes).
+4. **Reprise après échec sans doublon** — **preuve manquante constatée et
+   complétée ce lot** : les tests déjà présents (« Reprise (même opération)
+   — idempotente ») ne couvraient qu'un REJEU après un dépôt DÉJÀ réussi
+   (réponse perdue), pas un échec réel avant finalisation. Trois nouveaux
+   tests ajoutés : upload attesté puis jamais finalisé (état `FINALIZING`
+   confirmé, `finalized_at: null` — interruption réelle, pas simulée après
+   coup) ; la reprise aboutit et rattache réellement la variante ; une seule
+   version créée pour ce chantier (aucun doublon silencieux).
+5. **Correspondance entre état sauvegardé et PNG déposé** — **non
+   couverte, et non couvrable, par ces 30 tests RPC** : le rendu PNG
+   (SVG→canvas) est une opération exclusivement côté client
+   (`render.ts`/`PlanEditor.tsx`), qu'aucun test serveur ne peut observer.
+   Preuve apportée autrement, lors du parcours navigateur CONTRACTOR de ce
+   lot (§10) : la variante sauvegardée affichait Chambre 1/2/3 (3,03×3,50 m),
+   Salon (4,38×4,50 m), Cuisine (2,69×3,00 m), Sanitaire 1/2 (1,61×2,00 m
+   chacun) ; le PNG réellement déposé, retéléchargé et inspecté visuellement
+   après coup, montre EXACTEMENT ces mêmes pièces et dimensions. Garantie
+   structurelle (code, pas seulement observée une fois) : `confirmDeposit`
+   (`PlanEditor.tsx`) rend TOUJOURS le PNG depuis `exportSvgMarkup`, dérivé
+   de `current` (l'état affiché) — et le dépôt est bloqué tant que `current`
+   ne correspond pas EXACTEMENT (`isSavedAsVariant`, comparaison de valeur)
+   à la variante choisie, jamais un état divergent.
+
+## 10. Parcours CONTRACTOR réel (ce lot)
+
+Rôle confirmé depuis les données serveur AVANT le parcours (`project_memberships`,
+lecture directe, jamais depuis l'UI) : `role='CONTRACTOR'`, `owner_profile`
+vide, `revoked_at` NULL sur le chantier de démo local `Démo — Maison Bamako
+— repetition` (compte `demo-entreprise@chantierlive.test`, identifiants
+connus car déterministes dans `scripts/demo_seed_chantierlive.mjs` — jamais
+une donnée réelle). Session `demo-proprietaire` (déjà ouverte avant ce lot)
+déconnectée puis reconnectée après coup pour la restaurer exactement.
+
+Parcours complet effectué et vérifié : créer une nouvelle demande (CONTRACTOR
+autorisé, confirmé par l'apparition du bouton ET par le rôle serveur) →
+générer → ouvrir l'éditeur → sauvegarder une variante → rechargement complet
+de la page (nouvelle requête serveur, pas un état client conservé) →
+variante retrouvée et rouverte → déposer cette variante → candidat réel
+confirmé sur la page Plans (« Plan 5 », marqué « Non partagé » — comportement
+CONTRACTOR inchangé, D104) → PNG téléchargé et comparé visuellement à la
+variante (§9, point 5) → session restaurée.
+
+---
+
+## 11. Proposition de ligne de backlog (NON insérée dans `MVP_BACKLOG.csv` — proposition seulement)
+
+Prochain identifiant disponible selon la convention réelle du fichier
+(dernière ligne actuelle : `B068`) : **B069**. Ligne proposée, au format
+exact des lignes existantes (`id,lot,priority,task,depends_on,done_when`) :
+
+```
+B069,L02c,P1,"Créer et gérer des demandes de plan avec variantes versionnées avant dépôt",B063,"demande créée avec les paramètres de génération réellement utilisés; modifier les paramètres crée une nouvelle demande, jamais un écrasement; modifier une variante sauvegardée en crée une nouvelle, l'ancienne reste intacte; dépôt d'une variante crée une version réelle (B063) sans retenue/validation/publication automatique; droits CONTRACTOR/OWNER-PRIMARY du chantier seuls, revérifiés côté serveur pour chaque opération"
+```
+
+Priorité proposée **P1** (le parcours OWNER_PRIMARY/CONTRACTOR de dépôt
+direct, B063, reste le chemin principal déjà validé ; ce lot l'enrichit sans
+le remplacer) — à valider ou ajuster par le fondateur. Compteur global
+(28/68) **non modifié** : cette ligne n'est pas insérée dans
+`MVP_BACKLOG.csv` tant que la proposition n'est pas validée.
+
+---
+
+## 12. Clôture de ce lot
 
 28/68 (41 %) global, inchangé — aucune tâche `MVP_BACKLOG.csv` réellement
 clôturée par ces lots (aucun identifiant inventé). **7/7 jalons du prototype
@@ -336,5 +496,15 @@ RLS + SECURITY DEFINER partout, aucun contournement de prepare/upload/
 finalize ni de validation/publication. Migrations créées et appliquées
 UNIQUEMENT sur l'instance Supabase locale (jamais distante), après
 sauvegarde locale et vérification des migrations en attente. Aucun push,
-fusion, déploiement ou nouvelle dépendance. 1 décision reste ouverte
-(identifiant backlog de la « demande », §5).
+fusion, déploiement ou nouvelle dépendance.
+
+**Ce lot (clôture)** : parcours CONTRACTOR réel vérifié une seule fois (§10,
+rôle confirmé depuis les données serveur) ; migrations exécutées ce lot
+documentées précisément, y compris la réconciliation M029/M030, sans aucun
+secret affiché (§8) ; couverture des 30 tests mappée aux 5 garanties
+demandées, une preuve manquante (reprise après échec réel, distincte du
+simple rejeu) complétée par 3 tests ciblés, aucun test déjà concluant refait
+(§9) ; ligne de backlog B069 proposée, **non insérée** dans
+`MVP_BACKLOG.csv`, compteur global inchangé (§11). Aucune nouvelle migration
+hors correctifs déjà couverts par l'autorisation du lot précédent. Aucune
+donnée réelle touchée, copie C: intacte.
