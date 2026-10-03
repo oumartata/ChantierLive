@@ -23,7 +23,7 @@ import {
   type VerificationIssue,
   type WallSide,
 } from "./geometry";
-import { escapeXml, renderSvg, STAMP } from "./render";
+import { escapeXml, renderSvg, renderSvgToPngBlob, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
 import type { DepositContext } from "./PrototypeClient";
 // Actions serveur RÉELLES et INCHANGÉES du chantier (Lots 1/2,
@@ -171,28 +171,7 @@ export function PlanEditor({
   // légendes et mention d'avant-projet déjà gravées dans exportSvgMarkup,
   // jamais un second rendu qui pourrait diverger.
   function renderExportPng(canvas: HTMLCanvasElement): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const url = URL.createObjectURL(new Blob([exportSvgMarkup], { type: "image/svg+xml" }));
-      img.onload = () => {
-        canvas.width = img.width || 900;
-        canvas.height = img.height || 700;
-        const ctx = canvas.getContext("2d")!;
-        ctx.fillStyle = "#ffffff";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0);
-        URL.revokeObjectURL(url);
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error("png_encode_failed"));
-        }, "image/png");
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error("svg_load_failed"));
-      };
-      img.src = url;
-    });
+    return renderSvgToPngBlob(exportSvgMarkup, canvas);
   }
   function handleExportPng() {
     if (!canvasRef.current) return;

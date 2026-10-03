@@ -404,4 +404,35 @@ function escapeXml(s: string): string {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
+// Rasterisation SVG -> PNG via <canvas> — EXTRAIT de PlanEditor.renderExportPng
+// (comportement inchangé) pour être réutilisé tel quel par le dépôt d'un
+// modèle de catalogue modifiable (PREPARATION_CATALOGUE_MODIFIABLE.md, Lot A) :
+// même rendu, jamais un second moteur. Nécessite le DOM (Image/canvas) —
+// appelable uniquement depuis un composant client, jamais depuis un
+// composant serveur.
+export function renderSvgToPngBlob(svgMarkup: string, canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(new Blob([svgMarkup], { type: "image/svg+xml" }));
+    img.onload = () => {
+      canvas.width = img.width || 900;
+      canvas.height = img.height || 700;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
+      URL.revokeObjectURL(url);
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("png_encode_failed"));
+      }, "image/png");
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("svg_load_failed"));
+    };
+    img.src = url;
+  });
+}
+
 export { escapeXml, STAMP };

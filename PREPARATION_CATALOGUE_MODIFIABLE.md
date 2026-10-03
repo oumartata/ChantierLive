@@ -61,8 +61,51 @@ PREMIÈRE variante déjà posée (copie, jamais une référence).**
 
 ## 3. Découpage en lots bornés
 
-### Lot A — modèle de catalogue avec fichier de projet modifiable (migration décrite, non créée)
+### Lot A — modèle de catalogue avec fichier de projet modifiable (**terminé, local uniquement**)
 
+**Statut : terminé.** Autorisation fondateur explicite reçue (2026-10-03)
+pour créer et appliquer la migration UNIQUEMENT sur Supabase local.
+Migration : `20260930150000_m032_catalog_item_modifiable_layout.sql`
+(colonne `layout jsonb` additive + contrainte de taille, `finalize_catalog_item_upload`
+remplacée par une version à deux paramètres — ancienne signature `DROP`pée
+pour éviter tout overload ambigu, jamais une simple `CREATE OR REPLACE` qui
+aurait créé un second candidat pour PostgREST —, nouvelle fonction
+`get_catalog_item_version_file`). Avant application : cible locale
+confirmée (`supabase projects list`, aucun projet lié), sauvegarde
+`pg_dump` (`.local_backups/`), migrations en attente examinées (aucune,
+les 44 migrations étaient déjà `local == remote`). Aucune migration déjà
+appliquée modifiée rétroactivement.
+
+- **Fichiers concernés** : `supabase/migrations/20260930150000_m032_*.sql` ;
+  `organisations/[id]/catalogue/actions.ts` (étapes prepare/claim/écriture/
+  attest extraites dans `ensureReadyToFinalizeCatalog`, réutilisées par
+  `depositCatalogItemVersionAction` INCHANGÉE et la nouvelle
+  `depositModifiableCatalogItemVersionAction` ; nouvelle
+  `getCatalogItemVersionFileAction`) ; nouveaux composants
+  `UploadModifiableVersionForm.tsx` (lit UN fichier .json, le valide
+  côté client pour un retour immédiat, rend le PNG depuis CE MÊME layout via
+  `renderSvg`/`renderSvgToPngBlob`, dépose les deux ensemble) et
+  `CatalogVersionFileLinks.tsx` (aperçu signé + téléchargement du JSON,
+  droits existants) ; `render.ts` gagne `renderSvgToPngBlob` (extrait de
+  `PlanEditor.renderExportPng`, réutilisé par les deux, jamais un second
+  moteur de rendu).
+- **Preuves** : `scripts/test-catalog-item-layout.mjs`, 27/27 — dépôt
+  modifiable réussi, compatibilité ascendante (appel RPC sans `p_layout`),
+  6 rejets (format/version/structure/taille) sans version partielle créée,
+  rôle non autorisé refusé, reprise après interruption réelle (attesté,
+  jamais finalisé) idempotente sans doublon, ancienne version intacte après
+  une nouvelle (immuabilité), `get_catalog_item_version_file` : propriétaire
+  lit tout, ancien modèle renvoie `layout=null` sans erreur, outsider
+  refusé. Non-régression : `scripts/test-catalog-items.mjs` 44/44,
+  `scripts/test-plan-requests.mjs` 30/30, `scripts/test-project-plans.mjs`
+  49/49, `scripts/test-plans-geometry.mjs` 755/755. Parcours navigateur réel
+  (compte `demo-entreprise`, organisation « Espace professionnel ») : modèle
+  modifiable déposé depuis un fichier de projet généré par
+  `/prototype-plans` → aperçu PNG réellement signé et retéléchargé,
+  comparé visuellement au layout déposé (Chambre 3,50×3,50 m, Salon
+  5,00×4,50 m, Cuisine 3,00×3,00 m — correspondance exacte) → dépôt plat
+  existant (PDF) toujours fonctionnel sur le même modèle (v2) → v1 relu en
+  base, layout intact après la création de v2.
 - **Existant réutilisé** : `plan_catalog_item_versions` (table, trigger
   d'immuabilité déjà strict — une colonne nouvelle n'y change rien pour les
   lignes déjà posées) ; `finalize_catalog_item_upload` (RPC, M019) ;
@@ -110,31 +153,48 @@ PREMIÈRE variante déjà posée (copie, jamais une référence).**
     colonne : apparition au moment de l'insertion seulement, jamais une
     mise à jour).
   - Nouvelle fonction `create_plan_request_from_catalog_item(p_project_id,
-    p_catalog_item_id)` : revérifie la **double condition D107** (CONTRACTOR/
-    OWNER-PRIMARY du chantier ET propriétaire de l'organisation — même
-    lecture que `attach_catalog_plan_to_project`, jamais un droit nouveau) ;
-    exige `plan_catalog_items.published_version_id` non nul ET
-    `plan_catalog_item_versions.layout` non nul (sinon
+    p_catalog_item_id, p_generation_params)` : revérifie la **double
+    condition D107** (CONTRACTOR/OWNER-PRIMARY du chantier ET propriétaire
+    de l'organisation — même lecture que `attach_catalog_plan_to_project`,
+    jamais un droit nouveau) ; exige `plan_catalog_items.published_version_id`
+    non nul ET `plan_catalog_item_versions.layout` non nul (sinon
     `catalog_item_not_editable`, message explicite renvoyant vers le
-    rattachement direct existant) ; crée une `project_plan_requests` (status
-    OPEN, `generation_params` = les paramètres de terrain/programme
-    D'ORIGINE du modèle, conservés pour référence, **jamais présentés comme
-    valides pour le nouveau terrain**) ET une première
-    `project_plan_request_variants` (variant_number=1, `layout` = COPIE du
-    layout du modèle, `parent_variant_id` null — une copie en valeur, jamais
-    une référence vivante vers `plan_catalog_item_versions`).
-- **Terrain, reculs, programme et contrôles géométriques — traitement
-  explicite (ne suppose jamais qu'un modèle convient à un autre terrain)** :
-  à l'ouverture de cette demande dans `/prototype-plans`, le layout copié
-  est chargé dans l'éditeur existant (identique au chargement d'une variante
-  ordinaire) ; le terrain/reculs/programme D'ORIGINE du modèle sont affichés
-  en lecture seule à titre de référence, jamais appliqués automatiquement au
-  nouveau chantier. Le dépôt d'une variante reste bloqué, EXACTEMENT comme
-  pour toute variante (Lot 1, inchangé), tant que `independentVerify` signale
-  une erreur, qu'une pièce reste mise de côté, ou que le programme n'est pas
-  complet — **aucun contrôle géométrique n'est relâché pour une copie**,
-  l'utilisateur doit adapter réellement la disposition au terrain réel avant
-  de pouvoir sauvegarder puis déposer.
+    rattachement direct existant).
+- **Correction documentaire (précision founder, 2026-10-03) — les
+  paramètres source sont une RÉFÉRENCE DISTINCTE, jamais les paramètres de
+  la nouvelle demande** : `p_generation_params` est un paramètre **obligatoire
+  de l'appel**, exactement comme pour `create_plan_request` (génération à
+  partir de rien) — terrain, reculs, façade d'accès et programme du
+  **chantier destinataire**, renseignés ou confirmés EXPLICITEMENT par
+  l'utilisateur avant la création de la demande, jamais déduits ni
+  pré-remplis automatiquement depuis le modèle. `generation_params` de la
+  `project_plan_requests` créée est TOUJOURS ce paramètre destinataire,
+  jamais une copie des paramètres d'origine du modèle. Les paramètres
+  D'ORIGINE du modèle restent accessibles séparément, en lecture seule,
+  uniquement via `source_catalog_item_version_id` (jamais fusionnés dans
+  `generation_params`, jamais une seconde source de vérité pour le terrain
+  réel) — l'UI afficherait ces deux jeux de paramètres côte à côte,
+  explicitement distingués, jamais l'un à la place de l'autre. La première
+  `project_plan_request_variants` créée (variant_number=1, `layout` = COPIE
+  EN VALEUR du layout du modèle, jamais une référence vivante vers
+  `plan_catalog_item_versions`) reste la disposition du modèle telle quelle
+  — une copie destinée à être ADAPTÉE, jamais présumée déjà conforme au
+  terrain destinataire.
+- **Contrôles portant sur les paramètres DESTINATAIRES, jamais un simple
+  avertissement (précision founder, 2026-10-03)** : les mêmes contrôles de
+  dépôt que toute variante (Lot 1, `independentVerify`, programme complet,
+  aucune pièce mise de côté) s'appliquent à la copie en comparant la
+  géométrie RÉELLEMENT dessinée aux paramètres DESTINATAIRES
+  (`generation_params` de CETTE demande — terrain/reculs/accès/programme du
+  chantier réel), jamais aux paramètres d'origine du modèle. Si la copie ne
+  correspond pas au terrain destinataire (débordement hors emprise, accès
+  incompatible, programme incomplet), le dépôt reste refusé EXACTEMENT comme
+  pour toute variante non conforme — **aucun redimensionnement silencieux,
+  aucun ajustement automatique du terrain, des reculs ou des dimensions des
+  pièces pour la faire rentrer** : l'utilisateur doit éditer réellement la
+  disposition (déplacer/redimensionner les pièces, reconfigurer l'accès) et
+  ne peut la sauvegarder comme variante déposable qu'une fois les contrôles
+  réellement satisfaits pour CE terrain précis.
 - **Critères d'acceptation** : une demande créée depuis un modèle affiche sa
   version source (lecture seule, jamais modifiable) ; les mêmes contrôles de
   dépôt que toute variante s'appliquent sans exception ; le modèle de
@@ -165,12 +225,10 @@ PREMIÈRE variante déjà posée (copie, jamais une référence).**
 
 ## 4. Décisions réellement bloquantes
 
-1. **Format du fichier de projet dans le catalogue (Lot A)** — bloquant
-   avant toute migration : ajouter `layout jsonb` à
-   `plan_catalog_item_versions` (recommandé — additive, compatible, aucune
-   ligne existante affectée) vs. une table d'extension séparée (même effet,
-   un join de plus). **Recommandation : colonne nullable directe**, plus
-   simple, cohérence déjà démontrée par `project_plan_request_variants.layout`.
+1. **Format du fichier de projet dans le catalogue** — **tranchée et
+   implémentée (Lot A, 2026-10-03)** : colonne `layout jsonb` nullable
+   directement sur `plan_catalog_item_versions` (M032), conformément à la
+   recommandation.
 2. **Droit de créer un modèle avec fichier modifiable** — le propriétaire
    d'organisation reste-t-il seul habilité (comme pour tout dépôt de
    catalogue aujourd'hui), ou un ingénieur/CONTRACTOR habilité pourrait-il
@@ -195,3 +253,17 @@ Catalogue 3D/R+1, édition multi-utilisateur simultanée d'un modèle,
 suppression/dépublication d'un modèle, tarification ou accès commercial
 (`catalog_access_grants`/`CATALOG_PREVIEW_VIEW`) — aucun n'est touché par ce
 plan.
+
+## 6. Clôture de ce lot
+
+**29/69 (42 %)** global, inchangé par ce lot (aucune tâche `MVP_BACKLOG.csv`
+concernée). Prototype 7/7, intégration 3/3, chacun dans
+son périmètre, inchangés. **Catalogue modifiable — Lot A terminé**
+(§3 ci-dessus, migration M032 créée et appliquée en local, 27/27 + 44/44 +
+30/30 + 49/49 + 755/755, parcours navigateur réel). **Lots B et C non
+entamés** — seule leur documentation a été corrigée ce lot (§3, précision
+sur la distinction paramètres source/destinataire). **Le catalogue
+modifiable n'est PAS complet** : aucun parcours de copie vers un chantier
+n'existe encore (Lot B), donc rien n'est déposable de bout en bout depuis
+un modèle de catalogue à ce stade — seul le dépôt ET la consultation d'un
+modèle modifiable AU CATALOGUE fonctionnent réellement.

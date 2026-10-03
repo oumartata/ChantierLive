@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { validateProjectFile } from "@/app/prototype-plans/projectFile";
 
 const BUCKET = "organization-catalog";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,39 +103,23 @@ export async function createCatalogItemAction(
   return null;
 }
 
-// Dépôt d'une version — flux SIMPLIFIÉ À DESSEIN pour ce lot (un
-// seul appel serveur, fichier reçu entièrement en FormData, jamais via URL
-// signée côté client), mais CORRIGÉ (revue ciblée, points 1/2) : l'identité
-// de l'opération (operation_uuid) est désormais fournie par le CLIENT et
-// PERSISTÉE à travers les tentatives pour un même dépôt (voir
-// UploadVersionForm) — jamais régénérée à chaque appel. L'état serveur est
-// relu AVANT toute nouvelle écriture : une réponse perdue après une
-// finalisation déjà réussie restitue la version EXISTANTE, jamais une
-// seconde. Le format attesté est désormais celui détecté sur les octets
-// RÉELLEMENT relus dans Storage, jamais le type MIME déclaré par le client.
-export async function depositCatalogItemVersionAction(formData: FormData): Promise<ActionResult<{ versionId: string }>> {
-  const guard = await requireVerifiedAccount();
-  if (!guard.ok) return { ok: false, message: guard.message };
-
-  const organizationId = formData.get("organization_id");
-  const catalogItemId = formData.get("catalog_item_id");
-  const file = formData.get("file");
-  const operationUuidRaw = formData.get("operation_uuid");
-
-  if (!requireUuid(organizationId) || !requireUuid(catalogItemId) || !requireUuid(operationUuidRaw)) {
-    return { ok: false, message: "Requête invalide." };
-  }
-  if (!(file instanceof File) || file.size === 0) {
-    return { ok: false, message: "Choisissez un fichier à déposer." };
-  }
-  const operationUuid = operationUuidRaw;
-
-  const bytes = new Uint8Array(await file.arrayBuffer());
+// Étapes partagées prepare/claim/écriture-Storage/attest, EXTRAITES de
+// l'ancienne depositCatalogItemVersionAction (comportement inchangé) pour
+// être réutilisées par depositModifiableCatalogItemVersionAction (Lot A,
+// PREPARATION_CATALOGUE_MODIFIABLE.md) SANS dupliquer cette logique : seul
+// le paramètre p_layout passé au finalize appelé ENSUITE diffère. Ne décide
+// PAS quelle variante de finalize appeler ; renvoie `operationUuid` tel
+// quel pour que l'appelant l'utilise.
+async function ensureReadyToFinalizeCatalog(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  service: ReturnType<typeof createServiceClient>,
+  organizationId: string,
+  catalogItemId: string,
+  operationUuid: string,
+  bytes: Uint8Array,
+  declaredMimeType: string
+): Promise<{ ok: true } | { ok: false; message: string }> {
   const checksum = createHash("sha256").update(bytes).digest("hex");
-  const declaredMimeType = file.type || "application/octet-stream";
-
-  const supabase = await createClient();
-  const service = createServiceClient();
 
   // Point 1 : reprend l'état serveur AVANT toute nouvelle écriture.
   const { data: status, error: statusErr } = await supabase.rpc("get_upload_status", {
@@ -146,19 +131,9 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
 
   if (!statusErr && status) {
     if (status.entity_type !== "plan_catalog_item_version" || status.organization_id !== organizationId) {
-      // Même operation_uuid réutilisé pour un rattachement différent :
-      // jamais réinterprété comme la même opération (même principe que
-      // prepare_catalog_item_upload).
       return { ok: false, message: "Requête invalide." };
     }
 
-    // CORRIGÉ (revue ciblée) : les court-circuits FINALIZED/FINALIZING
-    // ci-dessous contournaient jusqu'ici prepare_catalog_item_upload et sa
-    // réconciliation (item cible + paramètres immuables du fichier) — un
-    // même operation_uuid réutilisé pour un item ou un contenu DIFFÉRENT
-    // aurait pu renvoyer avec succès la version de l'ANCIEN dépôt. Vérifié
-    // ICI, avant tout court-circuit, exactement comme prepare_catalog_item_upload
-    // le fait pour son propre chemin de réconciliation.
     const { data: target, error: targetErr } = await service
       .from("plan_catalog_item_upload_targets")
       .select("catalog_item_id")
@@ -175,31 +150,16 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
     }
 
     if (status.status === "ABANDONED") {
-      // CORRIGÉ (revue ciblée) : ABANDONED reste un état TERMINAL, jamais
-      // implicitement contourné par cette reprise applicative.
       return { ok: false, message: mapCatalogError("operation_abandoned") };
     }
 
     if (status.status === "FINALIZED") {
-      // Réponse perdue après une finalisation déjà réussie : item/paramètres
-      // déjà revérifiés ci-dessus. Appelle finalize_catalog_item_upload avec
-      // la session UTILISATEUR (jamais une lecture directe service_role, qui
-      // contournerait l'autorisation) — la fonction est elle-même idempotente
-      // et revalide l'organisation/l'item/le compte AVANT tout retour, y
-      // compris ce cas (revue ciblée) ; aucune revérification dupliquée ici.
-      const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
-        p_operation_uuid: operationUuid,
-      });
-      if (finErr) return { ok: false, message: mapCatalogError(finErr.message) };
-      return { ok: true, value: { versionId: version.id } };
+      // Réponse perdue après une finalisation déjà réussie : le RPC de
+      // finalisation de l'appelant (idempotent) revalide tout avant de
+      // renvoyer l'état existant.
+      return { ok: true };
     }
 
-    // CORRIGÉ (revue ciblée, point 3) : reprise RÉELLE d'une tentative
-    // expirée, branchée sur l'action applicative — jamais seulement testée
-    // au niveau RPC. Même opération (operation_uuid inchangé), nouvel
-    // attempt_id/candidate_key ouverts par recover_media_upload_attempt
-    // (générique, entity_type='plan_catalog_item_version'), jamais une
-    // réécriture de l'ancienne candidate.
     let effectiveRow = status;
     const isExpired = !!status.attempt_expires_at && new Date(status.attempt_expires_at).getTime() <= Date.now();
     if ((status.status === "PENDING" || status.status === "FINALIZING") && isExpired) {
@@ -211,33 +171,18 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
     }
 
     if (effectiveRow.status === "FINALIZING") {
-      const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
-        p_operation_uuid: operationUuid,
-      });
-      if (finErr) return { ok: false, message: mapCatalogError(finErr.message) };
-      revalidatePath(`/organisations/${organizationId}/catalogue`);
-      return { ok: true, value: { versionId: version.id } };
+      return { ok: true };
     }
     if (effectiveRow.status === "PENDING" && effectiveRow.write_claimed_at) {
-      // Candidate déjà revendiquée par une tentative antérieure (panne après
-      // écriture, avant attestation) : jamais réécrite, relue telle quelle.
-      // Après une reprise ci-dessus, write_claimed_at est toujours null (la
-      // nouvelle candidate n'a encore reçu aucune écriture) : cette branche
-      // ne s'applique alors jamais par construction.
       const { data: existingCandidate } = await service.storage.from(BUCKET).download(effectiveRow.candidate_key);
       if (existingCandidate) {
         candidateBytes = new Uint8Array(await existingCandidate.arrayBuffer());
       }
     }
   } else if (statusErr && statusErr.message !== "not_authorized") {
-    // "not_authorized" ici couvre le premier dépôt (opération pas encore
-    // créée) — toute AUTRE erreur reste incertaine, jamais traitée comme un
-    // premier dépôt légitime.
     return { ok: false, message: "Erreur de lecture côté serveur. Réessayez." };
   }
 
-  // PREPARE — idempotent par construction : un rejeu avec les mêmes
-  // paramètres (même operation_uuid, même item cible) renvoie la même ligne.
   const { data: prepared, error: prepErr } = await supabase.rpc("prepare_catalog_item_upload", {
     p_operation_uuid: operationUuid,
     p_organization_id: organizationId,
@@ -255,9 +200,6 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
   if (claimErr) return { ok: false, message: "Impossible de démarrer l'envoi. Réessayez." };
   claim = claimResult;
   if (!claim) return { ok: false, message: "Impossible de démarrer l'envoi. Réessayez." };
-  // Capturé dans une const (jamais réassignée) : TypeScript ne propage pas le
-  // rétrécissement de `claim` (déclaré `let`) dans le reste de la fonction —
-  // même limitation que `wonClaim` dans commitMediaUpload (chantiers/[id]/photos/actions.ts).
   const wonClaim = claim;
 
   if (wonClaim.won) {
@@ -270,18 +212,11 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
     if (rereadError || !writtenFile) return { ok: false, message: "Impossible de relire le fichier écrit. Réessayez." };
     candidateBytes = new Uint8Array(await writtenFile.arrayBuffer());
   } else if (!candidateBytes) {
-    // Non gagné et aucune candidate déjà en main (ci-dessus) : relue sans
-    // jamais réécrire (même principe que commitMediaUpload).
     const { data: existing, error: dlErr } = await service.storage.from(BUCKET).download(wonClaim.candidate_key);
     if (dlErr || !existing) return { ok: false, message: "Traitement en cours. Réessayez dans un instant." };
     candidateBytes = new Uint8Array(await existing.arrayBuffer());
   }
 
-  // Point 2 : format RÉEL détecté sur les octets RÉELLEMENT relus dans
-  // Storage — jamais le type MIME déclaré par le client. Une signature non
-  // reconnue retombe sur un type générique : attest_storage_verified refuse
-  // alors le fichier (expected vs actual, checksum_mismatch) sans dupliquer
-  // la logique de refus — même discipline que commitMediaUpload.
   const actualChecksum = createHash("sha256").update(candidateBytes).digest("hex");
   const actualMimeType = sniffCatalogMimeType(candidateBytes) ?? "application/octet-stream";
 
@@ -294,6 +229,47 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
   });
   if (attestErr) return { ok: false, message: mapCatalogError(attestErr.message) };
 
+  return { ok: true };
+}
+
+function readCatalogDepositFormData(
+  formData: FormData
+): { organizationId: string; catalogItemId: string; operationUuid: string; file: File } | { error: string } {
+  const organizationId = formData.get("organization_id");
+  const catalogItemId = formData.get("catalog_item_id");
+  const file = formData.get("file");
+  const operationUuidRaw = formData.get("operation_uuid");
+
+  if (!requireUuid(organizationId) || !requireUuid(catalogItemId) || !requireUuid(operationUuidRaw)) {
+    return { error: "Requête invalide." };
+  }
+  if (!(file instanceof File) || file.size === 0) {
+    return { error: "Choisissez un fichier à déposer." };
+  }
+  return { organizationId, catalogItemId, operationUuid: operationUuidRaw, file };
+}
+
+// Dépôt d'une version plate (PDF/JPEG/PNG, sans fichier de projet modifiable)
+// — comportement INCHANGÉ depuis la revue ciblée B061 (identité d'opération
+// fournie par le client, état serveur relu avant toute écriture, format
+// attesté sur les octets réellement relus dans Storage).
+export async function depositCatalogItemVersionAction(formData: FormData): Promise<ActionResult<{ versionId: string }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const parsed = readCatalogDepositFormData(formData);
+  if ("error" in parsed) return { ok: false, message: parsed.error };
+  const { organizationId, catalogItemId, operationUuid, file } = parsed;
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const declaredMimeType = file.type || "application/octet-stream";
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  const prep = await ensureReadyToFinalizeCatalog(supabase, service, organizationId, catalogItemId, operationUuid, bytes, declaredMimeType);
+  if (!prep.ok) return { ok: false, message: prep.message };
+
   const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
     p_operation_uuid: operationUuid,
   });
@@ -301,6 +277,79 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
 
   revalidatePath(`/organisations/${organizationId}/catalogue`);
   return { ok: true, value: { versionId: version.id } };
+}
+
+// Dépôt d'un modèle MODIFIABLE (Lot A, PREPARATION_CATALOGUE_MODIFIABLE.md) —
+// RÉUTILISE les mêmes étapes prepare/claim/écriture/attest que le dépôt
+// plat ci-dessus (ensureReadyToFinalizeCatalog, jamais dupliqué). Le PNG
+// (aperçu) ET le fichier de projet (layout) sont le fichier plat UNIQUE et
+// son layout associé, déposés dans LE MÊME appel finalize — jamais deux
+// fichiers indépendants susceptibles de diverger : le PNG est produit côté
+// client (PlanEditor/render.ts, instantané exact du layout envoyé), jamais
+// reconstruit ici. Validation AUTORITAIRE du layout via validateProjectFile
+// (projectFile.ts, réutilisé tel quel) AVANT tout appel RPC — le garde-fou
+// SQL de finalize_catalog_item_upload (M032) reste un filet superficiel
+// contre un appel RPC direct, jamais la source de vérité structurelle.
+export async function depositModifiableCatalogItemVersionAction(
+  formData: FormData
+): Promise<ActionResult<{ versionId: string }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+
+  const parsed = readCatalogDepositFormData(formData);
+  if ("error" in parsed) return { ok: false, message: parsed.error };
+  const { organizationId, catalogItemId, operationUuid, file } = parsed;
+
+  const layoutRaw = formData.get("layout");
+  if (typeof layoutRaw !== "string") return { ok: false, message: "Fichier de projet manquant." };
+  let layout: unknown;
+  try {
+    layout = JSON.parse(layoutRaw);
+  } catch {
+    return { ok: false, message: "Fichier de projet illisible (JSON invalide)." };
+  }
+  const validated = validateProjectFile(layout);
+  if (!validated.ok) return { ok: false, message: `Fichier de projet invalide : ${validated.error}` };
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const declaredMimeType = file.type || "application/octet-stream";
+
+  const supabase = await createClient();
+  const service = createServiceClient();
+
+  const prep = await ensureReadyToFinalizeCatalog(supabase, service, organizationId, catalogItemId, operationUuid, bytes, declaredMimeType);
+  if (!prep.ok) return { ok: false, message: prep.message };
+
+  const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
+    p_operation_uuid: operationUuid,
+    p_layout: validated.value,
+  });
+  if (finErr) return { ok: false, message: mapCatalogError(finErr.message) };
+
+  revalidatePath(`/organisations/${organizationId}/catalogue`);
+  return { ok: true, value: { versionId: version.id } };
+}
+
+// Aperçu (URL signée, jamais la clé Storage brute exposée au client) ET
+// fichier modifiable (layout, null pour un ancien modèle) — mêmes droits
+// que get_catalog_item_version_file (M032) : propriétaire de l'organisation
+// uniquement, aucune permission de lecture nouvelle.
+export async function getCatalogItemVersionFileAction(
+  versionId: string
+): Promise<ActionResult<{ previewUrl: string | null; layout: unknown }>> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!UUID_RE.test(versionId)) return { ok: false, message: "Requête invalide." };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("get_catalog_item_version_file", { p_version_id: versionId });
+  if (error) return { ok: false, message: mapCatalogError(error.message) };
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return { ok: false, message: mapCatalogError("file_not_finalized") };
+
+  const service = createServiceClient();
+  const { data: signed } = await service.storage.from(row.bucket).createSignedUrl(row.storage_key, 300);
+  return { ok: true, value: { previewUrl: signed?.signedUrl ?? null, layout: row.layout } };
 }
 
 export async function submitForValidationAction(

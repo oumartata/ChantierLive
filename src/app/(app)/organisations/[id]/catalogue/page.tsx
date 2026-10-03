@@ -3,6 +3,8 @@ import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, StatusChip } from "@/components/ui";
 import { CreateItemForm } from "./CreateItemForm";
 import { UploadVersionForm } from "./UploadVersionForm";
+import { UploadModifiableVersionForm } from "./UploadModifiableVersionForm";
+import { CatalogVersionFileLinks } from "./CatalogVersionFileLinks";
 import { SubmitForValidationForm } from "./SubmitForValidationForm";
 import { PublishVersionButton } from "./PublishVersionButton";
 
@@ -123,6 +125,8 @@ export default async function OrganisationCataloguePage({
                   <p className="text-caption text-muted">Aucune version déposée.</p>
                 )}
                 <UploadVersionForm organizationId={organization.id} catalogItemId={item.id} />
+                <UploadModifiableVersionForm organizationId={organization.id} catalogItemId={item.id} />
+                {item.latest_version_id ? <CatalogVersionFileLinks versionId={item.latest_version_id} /> : null}
                 {(() => {
                   // CORRIGÉ (revue ciblée, point 5) : une demande PENDING dont
                   // la désignation a été révoquée ne bloque plus la
