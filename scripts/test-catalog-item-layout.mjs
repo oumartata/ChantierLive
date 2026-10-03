@@ -68,6 +68,22 @@ function checksumOf(bytes) {
   return createHash("sha256").update(bytes).digest("hex");
 }
 
+// Comparaison par VALEUR, jamais par ordre de clés : jsonb ne garantit pas
+// de préserver l'ordre d'insertion des clés d'un objet au retour (déjà
+// rencontré sur M031, même correction appliquée ici).
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+  if (typeof a === "object") {
+    const aKeys = Object.keys(a);
+    const bKeys = Object.keys(b);
+    return aKeys.length === bKeys.length && aKeys.every((k) => deepEqual(a[k], b[k]));
+  }
+  return false;
+}
+
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]);
 
 function validLayout(seed = "A") {
@@ -127,7 +143,13 @@ async function main() {
   const op1 = randomUUID();
   await prepareClaimAttest(owner.client, orgId, item.id, PNG_BYTES, op1);
   const layoutA = validLayout("A");
-  const { data: v1, error: v1Err } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op1, p_layout: layoutA });
+  // Frontière de confiance M032b : attest_catalog_item_layout est appelée
+  // via le client SERVICE_ROLE (jamais owner.client) — exactement comme
+  // depositModifiableCatalogItemVersionAction, jamais un appel authentifié
+  // ordinaire (aucun grant à authenticated sur cette fonction).
+  const { error: attestA } = await service.rpc("attest_catalog_item_layout", { p_operation_uuid: op1, p_layout: layoutA });
+  record("attest_catalog_item_layout — accepté pour un layout valide", !attestA, attestA?.message);
+  const { data: v1, error: v1Err } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op1 });
   record("Dépôt modifiable — réussi, layout stocké", !v1Err && v1?.layout?.layout?.marker === "A", v1Err?.message ?? JSON.stringify(v1));
   record("Dépôt modifiable — version_number=1", v1?.version_number === 1);
 
@@ -147,7 +169,7 @@ async function main() {
     const { count: countBefore } = await service.from("plan_catalog_item_versions").select("id", { count: "exact", head: true }).eq("catalog_item_id", item.id);
     const op = randomUUID();
     await prepareClaimAttest(owner.client, orgId, item.id, PNG_BYTES, op);
-    const { error } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op, p_layout: badLayout });
+    const { error } = await service.rpc("attest_catalog_item_layout", { p_operation_uuid: op, p_layout: badLayout });
     const { count: countAfter } = await service.from("plan_catalog_item_versions").select("id", { count: "exact", head: true }).eq("catalog_item_id", item.id);
     record(`${label} — refusé`, error?.message === expectedMessage, error?.message);
     record(`${label} — aucune version partielle créée`, countAfter === countBefore, `avant=${countBefore} après=${countAfter}`);
@@ -173,17 +195,74 @@ async function main() {
   record("Outsider — prepare_catalog_item_upload refusé", prepOutsiderErr?.message === "not_authorized", prepOutsiderErr?.message);
 
   // ===========================================================================
-  // 5. Reprise après échec réel (attesté, jamais finalisé) — idempotence.
+  // 4bis. Frontière de validation (M032b) — un appelant AUTHENTIFIÉ AUTORISÉ
+  // (le propriétaire légitime, jamais un outsider) ne peut plus faire
+  // parvenir de layout jusqu'à une version par appel RPC direct, même avec
+  // un ProjectFile qui respecte l'enveloppe SQL superficielle (objet,
+  // version connue, clés orientation/layout présentes) mais échouerait à
+  // validateProjectFile côté TS (ici : une porte référençant une pièce
+  // inexistante, roomIndex=99 sur un tableau `rooms` vide).
+  // ===========================================================================
+  const opBypass = randomUUID();
+  await prepareClaimAttest(owner.client, orgId, item.id, PNG_BYTES, opBypass);
+  const structurallyInvalidButEnvelopeValid = {
+    version: 4,
+    savedAt: new Date().toISOString(),
+    orientation: "N",
+    layout: { rooms: [], doors: [{ roomIndex: 99, wall: "left", cx: 0, cy: 0, width: 0.9, to: { kind: "circulation" } }], windows: [] },
+  };
+  const { count: countBeforeBypass } = await service.from("plan_catalog_item_versions").select("id", { count: "exact", head: true }).eq("catalog_item_id", item.id);
+  // Tentative 1 : le propriétaire légitime essaie de passer le layout
+  // DIRECTEMENT à finalize_catalog_item_upload — le paramètre n'existe plus.
+  const { error: finalizeDirectErr } = await owner.client.rpc("finalize_catalog_item_upload", {
+    p_operation_uuid: opBypass,
+    p_layout: structurallyInvalidButEnvelopeValid,
+  });
+  record(
+    "Contournement RPC direct — finalize_catalog_item_upload n'accepte plus de layout (paramètre supprimé, M032b)",
+    !!finalizeDirectErr,
+    finalizeDirectErr?.message
+  );
+  // Tentative 2 : le propriétaire légitime essaie d'appeler directement la
+  // fonction d'attestation — aucun grant à `authenticated`, jamais atteinte
+  // même avec le bon rôle métier.
+  const { error: attestDirectErr } = await owner.client.rpc("attest_catalog_item_layout", {
+    p_operation_uuid: opBypass,
+    p_layout: structurallyInvalidButEnvelopeValid,
+  });
+  record(
+    "Contournement RPC direct — attest_catalog_item_layout inaccessible à un appelant authentifié (service_role seul)",
+    !!attestDirectErr,
+    attestDirectErr?.message
+  );
+  const { count: countAfterBypass } = await service.from("plan_catalog_item_versions").select("id", { count: "exact", head: true }).eq("catalog_item_id", item.id);
+  record("Contournement RPC direct — aucune version créée (dépôt effectivement refusé)", countAfterBypass === countBeforeBypass, `avant=${countBeforeBypass} après=${countAfterBypass}`);
+
+  // ===========================================================================
+  // 5. Échec réel après téléversement (prepare/claim/écriture/attest_storage_
+  // verified faits) mais AVANT toute finalisation (ni attest_catalog_item_
+  // layout, ni finalize jamais appelés avant ce point — interruption réelle,
+  // pas simulée après coup), puis reprise : aboutit, pas de doublon, pas de
+  // version incomplète.
   // ===========================================================================
   const op3 = randomUUID();
   await prepareClaimAttest(owner.client, orgId, item.id, PNG_BYTES, op3);
   const { data: status3 } = await owner.client.rpc("get_upload_status", { p_operation_uuid: op3 });
-  record("Reprise — upload attesté mais jamais finalisé avant la reprise", status3?.status === "FINALIZING", JSON.stringify(status3));
+  record(
+    "Échec réel — téléversé/attesté mais ni layout ni finalisation avant la reprise",
+    status3?.status === "FINALIZING" && status3?.finalized_at === null,
+    JSON.stringify(status3)
+  );
   const layoutC = validLayout("C");
-  const { data: v3, error: v3Err } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op3, p_layout: layoutC });
-  record("Reprise — finalisation aboutit", !v3Err && v3?.layout?.layout?.marker === "C", v3Err?.message);
-  const { data: v3Replay, error: v3ReplayErr } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op3, p_layout: layoutC });
-  record("Reprise — rejeu (même opération) idempotent, même version, pas de doublon", !v3ReplayErr && v3Replay?.id === v3?.id);
+  const { error: attestC } = await service.rpc("attest_catalog_item_layout", { p_operation_uuid: op3, p_layout: layoutC });
+  record("Reprise — attest_catalog_item_layout aboutit", !attestC, attestC?.message);
+  const { data: v3, error: v3Err } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op3 });
+  record("Reprise — finalisation aboutit, sans version incomplète", !v3Err && v3?.layout?.layout?.marker === "C", v3Err?.message);
+  // Rejeu complet (même séquence attest+finalize, comme un navigateur qui
+  // relance l'action serveur après une réponse perdue) — idempotent.
+  const { error: attestCReplay } = await service.rpc("attest_catalog_item_layout", { p_operation_uuid: op3, p_layout: layoutC });
+  const { data: v3Replay, error: v3ReplayErr } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op3 });
+  record("Reprise — rejeu complet idempotent, même version, pas de doublon", !attestCReplay && !v3ReplayErr && v3Replay?.id === v3?.id);
   const { count: v3Count } = await service.from("plan_catalog_item_versions").select("id", { count: "exact", head: true }).eq("private_object_upload_id", v3.private_object_upload_id);
   record("Reprise — une seule version pour cet upload", v3Count === 1);
 
@@ -201,6 +280,18 @@ async function main() {
   const { data: fileV1, error: fileV1Err } = await owner.client.rpc("get_catalog_item_version_file", { p_version_id: v1.id });
   const rowV1 = Array.isArray(fileV1) ? fileV1[0] : fileV1;
   record("get_catalog_item_version_file — propriétaire lit storage_key + bucket + layout", !fileV1Err && !!rowV1?.storage_key && rowV1?.bucket === "organization-catalog" && rowV1?.layout?.layout?.marker === "A", fileV1Err?.message ?? JSON.stringify(rowV1));
+
+  // Récupération après "rechargement" — un second appel INDÉPENDANT (nouvelle
+  // requête, aucun état client réutilisé, même principe qu'un rechargement de
+  // page) doit renvoyer EXACTEMENT le même ProjectFile déposé (réimport
+  // fidèle) : comparaison par valeur, pas seulement par référence.
+  const { data: fileV1Reloaded } = await owner.client.rpc("get_catalog_item_version_file", { p_version_id: v1.id });
+  const rowV1Reloaded = Array.isArray(fileV1Reloaded) ? fileV1Reloaded[0] : fileV1Reloaded;
+  record(
+    "Réimport fidèle après 'rechargement' — ProjectFile identique à l'original déposé (version/orientation/layout)",
+    deepEqual(rowV1Reloaded?.layout, layoutA),
+    JSON.stringify(rowV1Reloaded?.layout)
+  );
 
   const { data: fileV2, error: fileV2Err } = await owner.client.rpc("get_catalog_item_version_file", { p_version_id: v2.id });
   const rowV2 = Array.isArray(fileV2) ? fileV2[0] : fileV2;

@@ -64,48 +64,100 @@ PREMIÈRE variante déjà posée (copie, jamais une référence).**
 ### Lot A — modèle de catalogue avec fichier de projet modifiable (**terminé, local uniquement**)
 
 **Statut : terminé.** Autorisation fondateur explicite reçue (2026-10-03)
-pour créer et appliquer la migration UNIQUEMENT sur Supabase local.
-Migration : `20260930150000_m032_catalog_item_modifiable_layout.sql`
-(colonne `layout jsonb` additive + contrainte de taille, `finalize_catalog_item_upload`
-remplacée par une version à deux paramètres — ancienne signature `DROP`pée
-pour éviter tout overload ambigu, jamais une simple `CREATE OR REPLACE` qui
-aurait créé un second candidat pour PostgREST —, nouvelle fonction
-`get_catalog_item_version_file`). Avant application : cible locale
-confirmée (`supabase projects list`, aucun projet lié), sauvegarde
-`pg_dump` (`.local_backups/`), migrations en attente examinées (aucune,
-les 44 migrations étaient déjà `local == remote`). Aucune migration déjà
+pour créer et appliquer les migrations UNIQUEMENT sur Supabase local.
+Migrations : `20260930150000_m032_catalog_item_modifiable_layout.sql`
+(colonne `layout jsonb` additive + contrainte de taille) et
+**`20260930160000_m032b_correction_validation_layout.sql`** — correction
+d'une frontière de confiance contournable sur M032, détectée par appel RPC
+direct le 2026-10-03 (ci-dessous) et corrigée en nouveau fichier, cible
+locale et sauvegarde reconfirmées avant application, aucune migration déjà
 appliquée modifiée rétroactivement.
 
-- **Fichiers concernés** : `supabase/migrations/20260930150000_m032_*.sql` ;
-  `organisations/[id]/catalogue/actions.ts` (étapes prepare/claim/écriture/
-  attest extraites dans `ensureReadyToFinalizeCatalog`, réutilisées par
-  `depositCatalogItemVersionAction` INCHANGÉE et la nouvelle
-  `depositModifiableCatalogItemVersionAction` ; nouvelle
-  `getCatalogItemVersionFileAction`) ; nouveaux composants
-  `UploadModifiableVersionForm.tsx` (lit UN fichier .json, le valide
-  côté client pour un retour immédiat, rend le PNG depuis CE MÊME layout via
-  `renderSvg`/`renderSvgToPngBlob`, dépose les deux ensemble) et
-  `CatalogVersionFileLinks.tsx` (aperçu signé + téléchargement du JSON,
-  droits existants) ; `render.ts` gagne `renderSvgToPngBlob` (extrait de
-  `PlanEditor.renderExportPng`, réutilisé par les deux, jamais un second
-  moteur de rendu).
-- **Preuves** : `scripts/test-catalog-item-layout.mjs`, 27/27 — dépôt
-  modifiable réussi, compatibilité ascendante (appel RPC sans `p_layout`),
-  6 rejets (format/version/structure/taille) sans version partielle créée,
-  rôle non autorisé refusé, reprise après interruption réelle (attesté,
-  jamais finalisé) idempotente sans doublon, ancienne version intacte après
-  une nouvelle (immuabilité), `get_catalog_item_version_file` : propriétaire
-  lit tout, ancien modèle renvoie `layout=null` sans erreur, outsider
-  refusé. Non-régression : `scripts/test-catalog-items.mjs` 44/44,
+**Frontière de validation — contournement confirmé puis corrigé (M032b)** :
+un appel RPC direct à `finalize_catalog_item_upload(uuid, jsonb)` (signature
+M032), par un propriétaire d'organisation légitime mais SANS passer par
+l'action serveur Next (donc sans jamais appeler `validateProjectFile`),
+avec un ProjectFile respectant l'enveloppe SQL superficielle (objet,
+version connue, clés `orientation`/`layout` présentes) mais structurellement
+invalide (porte référençant une pièce inexistante), était **accepté** :
+version créée, layout stocké tel quel. Confirmé empiriquement avant toute
+correction. **Corrigé** en reprenant le même principe déjà utilisé pour le
+contenu du fichier plat (`attest_storage_verified`, M010/M026) — jamais une
+duplication de `validateLayout` en SQL : le layout ne transite plus par un
+paramètre de `finalize_catalog_item_upload` (qui redevient à un seul
+paramètre, signature originale) mais par une nouvelle fonction
+`attest_catalog_item_layout`, accessible **UNIQUEMENT au rôle `service_role`**
+(aucun grant à `authenticated`, exactement comme `attest_storage_verified`).
+Seule l'action serveur Next — qui détient la clé service_role et appelle
+TOUJOURS `validateProjectFile` juste avant — peut donc faire parvenir un
+layout jusqu'à une version. Reconfirmé après correction : le même appel
+direct échoue désormais (`finalize_catalog_item_upload` ne reconnaît plus
+l'argument ; `attest_catalog_item_layout` renvoie `permission denied` pour
+tout appelant authentifié), zéro version créée.
+
+**Garantie PNG/JSON — précisée** : la correspondance visuelle entre le PNG
+déposé et le ProjectFile stocké, observée lors du parcours navigateur normal,
+est une propriété du CODE CLIENT (`UploadModifiableVersionForm.tsx` rend
+toujours le PNG depuis le MÊME objet déjà validé avant tout envoi) — **ce
+n'est pas une garantie imposée côté serveur** : aucune contrainte en base ne
+lie le contenu visuel du PNG au contenu du `layout`, les deux étant déposés
+par deux appels RPC distincts (upload du fichier via le flux
+prepare/claim/écriture/attest générique ; layout via `attest_catalog_item_layout`).
+Ce que le serveur impose réellement : (1) le PNG stocké est bien celui dont
+le contrôle d'intégrité (somme de contrôle) a été vérifié sur les octets
+RÉELLEMENT relus dans Storage (inchangé, M010/M026) ; (2) AUCUN appelant
+authentifié ordinaire ne peut faire parvenir un layout jusqu'à une version
+sans passer par l'action serveur (donc par `validateProjectFile`), qu'il
+corresponde ou non au PNG déposé dans le même dépôt — la correspondance
+elle-même reste une propriété de bonne conduite du code client, jamais
+vérifiée par une contrainte serveur indépendante.
+
+**Transaction et téléversements non finalisés — précisé** : SEULE la
+création de la ligne `plan_catalog_item_versions` (référence au fichier +
+`layout`) est atomique — les deux sont écrits dans la MÊME instruction
+`insert`, à l'intérieur de `finalize_catalog_item_upload` (une fonction
+PL/pgSQL s'exécute dans une seule transaction) : aucune version avec l'un
+sans l'autre n'est observable. Cette transaction est en revanche DISTINCTE
+des étapes précédentes (upload du PNG, `attest_catalog_item_layout`) : si le
+processus est interrompu entre l'upload du fichier et la finalisation
+(réseau coupé, onglet fermé), AUCUNE ligne `plan_catalog_item_versions`
+n'existe encore — l'upload reste dans un état intermédiaire résumable
+(`private_object_uploads.status = 'FINALIZING'`, `pending_layout` déjà posé
+ou non selon où l'interruption a eu lieu) ; rejouer `attest_catalog_item_layout`
+(idempotent, écrase la même valeur) puis `finalize_catalog_item_upload`
+(idempotent, revalide tout) termine le dépôt sans jamais créer de version
+incomplète ni de doublon — vérifié (§ preuves ci-dessous).
+
+- **Fichiers concernés** : `supabase/migrations/20260930150000_m032_*.sql`,
+  `20260930160000_m032b_*.sql` ; `organisations/[id]/catalogue/actions.ts`
+  (étapes prepare/claim/écriture/attest extraites dans
+  `ensureReadyToFinalizeCatalog`, réutilisées par `depositCatalogItemVersionAction`
+  INCHANGÉE et `depositModifiableCatalogItemVersionAction`, qui appelle
+  désormais `attest_catalog_item_layout` via le client service_role avant
+  `finalize_catalog_item_upload` ; nouvelle `getCatalogItemVersionFileAction`) ;
+  composants `UploadModifiableVersionForm.tsx` (lit UN fichier .json, le
+  valide côté client pour un retour immédiat, rend le PNG depuis CE MÊME
+  layout via `renderSvg`/`renderSvgToPngBlob`) et `CatalogVersionFileLinks.tsx`
+  (aperçu signé + téléchargement du JSON, droits existants) ; `render.ts`
+  gagne `renderSvgToPngBlob` (extrait de `PlanEditor.renderExportPng`,
+  réutilisé, jamais un second moteur de rendu).
+- **Preuves** : `scripts/test-catalog-item-layout.mjs`, **33/33** — dépôt
+  modifiable réussi, compatibilité ascendante (appel sans layout), 6 rejets
+  (format/version/structure/taille) sans version partielle créée, rôle non
+  autorisé refusé, **contournement RPC direct confirmé puis fermé** (2
+  tentatives distinctes : paramètre supprimé de `finalize_catalog_item_upload`,
+  `attest_catalog_item_layout` inaccessible à `authenticated` — zéro version
+  créée dans les deux cas), échec réel après téléversement mais avant toute
+  attestation/finalisation puis reprise sans doublon ni version incomplète,
+  réimport fidèle après un appel indépendant (« rechargement »), ancienne
+  version intacte après une nouvelle (immuabilité), `get_catalog_item_version_file` :
+  propriétaire lit tout, ancien modèle renvoie `layout=null` sans erreur,
+  outsider refusé. Non-régression : `scripts/test-catalog-items.mjs` 44/44,
   `scripts/test-plan-requests.mjs` 30/30, `scripts/test-project-plans.mjs`
   49/49, `scripts/test-plans-geometry.mjs` 755/755. Parcours navigateur réel
-  (compte `demo-entreprise`, organisation « Espace professionnel ») : modèle
-  modifiable déposé depuis un fichier de projet généré par
-  `/prototype-plans` → aperçu PNG réellement signé et retéléchargé,
-  comparé visuellement au layout déposé (Chambre 3,50×3,50 m, Salon
-  5,00×4,50 m, Cuisine 3,00×3,00 m — correspondance exacte) → dépôt plat
-  existant (PDF) toujours fonctionnel sur le même modèle (v2) → v1 relu en
-  base, layout intact après la création de v2.
+  (compte `demo-entreprise`, organisation « Espace professionnel ») rejoué
+  après la correction M032b : dépôt modifiable réussi (v3), aucune erreur
+  console/réseau.
 - **Existant réutilisé** : `plan_catalog_item_versions` (table, trigger
   d'immuabilité déjà strict — une colonne nouvelle n'y change rien pour les
   lignes déjà posées) ; `finalize_catalog_item_upload` (RPC, M019) ;

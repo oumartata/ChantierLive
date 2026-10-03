@@ -67,6 +67,13 @@ function mapCatalogError(message: string | undefined): string {
       return "Cette version doit d'abord être validée techniquement.";
     case "file_not_finalized":
       return "Le fichier de cette version n'est pas encore disponible.";
+    case "layout_invalid_format":
+    case "layout_invalid_structure":
+      return "Fichier de projet invalide. Réessayez avec un fichier exporté depuis le générateur 2D.";
+    case "layout_unknown_version":
+      return "Version du fichier de projet non reconnue.";
+    case "layout_too_large":
+      return "Fichier de projet trop volumineux.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -282,14 +289,17 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
 // Dépôt d'un modèle MODIFIABLE (Lot A, PREPARATION_CATALOGUE_MODIFIABLE.md) —
 // RÉUTILISE les mêmes étapes prepare/claim/écriture/attest que le dépôt
 // plat ci-dessus (ensureReadyToFinalizeCatalog, jamais dupliqué). Le PNG
-// (aperçu) ET le fichier de projet (layout) sont le fichier plat UNIQUE et
-// son layout associé, déposés dans LE MÊME appel finalize — jamais deux
-// fichiers indépendants susceptibles de diverger : le PNG est produit côté
-// client (PlanEditor/render.ts, instantané exact du layout envoyé), jamais
-// reconstruit ici. Validation AUTORITAIRE du layout via validateProjectFile
-// (projectFile.ts, réutilisé tel quel) AVANT tout appel RPC — le garde-fou
-// SQL de finalize_catalog_item_upload (M032) reste un filet superficiel
-// contre un appel RPC direct, jamais la source de vérité structurelle.
+// (aperçu) et le fichier de projet (layout) proviennent du MÊME fichier
+// choisi par l'utilisateur : le PNG est rendu côté client depuis ce layout
+// (PlanEditor/render.ts), jamais reconstruit ici ni choisi séparément.
+// Validation AUTORITAIRE du layout via validateProjectFile (projectFile.ts,
+// réutilisé tel quel) AVANT tout appel RPC. Frontière de confiance (M032b,
+// corrige un contournement RPC direct confirmé sur M032) : le layout validé
+// n'est JAMAIS passé en argument à finalize_catalog_item_upload (appelable
+// par tout utilisateur authentifié autorisé) — il transite par
+// attest_catalog_item_layout, exécutable UNIQUEMENT par service_role
+// (aucun grant à authenticated, même principe que attest_storage_verified),
+// que seule cette action serveur peut invoquer.
 export async function depositModifiableCatalogItemVersionAction(
   formData: FormData
 ): Promise<ActionResult<{ versionId: string }>> {
@@ -320,9 +330,20 @@ export async function depositModifiableCatalogItemVersionAction(
   const prep = await ensureReadyToFinalizeCatalog(supabase, service, organizationId, catalogItemId, operationUuid, bytes, declaredMimeType);
   if (!prep.ok) return { ok: false, message: prep.message };
 
-  const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
+  // Frontière de confiance (M032b) : attest_catalog_item_layout n'est
+  // exécutable QUE par service_role (aucun grant à authenticated) — un
+  // appelant RPC direct, même authentifié avec les bons droits métier, ne
+  // peut jamais faire parvenir de layout jusqu'à la version créée. Seule
+  // cette action serveur (qui vient de valider le fichier ci-dessus,
+  // validateProjectFile autoritaire) détient la clé service_role.
+  const { error: attestLayoutErr } = await service.rpc("attest_catalog_item_layout", {
     p_operation_uuid: operationUuid,
     p_layout: validated.value,
+  });
+  if (attestLayoutErr) return { ok: false, message: mapCatalogError(attestLayoutErr.message) };
+
+  const { data: version, error: finErr } = await supabase.rpc("finalize_catalog_item_upload", {
+    p_operation_uuid: operationUuid,
   });
   if (finErr) return { ok: false, message: mapCatalogError(finErr.message) };
 
