@@ -195,62 +195,90 @@ rechargement.
   confirmation du fondateur que le pont (code uniquement) peut être
   implémenté — pas de nouvelle dépendance, pas de nouvelle permission.
 
-### Lot 2 — Schéma « demande » (nécessite une migration — **non créée**)
+### Lot 2 — Schéma « demande » (migration — **créée et appliquée, local uniquement**)
 
-- **Fichiers concernés** : une nouvelle migration SQL (non écrite ce lot)
-  pour `project_plan_requests`/`project_plan_request_variants` (§3) + RLS
-  en lecture seule pour OWNER_PRIMARY/CONTRACTOR du projet, écriture
-  réservée au créateur et aux SECURITY DEFINER functions, même schéma de
-  revérification inline que l'existant (`has_project_role`,
-  `is_primary_owner`).
-- **Résultat utilisateur (une fois implémenté)** : l'historique des
-  demandes et leurs variantes devient réellement consultable, jamais
-  écrasé par une modification de paramètres.
-- **Critères de réussite / tests nécessaires (futurs)** : round-trip
-  demande → variante → dépôt (Lot 1) → validation → publication ; RLS
-  testée (lecteur non autorisé rejeté) à l'image des tests existants sur
-  `plan_validations`.
-- **Autorisation encore requise** : **autorisation explicite du fondateur
-  pour la migration** (règle constante de ce chantier) avant toute
-  écriture de fichier `supabase/migrations/*.sql` — bloquant, non levé par
-  ce document.
+**Statut : terminé.** Autorisation fondateur explicite reçue (2026-10-03) pour
+créer et appliquer les migrations UNIQUEMENT sur Supabase local. Migrations :
+`20260930120000_m031_project_plan_requests.sql` (tables + triggers d'immuabilité),
+`20260930130000_m031b_project_plan_requests_functions.sql` (RPC), corrections
+ciblées `20260930135000_m031c` (colonne ambiguë) et `20260930140000_m031d`
+(`max(uuid)` inexistant), détectées et corrigées via test ciblé/parcours
+navigateur avant la clôture de ce lot — jamais une réécriture de M031/M031b.
+Avant application : cible locale confirmée (`supabase projects list` — aucun
+projet lié), sauvegarde `pg_dump` schéma+données dans `.local_backups/`
+(ignoré par git), migrations en attente examinées (M029/M030 déjà présentes
+dans le dépôt, non liées à ce lot — un écart de suivi préexistant découvert
+au passage, réconcilié sans toucher aux données, voir le journal). Aucun
+reset, aucune suppression de donnée existante.
 
-### Lot 3 — UI « demande » (dépend du Lot 2)
+- **Fichiers concernés** : `supabase/migrations/20260930120000_m031_*.sql`,
+  `..._130000_m031b_*.sql`, `..._135000_m031c_*.sql`, `..._140000_m031d_*.sql`.
+  `project_plan_requests`/`project_plan_request_variants` : RLS activée,
+  AUCUNE policy (même convention que `project_plan_versions`/`plan_validations`
+  — accès exclusivement par fonctions SECURITY DEFINER, jamais par lecture
+  directe de table). Permissions reprises telles quelles : CONTRACTOR ou
+  OWNER/PRIMARY du chantier ciblé uniquement, re-vérifiées inline (`for update`)
+  dans chaque fonction — jamais `has_project_role`/`is_primary_owner` seuls
+  pour les mutations (même style que `set_retained_project_plan_version`).
+- **Résultat utilisateur** : l'historique des demandes et leurs variantes est
+  réellement consultable, jamais écrasé par une modification de paramètres
+  (nouvelle demande) ni par l'édition d'une variante (nouvelle variante,
+  parent_variant_id conservant la filiation).
+- **Preuves** : `scripts/test-plan-requests.mjs`, 27/27 — rôles autorisés/
+  refusés, sans session, chantier non autorisé, rattachement à une version
+  d'un autre chantier refusé (FK composite), immuabilité (UPDATE/DELETE
+  directs refusés, y compris en service_role), reprise idempotente d'un
+  dépôt (même operation_uuid, pas de doublon), aucune retenue/validation/
+  publication automatique. Non-régression : `scripts/test-project-plans.mjs`
+  49/49 (RPC M020/M026 inchangées), `scripts/test-plans-geometry.mjs` 755/755
+  (moteur 2D non touché).
 
-- **Fichiers concernés** : soit une nouvelle section dans
-  `chantiers/[id]/plans/page.tsx` (recommandé, §5), soit une nouvelle
-  route `chantiers/[id]/demandes/` (alternative, fragmente la navigation
-  déjà complète de `plans/`).
-- **Résultat utilisateur** : créer une demande pré-remplit
-  `/prototype-plans` avec ses paramètres (même mécanisme que `retour`,
-  étendu) ; lister les demandes passées et leurs variantes ; choisir une
-  variante puis la déposer (réutilise le Lot 1).
-- **Dépend strictement du Lot 2** — ne peut pas commencer avant que la
-  migration soit autorisée et appliquée.
+### Lot 3 — UI « demande » (**terminé**)
+
+**Statut : terminé.** Section ajoutée dans `chantiers/[id]/plans/page.tsx`
+(recommandation du lot précédent retenue, pas de nouvelle route) : liste des
+demandes, bouton de création. `/prototype-plans` accepte `?demande=new`
+(créée au premier "Générer", avec les paramètres réellement utilisés) ou un
+identifiant existant (reprise après rechargement). `PlanEditor` ajoute la
+sauvegarde/chargement de variantes (même format `ProjectFile` versionné et
+validé que l'export/import de fichier, `serializeProject`/`validateProjectFile`
+réutilisés tels quels) et le dépôt d'une variante via
+`depositPlanRequestVariantAction` (nouvelle action, réutilise
+`ensureReadyToFinalize`, extrait de `depositProjectPlanAction` sans le
+dupliquer, puis appelle `finalize_plan_request_variant_deposit` — jamais
+`finalize_project_plan_upload` directement pour une variante).
+
+- **Fichiers concernés** : `chantiers/[id]/plans/page.tsx`, `actions.ts`
+  (nouvelles actions + refactor partagé), `prototype-plans/page.tsx`,
+  `PrototypeClient.tsx`, `PlanEditor.tsx`.
+- **Résultat utilisateur** : créer une demande pré-remplit `/prototype-plans`
+  (même mécanisme que `retour`, étendu) ; lister les demandes et leurs
+  variantes ; charger une variante sans écraser silencieusement le brouillon
+  local (confirmation explicite) ; choisir une variante puis la déposer
+  (réutilise le Lot 1) ; après dépôt, repartir d'une copie modifiable
+  (« Déposer encore (après modification) », export JSON toujours disponible)
+  sans toucher à l'historique déposé.
+- **Preuve** : parcours navigateur réel complet sur le serveur E: (port 3002),
+  chantier de démo local dédié — créer une demande → générer → éditer →
+  sauvegarder une variante → rechargement complet de la page → variante
+  retrouvée → choisir (« Ouvrir ») → déposer → candidat réel confirmé sur la
+  page Plans, demande passée à « Déposée », aucune retenue/validation/
+  publication automatique, candidats précédents inchangés.
 
 ---
 
-## 5. Décisions encore ouvertes (recommandation, pas un arbitrage imposé)
+## 5. Décisions (2 tranchées au fil des lots, 1 reste ouverte)
 
-1. **Emplacement de l'UI « demande »** (Lot 3) : section dans
-   `plans/page.tsx` existant, ou route séparée `demandes/`. **Recommandation** :
-   section dans `plans/page.tsx` — cette page gère déjà tout le cycle de
-   vie d'un plan (candidats, validation, publication, partage) ; une route
-   séparée fragmenterait un parcours qui est aujourd'hui cohérent en un
-   seul endroit. Décision finale au fondateur.
-2. **Format du dépôt généré** : image/PDF plat (comme un dépôt manuel
-   aujourd'hui, perd la ré-éditabilité) vs. conserver le fichier de projet
-   `.json` en plus (seul format « réellement modifiable », déjà affirmé
-   dans l'interface du prototype). Le schéma §3 n'empêche pas cette
-   évolution (`layout jsonb` dans `project_plan_request_variants` la
-   conserve déjà côté demande, indépendamment du format déposé) — mais le
-   DÉPÔT lui-même (`project_plan_versions`) ne stocke aujourd'hui qu'un
-   fichier Storage plat. Décision à prendre avant le Lot 2 : simple (pas de
-   changement du format de dépôt) ou plus ambitieux (nouveau type de
-   pièce jointe modifiable). **Recommandation** : rester sur le format
-   plat pour ce premier lot — la ré-édition après dépôt n'est demandée par
-   aucune preuve d'usage à ce jour, et l'historique des variantes (jsonb,
-   §3) préserve déjà la génération d'origine sans y toucher.
+1. **Emplacement de l'UI « demande »** (Lot 3) — **tranchée ce lot** : section
+   dans `plans/page.tsx` existant (recommandation retenue), jamais de route
+   séparée `demandes/`.
+2. **Format du dépôt généré** — **tranché par le fondateur (autorisation
+   Lots 2/3)** : « le dépôt reste un PNG via le pipeline existant ». Le format
+   Storage (`project_plan_versions`) reste un fichier plat, jamais modifiable
+   après dépôt — la ré-éditabilité est assurée AUTREMENT : l'état modifiable
+   complet (format `ProjectFile` versionné/validé) est conservé côté demande
+   (`project_plan_request_variants.layout`), consultable et rechargeable
+   indéfiniment, indépendamment du PNG déposé.
 3. **Backlog** : aucune tâche `MVP_BACKLOG.csv` ne couvre la « demande »
    (B063/B064 couvrent déjà rattachement + validation/publication, déjà
    implémentés). Une nouvelle tâche serait nécessaire pour un suivi global
@@ -294,13 +322,19 @@ lui seul le cas avec cour d'entrée, distingués explicitement ici.
 
 ## 7. Clôture de ce lot
 
-28/68 (41 %) global, inchangé — aucune tâche `MVP_BACKLOG.csv` modifiée par
-ce document. **7/7 jalons du prototype 2D**, dans leur périmètre exact
-(génération uniquement, voir `SUIVI_MOTEUR_PLANS_2D.md`). **État de
-préparation de l'intégration métier** : analyse ciblée terminée, parcours
-et schéma minimal proposés, découpage en 3 lots autonomes (1 réalisable
-sans migration, 2 et 3 bloqués sur une autorisation de migration non
-demandée ni accordée ce lot), aucune décision déjà prise réinventée,
-3 décisions ouvertes consignées avec recommandation. Aucune modification du
-moteur, des permissions, des données ou du schéma. Aucun push, fusion,
-déploiement ou nouvelle dépendance.
+28/68 (41 %) global, inchangé — aucune tâche `MVP_BACKLOG.csv` réellement
+clôturée par ces lots (aucun identifiant inventé). **7/7 jalons du prototype
+2D**, dans leur périmètre exact (génération uniquement, voir
+`SUIVI_MOTEUR_PLANS_2D.md`, inchangé). **Intégration métier — Lots 1, 2 et 3
+terminés** : pont génération→dépôt réel (Lot 1), schéma et RPC
+demandes/variantes créés et appliqués en local uniquement (Lot 2, M031),
+parcours complet dans l'UI (Lot 3) — créer une demande → générer → éditer →
+sauvegarder une variante → retrouver après rechargement → choisir → déposer
+→ retrouver le candidat réel, vérifié en navigateur sur le serveur E:.
+Permissions inchangées (CONTRACTOR/OWNER-PRIMARY du chantier uniquement),
+RLS + SECURITY DEFINER partout, aucun contournement de prepare/upload/
+finalize ni de validation/publication. Migrations créées et appliquées
+UNIQUEMENT sur l'instance Supabase locale (jamais distante), après
+sauvegarde locale et vérification des migrations en attente. Aucun push,
+fusion, déploiement ou nouvelle dépendance. 1 décision reste ouverte
+(identifiant backlog de la « demande », §5).
