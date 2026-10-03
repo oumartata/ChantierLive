@@ -104,9 +104,14 @@ export default async function ChantierFichePage({
   const isOwner = membership?.role === "OWNER";
   const isOwnerPrimary = isOwner && membership?.owner_profile === "PRIMARY";
   let financialSummary: FinancialSummary | null = null;
+  let phasePlan: { status: string; global_progress: string | number | null } | null = null;
   if (isOwner) {
-    const { data } = await supabase.rpc("get_project_financial_summary", { p_project_id: id });
-    financialSummary = Array.isArray(data) ? data[0] ?? null : data ?? null;
+    const [{ data: fsData }, { data: ppData }] = await Promise.all([
+      supabase.rpc("get_project_financial_summary", { p_project_id: id }),
+      supabase.rpc("get_project_phase_plan", { p_project_id: id }),
+    ]);
+    financialSummary = Array.isArray(fsData) ? fsData[0] ?? null : fsData ?? null;
+    phasePlan = Array.isArray(ppData) ? ppData[0] ?? null : ppData ?? null;
   }
 
   return (
@@ -182,13 +187,21 @@ export default async function ChantierFichePage({
             </Link>
           </Card>
 
-          {/* Fonctionnalité « avancement/étapes » non construite (PREPARATION_ESPACES_PROPRIETAIRE_ENTREPRISE.md
-              §3.1) : clairement indiquée indisponible, aucune donnée inventée. */}
+          {/* M033 — avancement réel (déclaré par l'entreprise), plus de teaser
+              « indisponible » : si aucun plan n'est encore publié, l'écran
+              dédié l'explique lui-même, jamais un pourcentage inventé ici. */}
           <Card className="flex flex-col gap-2" data-testid="fiche-avancement-teaser">
             <h2 className="text-h2 font-semibold text-ink">Avancement</h2>
-            <StatusChip variant="neutral" label="Indisponible pour l'instant" className="self-start" />
+            {phasePlan?.status === "PUBLIE" ? (
+              <>
+                <p className="text-display font-bold text-ink">{Math.round(Number(phasePlan.global_progress) * 100) / 100} %</p>
+                <StatusChip variant="info" label="Déclaré par l'entreprise" className="self-start" />
+              </>
+            ) : (
+              <StatusChip variant="neutral" label="Pas encore publié par l'entreprise" className="self-start" />
+            )}
             <Link href={`/chantiers/${id}/avancement`} className="text-label font-semibold text-primary">
-              En savoir plus
+              Voir le détail
             </Link>
           </Card>
 

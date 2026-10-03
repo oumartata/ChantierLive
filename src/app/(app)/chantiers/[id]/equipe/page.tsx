@@ -29,6 +29,7 @@ const PERMISSION_LABEL: Record<string, string> = {
   EXPENSE_PUBLISH: "Publier des dépenses",
   PHASE_VALIDATE: "Valider les phases",
   APPROVAL_DECIDE: "Décider des approbations",
+  PHASE_UPDATE_PROGRESS: "Mettre à jour l'avancement des étapes",
 };
 
 function roleKey(role: string, ownerProfile: string | null): string {
@@ -94,13 +95,13 @@ interface Delegation {
 // revoke_delegation (M004c) revérifient indépendamment la même matrice côté
 // SQL, cette page n'est jamais l'autorité finale.
 function delegationCodesFor(role: string, ownerProfile: string | null): string[] {
-  if (role === "SITE_MANAGER") return ["PHASE_EDIT_DRAFT", "EXPENSE_PUBLISH"];
+  if (role === "SITE_MANAGER") return ["PHASE_EDIT_DRAFT", "EXPENSE_PUBLISH", "PHASE_UPDATE_PROGRESS"];
   if (role === "OWNER" && ownerProfile === "CO_OWNER") return ["PHASE_VALIDATE", "APPROVAL_DECIDE"];
   return [];
 }
 
 function delegantRoleFor(code: string): { role: string; ownerProfile: string | null } | null {
-  if (code === "PHASE_EDIT_DRAFT" || code === "EXPENSE_PUBLISH") return { role: "CONTRACTOR", ownerProfile: null };
+  if (code === "PHASE_EDIT_DRAFT" || code === "EXPENSE_PUBLISH" || code === "PHASE_UPDATE_PROGRESS") return { role: "CONTRACTOR", ownerProfile: null };
   if (code === "PHASE_VALIDATE" || code === "APPROVAL_DECIDE") return { role: "OWNER", ownerProfile: "PRIMARY" };
   return null;
 }

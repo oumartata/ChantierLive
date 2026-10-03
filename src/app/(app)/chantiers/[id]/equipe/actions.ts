@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const PERMISSION_CODES = ["PHASE_EDIT_DRAFT", "EXPENSE_PUBLISH", "PHASE_VALIDATE", "APPROVAL_DECIDE"] as const;
+const PERMISSION_CODES = ["PHASE_EDIT_DRAFT", "EXPENSE_PUBLISH", "PHASE_VALIDATE", "APPROVAL_DECIDE", "PHASE_UPDATE_PROGRESS"] as const;
 
 // Traduit les codes d'erreur bruts de remove_participant/grant_delegation/
 // revoke_delegation (M004c) en texte destiné à l'utilisateur. 'not_authorized'
