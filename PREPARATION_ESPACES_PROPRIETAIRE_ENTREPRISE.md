@@ -228,3 +228,57 @@ Chef de chantier (aucune maquette fournie, menu actuel inchangé) ;
 persistant) ; copie catalogue vers un chantier (Lot B du document
 catalogue, inchangé) ; toute migration ou changement de droits — aucun
 n'est créé ni appliqué par cette analyse.
+
+## 7. Suivi de vérification — complété après le commit `d679a36`
+
+Au moment du commit, `npm run build` et `npm run lint` (complets, tout le
+dépôt) avaient échoué sur ce poste, consignés comme non concluants plutôt
+que comme une absence d'erreur. Erreurs exactes observées, conservées
+telles quelles :
+
+- `npm run lint` (complet) : `FATAL ERROR: Zone Allocation failed -
+  process out of memory` (V8), code de sortie 134.
+- `npm run build` : `memory allocation of 540688 bytes failed` (allocateur
+  natif de Turbopack/Rust), processus interrompu sans sortie de build.
+- Mémoire libre mesurée au même moment : **2,15 Go sur 15,69 Go** —
+  consommée par des processus hors de mon périmètre (VM Docker/WSL du
+  Supabase local, applications de l'utilisateur, autres sessions Claude),
+  aucun n'étant le serveur orphelin du port 3000 (`C:\ChantierLive`,
+  jamais arrêté) ni un processus que j'ai le droit d'arrêter.
+
+**Reproduit ensuite avec succès**, sans désactiver aucun contrôle :
+- `npx eslint "src/**/*.{ts,tsx}"` (tout le code applicatif livré,
+  mêmes règles, même configuration) : **0 erreur, 1 avertissement
+  préexistant** (`src/lib/supabase/server.ts:28`, `_headers` inutilisé —
+  non lié à ce lot).
+- `npm run lint` (complet, tout le dépôt y compris `scripts/*.mjs`),
+  rejoué après l'arrêt de mon propre serveur de vérification (port 3002,
+  jamais le 3000) : **0 erreur, 2 avertissements préexistants** (le même
+  plus un dans `scripts/test-catalog-items.mjs:476`, variable
+  `latePrep` inutilisée — fichier de test non touché par ce lot).
+- `npm run build` : **compilation réussie** (« Compiled successfully »,
+  TypeScript et 22 pages statiques générés sans erreur), toutes les
+  nouvelles routes (`/entreprise/*`, `/chantiers/[id]/avancement`,
+  `/chantiers/[id]/catalogue`) présentes dans la sortie.
+- `npm run verify` (lint + typecheck + test + build, pipeline complet) :
+  **toutes les étapes réussies**.
+
+**Conclusion** : l'échec initial était une contrainte de mémoire du poste
+au moment précis de l'exécution (confirmé par la mesure de mémoire libre
+et par la réussite immédiate une fois cette pression retombée), jamais
+une erreur de code — ni conclu à tort comme une absence d'erreur avant
+cette confirmation complète, ni masqué par une exécution partielle.
+
+**Exécution adaptée proposée pour la suite**, sans désactiver aucun
+contrôle :
+1. Lint ciblé sur `src/**/*.{ts,tsx}` à chaque lot (déjà la pratique
+   suivie ce tour-ci) — rapide, fiable même sous pression mémoire,
+   mêmes règles exactes que le lint complet.
+2. `npm run verify` (complet) relancé avant tout commit significatif,
+   mais seulement après avoir arrêté les serveurs de vérification que
+   j'ai moi-même démarrés (jamais le port 3000/C:) — déjà fait ce tour.
+3. Si l'échec par manque de mémoire se reproduit malgré cela : le
+   signaler explicitement comme non concluant (jamais l'interpréter
+   comme une réussite), et proposer de le rejouer sur l'intégration
+   continue GitHub déjà existante pour ce dépôt plutôt que de réduire la
+   portée des règles localement.
