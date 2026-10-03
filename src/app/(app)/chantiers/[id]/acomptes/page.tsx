@@ -50,6 +50,12 @@ interface EventRow {
   created_at_server: string;
 }
 
+interface FinancialSummaryHeader {
+  contract_amount_fcfa: string | null;
+  recognized_fcfa: string;
+  remaining_due_fcfa: string | null;
+}
+
 interface WorkStart {
   authorized: boolean;
   authorized_at_server: string | null;
@@ -114,12 +120,19 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
     return <Unavailable heading="Acomptes" title="Chantier inaccessible" explanation="Ce chantier n'existe pas ou vous n'y avez pas accès." />;
   }
 
-  const [statusRes, paymentsRes, eventsRes, membershipRes, workStartRes] = await Promise.all([
+  const [statusRes, paymentsRes, eventsRes, membershipRes, workStartRes, financialSummaryRes] = await Promise.all([
     supabase.rpc("get_advance_status", { p_project_id: id }),
     supabase.rpc("list_advance_payments", { p_project_id: id }),
     supabase.rpc("list_advance_events", { p_project_id: id }),
     supabase.from("project_memberships").select("role, owner_profile").eq("project_id", id).eq("profile_id", user.id).is("revoked_at", null).maybeSingle(),
     supabase.rpc("get_work_start", { p_project_id: id }),
+    // Résumé (prix convenu/versements confirmés/reste à payer) — maquettes
+    // fondateur 2026-10-03 : même RPC que la Synthèse (get_project_financial_summary,
+    // M028, inchangée), simple ajout de présentation sur cette page déjà
+    // alimentée. Échec silencieux accepté ici (section facultative) : le
+    // reste de la page (déjà protégée par statusRes/paymentsRes/eventsRes
+    // ci-dessus) ne dépend pas de cette lecture.
+    supabase.rpc("get_project_financial_summary", { p_project_id: id }),
   ]);
   if (statusRes.error?.message === "not_authorized") {
     return <Unavailable heading="Acomptes" title="Accès indisponible" explanation="Vous n'avez pas accès à cette page." />;
@@ -135,6 +148,8 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
   const isContractor = membershipRes.data?.role === "CONTRACTOR";
   const canAct = status.revision !== null;
   const revision = status.revision ?? 0;
+  const financialSummaryData = Array.isArray(financialSummaryRes.data) ? financialSummaryRes.data[0] : financialSummaryRes.data;
+  const financialSummary: FinancialSummaryHeader | null = financialSummaryRes.error ? null : financialSummaryData ?? null;
 
   // Liens de justificatifs : chaque émission repasse par la RPC (droits
   // courants) ; la signature Storage est faite ici, côté serveur uniquement.
@@ -153,13 +168,33 @@ export default async function AcomptesPage({ params }: { params: Promise<{ id: s
 
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
-      <h1 className="text-h1 font-bold text-ink">Acomptes — {project.name}</h1>
+      <h1 className="text-h1 font-bold text-ink">Versements — {project.name}</h1>
       <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
         Retour au devis
       </Link>
       <Link href={`/chantiers/${id}/finances`} className="text-label font-semibold text-primary">
         Synthèse financière
       </Link>
+
+      {/* Résumé (maquettes fondateur 2026-10-03) — mêmes données que la
+          Synthèse financière, présentation seule, aucune donnée inventée. */}
+      {financialSummary && financialSummary.contract_amount_fcfa !== null ? (
+        <Card className="flex flex-col gap-2" data-testid="versements-summary">
+          <div className="flex justify-between gap-3">
+            <dt className="text-body text-muted">Prix convenu</dt>
+            <dd className="text-body text-ink">{fcfa(financialSummary.contract_amount_fcfa)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-body text-muted">Versements confirmés</dt>
+            <dd className="text-body text-ink">{fcfa(financialSummary.recognized_fcfa)}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-body text-muted">Reste à payer</dt>
+            <dd className="text-body text-ink">{fcfa(financialSummary.remaining_due_fcfa as string)}</dd>
+          </div>
+        </Card>
+      ) : null}
+
       <AlertBanner
         variant="information"
         title="Déclarations uniquement"

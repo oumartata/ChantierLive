@@ -3,6 +3,15 @@ import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, Button, StatusChip } from "@/components/ui";
 
+interface FinancialSummary {
+  contract_amount_fcfa: string | null;
+  recognized_fcfa: string;
+  remaining_due_fcfa: string | null;
+}
+
+// Montants reçus en texte (numeric côté serveur) : formatés via BigInt, jamais Number.
+const fcfa = (amount: string) => `${BigInt(amount).toLocaleString("fr-FR")} FCFA`;
+
 const STATUS_LABEL: Record<string, { label: string; variant: "neutral" | "info" | "success" | "attention" }> = {
   DRAFT: { label: "Brouillon", variant: "neutral" },
   ACTIVE: { label: "Actif", variant: "success" },
@@ -85,6 +94,21 @@ export default async function ChantierFichePage({
   const locationLabel =
     project.latitude != null && project.longitude != null ? `${project.latitude}, ${project.longitude}` : null;
 
+  // Séparation de navigation (maquettes fondateur 2026-10-03) : pour le
+  // propriétaire (OWNER, PRIMARY ou CO_OWNER) uniquement, cette fiche
+  // regroupe désormais le résumé financier (déjà lu par get_project_financial_summary,
+  // M028, inchangée) et les fonctions Équipe/Devis/Avenants/Invitations
+  // retirées du menu persistant — mêmes gardes canInvite/canSeeFinancials
+  // que chantiers/[id]/layout.tsx, jamais un droit nouveau. CONTRACTOR et
+  // SITE_MANAGER voient cette fiche exactement comme avant (inchangée).
+  const isOwner = membership?.role === "OWNER";
+  const isOwnerPrimary = isOwner && membership?.owner_profile === "PRIMARY";
+  let financialSummary: FinancialSummary | null = null;
+  if (isOwner) {
+    const { data } = await supabase.rpc("get_project_financial_summary", { p_project_id: id });
+    financialSummary = Array.isArray(data) ? data[0] ?? null : data ?? null;
+  }
+
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
       {enregistre ? (
@@ -129,6 +153,70 @@ export default async function ChantierFichePage({
         <Link href={`/chantiers/${id}/modifier`}>
           <Button className="w-full">Modifier</Button>
         </Link>
+      ) : null}
+
+      {isOwner ? (
+        <>
+          <Card className="flex flex-col gap-2" data-testid="fiche-financial-summary">
+            <h2 className="text-h2 font-semibold text-ink">Résumé financier</h2>
+            {financialSummary && financialSummary.contract_amount_fcfa !== null ? (
+              <dl className="flex flex-col gap-1">
+                <div className="flex justify-between gap-3">
+                  <dt className="text-body text-muted">Prix convenu</dt>
+                  <dd className="text-body text-ink">{fcfa(financialSummary.contract_amount_fcfa)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-body text-muted">Versements confirmés</dt>
+                  <dd className="text-body text-ink">{fcfa(financialSummary.recognized_fcfa)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-body text-muted">Reste à payer</dt>
+                  <dd className="text-body text-ink">{fcfa(financialSummary.remaining_due_fcfa as string)}</dd>
+                </div>
+              </dl>
+            ) : (
+              <p className="text-body text-muted">Non défini : aucun devis n&apos;est encore accepté.</p>
+            )}
+            <Link href={`/chantiers/${id}/acomptes`} className="text-label font-semibold text-primary">
+              Voir les versements
+            </Link>
+          </Card>
+
+          {/* Fonctionnalité « avancement/étapes » non construite (PREPARATION_ESPACES_PROPRIETAIRE_ENTREPRISE.md
+              §3.1) : clairement indiquée indisponible, aucune donnée inventée. */}
+          <Card className="flex flex-col gap-2" data-testid="fiche-avancement-teaser">
+            <h2 className="text-h2 font-semibold text-ink">Avancement</h2>
+            <StatusChip variant="neutral" label="Indisponible pour l'instant" className="self-start" />
+            <Link href={`/chantiers/${id}/avancement`} className="text-label font-semibold text-primary">
+              En savoir plus
+            </Link>
+          </Card>
+
+          <Card className="flex flex-col gap-3" data-testid="fiche-gestion">
+            <h2 className="text-h2 font-semibold text-ink">Gestion du chantier</h2>
+            <div className="flex flex-col gap-2">
+              <Link href={`/chantiers/${id}/equipe`} className="text-label font-semibold text-primary">
+                Équipe
+              </Link>
+              <Link href={`/chantiers/${id}/devis`} className="text-label font-semibold text-primary">
+                Devis
+              </Link>
+              <Link href={`/chantiers/${id}/avenants`} className="text-label font-semibold text-primary">
+                Avenants
+              </Link>
+              {isOwnerPrimary ? (
+                <>
+                  <Link href={`/chantiers/${id}/invitations/nouveau`} className="text-label font-semibold text-primary">
+                    Inviter un membre
+                  </Link>
+                  <Link href={`/chantiers/${id}/invitations`} className="text-label font-semibold text-primary">
+                    Invitations
+                  </Link>
+                </>
+              ) : null}
+            </div>
+          </Card>
+        </>
       ) : null}
     </div>
   );

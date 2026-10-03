@@ -143,6 +143,16 @@ export default async function TableauDeBordPage() {
         )}
       </section>
 
+      {/* Espace entreprise séparé (maquettes fondateur 2026-10-03) :
+          affiché seulement si une adhésion CONTRACTOR active existe
+          (donnée déjà lue ci-dessus, aucune requête supplémentaire) —
+          jamais pour un visiteur sans aucun chantier en tant qu'entreprise. */}
+      {(memberships ?? []).some((m) => m.role === "CONTRACTOR") ? (
+        <Link href="/entreprise" className="text-label font-semibold text-primary">
+          Ouvrir l&apos;espace entreprise
+        </Link>
+      ) : null}
+
       {ownedOrganizations && ownedOrganizations.length > 0 ? (
         <section className="flex flex-col gap-3">
           <h2 className="text-h2 font-semibold text-ink">Outils professionnels</h2>

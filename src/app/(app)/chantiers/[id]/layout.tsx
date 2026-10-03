@@ -68,26 +68,46 @@ export default async function ChantierLayout({
   const canInvite = isContractor || isOwnerPrimary;
   const canSeeFinancials = isContractor || isOwnerPrimary || isCoOwner;
 
-  const links: { href: string; label: string }[] = [
-    { href: `/chantiers/${id}`, label: "Chantier" },
-    ...(canInvite
-      ? [
-          { href: `/chantiers/${id}/invitations/nouveau`, label: "Inviter" },
-          { href: `/chantiers/${id}/invitations`, label: "Invitations" },
-        ]
-      : []),
-    { href: `/chantiers/${id}/equipe`, label: "Équipe" },
-    { href: `/chantiers/${id}/photos`, label: "Photos" },
-    { href: `/chantiers/${id}/plans`, label: "Plans" },
-    ...(canSeeFinancials
-      ? [
-          { href: `/chantiers/${id}/devis`, label: "Devis" },
-          { href: `/chantiers/${id}/avenants`, label: "Avenants" },
-          { href: `/chantiers/${id}/acomptes`, label: "Acomptes" },
-          { href: `/chantiers/${id}/finances`, label: "Synthèse" },
-        ]
-      : []),
-  ];
+  // Séparation de navigation (maquettes fondateur 2026-10-03,
+  // PREPARATION_ESPACES_PROPRIETAIRE_ENTREPRISE.md §4 Lot ESPACES-1) :
+  // le propriétaire (OWNER, PRIMARY ou CO_OWNER) obtient un menu propre,
+  // centré consultation, distinct de celui de l'entreprise. Équipe/Devis/
+  // Avenants/Invitations ne sont pas supprimés — ils restent exactement
+  // aussi accessibles qu'avant (mêmes gardes canInvite/canSeeFinancials),
+  // seulement déplacés dans le détail du chantier (page.tsx, section
+  // « Gestion »). CONTRACTOR et SITE_MANAGER gardent le menu actuel,
+  // inchangé (aucune maquette ne demande d'y toucher pour ces rôles ici ;
+  // CONTRACTOR obtient son propre espace séparé sous /entreprise).
+  const isOwner = role === "OWNER";
+  const links: { href: string; label: string }[] = isOwner
+    ? [
+        { href: `/chantiers/${id}`, label: "Mon chantier" },
+        { href: `/chantiers/${id}/acomptes`, label: "Versements" },
+        { href: `/chantiers/${id}/avancement`, label: "Avancement" },
+        { href: `/chantiers/${id}/photos`, label: "Photos et vidéos" },
+        { href: `/chantiers/${id}/catalogue`, label: "Catalogue" },
+        { href: `/chantiers/${id}/plans`, label: "Plans" },
+      ]
+    : [
+        { href: `/chantiers/${id}`, label: "Chantier" },
+        ...(canInvite
+          ? [
+              { href: `/chantiers/${id}/invitations/nouveau`, label: "Inviter" },
+              { href: `/chantiers/${id}/invitations`, label: "Invitations" },
+            ]
+          : []),
+        { href: `/chantiers/${id}/equipe`, label: "Équipe" },
+        { href: `/chantiers/${id}/photos`, label: "Photos" },
+        { href: `/chantiers/${id}/plans`, label: "Plans" },
+        ...(canSeeFinancials
+          ? [
+              { href: `/chantiers/${id}/devis`, label: "Devis" },
+              { href: `/chantiers/${id}/avenants`, label: "Avenants" },
+              { href: `/chantiers/${id}/acomptes`, label: "Acomptes" },
+              { href: `/chantiers/${id}/finances`, label: "Synthèse" },
+            ]
+          : []),
+      ];
 
   return (
     <div className="flex flex-col">
