@@ -1,11 +1,11 @@
 # Préparation — intégration métier du générateur 2D au chantier
 
-Document de préparation (analyse + plan), **aucune migration, aucun code,
-aucune donnée écrite**. Complète `SUIVI_MOTEUR_PLANS_2D.md` (clôturé sur ses
-7 jalons, prototype 2D isolé — voir ce fichier) et `MVP_BACKLOG.csv`
-(compteur global, inchangé : 28/68, 41 %). Ne renumérote pas le backlog ;
-toute nouvelle tâche (« demande » métier) nécessiterait un identifiant
-attribué par le fondateur, jamais inventé ici.
+Document de préparation et de suivi des Lots 1/2/3 (tous terminés — voir §12).
+Complète `SUIVI_MOTEUR_PLANS_2D.md` (clôturé sur ses 7 jalons, prototype 2D
+isolé) et `MVP_BACKLOG.csv` (compteur global : **29/69, 42 %**, depuis
+l'ajout validé de `B069` le 2026-10-03, §11). Aucun identifiant de backlog
+n'a été inventé ici : `B069` a été vérifié disponible dans le fichier réel
+avant insertion, jamais présumé.
 
 ---
 
@@ -462,31 +462,41 @@ variante (§9, point 5) → session restaurée.
 
 ---
 
-## 11. Proposition de ligne de backlog (NON insérée dans `MVP_BACKLOG.csv` — proposition seulement)
+## 11. Ligne de backlog `B069` — validée et insérée (2026-10-03)
 
-Prochain identifiant disponible selon la convention réelle du fichier
-(dernière ligne actuelle : `B068`) : **B069**. Ligne proposée, au format
-exact des lignes existantes (`id,lot,priority,task,depends_on,done_when`) :
+**Validée par le fondateur** : « L'ajout de B069 "Demandes et variantes de
+plans" comme terminée est autorisé, avec les preuves et commits associés. »
+Disponibilité revérifiée dans le fichier réel avant insertion (`B068` était
+la dernière ligne, aucun `B069` existant) — jamais présumée depuis la
+proposition du lot précédent. Ligne réellement insérée dans
+`MVP_BACKLOG.csv` (69 lignes de tâches désormais, confirmé par comptage du
+fichier) :
 
 ```
 B069,L02c,P1,"Créer et gérer des demandes de plan avec variantes versionnées avant dépôt",B063,"demande créée avec les paramètres de génération réellement utilisés; modifier les paramètres crée une nouvelle demande, jamais un écrasement; modifier une variante sauvegardée en crée une nouvelle, l'ancienne reste intacte; dépôt d'une variante crée une version réelle (B063) sans retenue/validation/publication automatique; droits CONTRACTOR/OWNER-PRIMARY du chantier seuls, revérifiés côté serveur pour chaque opération"
 ```
 
-Priorité proposée **P1** (le parcours OWNER_PRIMARY/CONTRACTOR de dépôt
-direct, B063, reste le chemin principal déjà validé ; ce lot l'enrichit sans
-le remplacer) — à valider ou ajuster par le fondateur. Compteur global
-(28/68) **non modifié** : cette ligne n'est pas insérée dans
-`MVP_BACKLOG.csv` tant que la proposition n'est pas validée.
+Preuves associées (déjà produites, non refaites) : §8 (migrations M031/b/c/d,
+réconciliation M029/M030), §9 (30/30 tests `scripts/test-plan-requests.mjs`,
+mapping des 5 garanties), §10 (parcours CONTRACTOR réel en navigateur).
+Commits : `7b5fcda` (code+migrations), `a08694d` et `098f9f7` (docs).
+
+**Compteur recalculé depuis le fichier réel** (jamais forcé) : total
+`MVP_BACKLOG.csv` = 69 lignes (confirmé par comptage, pas supposé) ; comptage
+« terminées » = 28 (valeur communiquée, inchangée par tout travail
+antérieur à ce lot) + 1 (`B069`, validée ce tour) = **29**. Soit **29/69 =
+41,9... % → 42 %** (calcul exact, pas arrondi forcé au préalable).
 
 ---
 
 ## 12. Clôture de ce lot
 
-28/68 (41 %) global, inchangé — aucune tâche `MVP_BACKLOG.csv` réellement
-clôturée par ces lots (aucun identifiant inventé). **7/7 jalons du prototype
-2D**, dans leur périmètre exact (génération uniquement, voir
-`SUIVI_MOTEUR_PLANS_2D.md`, inchangé). **Intégration métier — Lots 1, 2 et 3
-terminés** : pont génération→dépôt réel (Lot 1), schéma et RPC
+28/68 (41 %) au moment de ce lot (B069 pas encore validé — voir la mise à
+jour 2026-10-03 ci-dessous, **29/69, 42 %**, désormais la valeur courante).
+**7/7 jalons du prototype 2D**, dans leur périmètre exact (génération
+uniquement, voir `SUIVI_MOTEUR_PLANS_2D.md`, inchangé). **Intégration
+métier — Lots 1, 2 et 3 terminés** : pont génération→dépôt réel (Lot 1),
+schéma et RPC
 demandes/variantes créés et appliqués en local uniquement (Lot 2, M031),
 parcours complet dans l'UI (Lot 3) — créer une demande → générer → éditer →
 sauvegarder une variante → retrouver après rechargement → choisir → déposer
@@ -498,13 +508,22 @@ UNIQUEMENT sur l'instance Supabase locale (jamais distante), après
 sauvegarde locale et vérification des migrations en attente. Aucun push,
 fusion, déploiement ou nouvelle dépendance.
 
-**Ce lot (clôture)** : parcours CONTRACTOR réel vérifié une seule fois (§10,
-rôle confirmé depuis les données serveur) ; migrations exécutées ce lot
-documentées précisément, y compris la réconciliation M029/M030, sans aucun
-secret affiché (§8) ; couverture des 30 tests mappée aux 5 garanties
+**Lot précédent (098f9f7)** : parcours CONTRACTOR réel vérifié une seule fois
+(§10, rôle confirmé depuis les données serveur) ; migrations exécutées ce
+lot documentées précisément, y compris la réconciliation M029/M030, sans
+aucun secret affiché (§8) ; couverture des 30 tests mappée aux 5 garanties
 demandées, une preuve manquante (reprise après échec réel, distincte du
 simple rejeu) complétée par 3 tests ciblés, aucun test déjà concluant refait
-(§9) ; ligne de backlog B069 proposée, **non insérée** dans
-`MVP_BACKLOG.csv`, compteur global inchangé (§11). Aucune nouvelle migration
-hors correctifs déjà couverts par l'autorisation du lot précédent. Aucune
-donnée réelle touchée, copie C: intacte.
+(§9) ; ligne de backlog B069 proposée, non encore insérée. Aucune nouvelle
+migration hors correctifs déjà couverts par l'autorisation du lot précédent.
+Aucune donnée réelle touchée, copie C: intacte.
+
+**Ce lot (2026-10-03)** — clôture documentaire uniquement, aucun
+développement : commit contenant les 3 tests de reprise confirmé (`098f9f7`,
+déjà présent — mon précédent rapport l'avait étiqueté à tort « docs
+seulement », corrigé ici). `B069` revérifiée disponible dans le fichier
+réel puis insérée dans `MVP_BACKLOG.csv` (§11), suivis actualisés
+(`SUIVI_MOTEUR_PLANS_2D.md`). **Compteur recalculé depuis le fichier réel :
+29/69, 42 %** (total confirmé par comptage, pas supposé). Prototype 7/7,
+intégration 3/3 (Lots 1/2/3), chacun dans son périmètre propre — aucun des
+deux ne clôture ChantierLive dans son ensemble.

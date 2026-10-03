@@ -23,14 +23,18 @@ intégration applicative.
 
 ## 1. ChantierLive — compteur global
 
-**28/68 tâches, 40 restantes, 41 %.**
+**29/69 tâches, 40 restantes, 42 %.**
 
-Source : `MVP_BACKLOG.csv` (68 lignes de tâches, critère `done_when` par
+Source : `MVP_BACKLOG.csv` (69 lignes de tâches, critère `done_when` par
 tâche). Ce compteur n'est incrémenté QUE lorsqu'une tâche de ce fichier
 est réellement terminée selon son propre critère — jamais pour un commit,
-un test, ou un lot du moteur 2D ci-dessous (aucune des tâches B0xx
-actuellement listées ne correspond au travail du moteur de plans). Valeur
-non modifiée par ce document ni par aucun lot plans-generator à ce jour.
+un test, ou un lot du moteur 2D ci-dessous. Valeur inchangée par ce
+document et par tous les lots plans-generator jusqu'à `B069` inclus :
+« Créer et gérer des demandes de plan avec variantes versionnées avant
+dépôt » (autorisée comme terminée par le fondateur le 2026-10-03, preuves
+dans `PREPARATION_INTEGRATION_METIER.md`) — la PREMIÈRE tâche B0xx qui
+recoupe le travail de ce fichier (l'intégration métier du générateur 2D,
+pas le moteur lui-même, qui reste 7/7 et hors de ce compteur).
 
 ---
 
@@ -109,8 +113,10 @@ cette décision reste exclusivement celle du fondateur.
 Les 7 jalons moteur (M1 à M7) sont terminés selon leurs critères propres
 (section ci-dessus). Ceci clôture le **prototype géométrique 2D isolé**
 (`src/app/prototype-plans/`) tel que ce document le suit — PAS l'ensemble
-de ChantierLive, dont le compteur global (section 1) reste à 28/68 tâches,
-inchangé par ce document ou par aucun lot plans-generator à ce jour.
+de ChantierLive, dont le compteur global (section 1) est à 29/69 tâches
+(42 %, `B069` inclus depuis le 2026-10-03) — la clôture du prototype ne le
+modifie pas davantage ; voir `PREPARATION_INTEGRATION_METIER.md` pour
+l'intégration métier distincte (Lots 1/2/3, 3/3).
 
 **Ce qui est couvert, avec preuve** :
 - 5 familles de génération (double-chargé, corridor partagé, guidée
