@@ -95,6 +95,25 @@ direct échoue désormais (`finalize_catalog_item_upload` ne reconnaît plus
 l'argument ; `attest_catalog_item_layout` renvoie `permission denied` pour
 tout appelant authentifié), zéro version créée.
 
+**Rattachement de l'attestation au bon téléversement et à son propriétaire —
+vérifié (relecture, aucun changement)** : `attest_catalog_item_layout`
+rattache strictement au bon téléversement par `operation_uuid` (clé unique
+de `private_object_uploads`) mais, recevant `service_role`, ne peut pas
+relire `auth.uid()` pour vérifier elle-même le propriétaire. Ce n'est pas une
+faille : la propriété est garantie EN AMONT, par du code déjà existant et
+inchangé — `get_upload_status` (M019) refuse tout appelant qui n'est pas
+`created_by_profile_id` sur cet `operation_uuid`, et `prepare_catalog_item_upload`
+(M019, bloc `unique_violation`) refuse explicitement de réutiliser un
+`operation_uuid` déjà posé par un autre profil, une autre organisation ou un
+autre contenu (`operation_uuid_conflict`) — un `operation_uuid` ne peut donc
+jamais être détourné vers un autre propriétaire AVANT d'atteindre l'attestation.
+Et EN AVAL, `finalize_catalog_item_upload` revérifie lui-même, indépendamment,
+`created_by_profile_id <> v_uid` et `organizations.owner_profile_id <> v_uid`
+avant de lire `pending_layout`. La chaîne complète est donc déjà couverte par
+le comportement existant, non modifié par M032b, et par les preuves déjà
+réunies (33/33, dont le contournement confirmé puis fermé) : **aucun test
+supplémentaire n'est nécessaire** pour ce point précis.
+
 **Garantie PNG/JSON — précisée** : la correspondance visuelle entre le PNG
 déposé et le ProjectFile stocké, observée lors du parcours navigateur normal,
 est une propriété du CODE CLIENT (`UploadModifiableVersionForm.tsx` rend
@@ -319,3 +338,142 @@ modifiable n'est PAS complet** : aucun parcours de copie vers un chantier
 n'existe encore (Lot B), donc rien n'est déposable de bout en bout depuis
 un modèle de catalogue à ce stade — seul le dépôt ET la consultation d'un
 modèle modifiable AU CATALOGUE fonctionnent réellement.
+
+**Clôture formelle (référence commit `924d82c`)** : Lot A est clos à cet
+état exact. Limite documentée et non négociable : la validation
+STRUCTURELLE du fichier de projet est garantie côté serveur (frontière
+`service_role`, contournement confirmé puis fermé — ci-dessus) ; la
+concordance VISUELLE entre le PNG déposé et ce fichier n'est garantie QUE
+par le parcours normal (code client), jamais par une contrainte serveur
+indépendante. Toute évolution future qui voudrait une garantie serveur sur
+la concordance visuelle est un chantier distinct, non commencé, non promis
+par ce lot.
+
+## 7. Règles métier confirmées par le fondateur (2026-10-03) — analyse
+
+Analyse uniquement — aucun changement de droits ni migration appliquée ce
+tour.
+
+| Règle demandée | Comportement actuel | Changement nécessaire |
+|---|---|---|
+| Propriétaire consulte l'avancement | **Absent** : aucune table/RPC « étapes »/« phases » n'existe (`PHASE_*` dans PERMISSIONS.csv = conception seule). `D141` le confirme explicitement : étapes différées (B019 suspendue, B027 partielle), AC172 seulement partiellement satisfait par B068. | Hors périmètre de ce tour — fonctionnalité non construite, dépend d'un backlog distinct non rouvert ici. |
+| Propriétaire consulte ses versements | **Déjà fait** : `list_advance_payments`/`list_advance_events` (M014) — lecteurs CONTRACTOR, OWNER/PRIMARY, CO_OWNER. | Aucun. |
+| Propriétaire consulte le solde | **Déjà fait** : `get_project_financial_summary` (M028) — `balance_fcfa`/`remaining_due_fcfa`, mêmes lecteurs, aucune donnée de dépense ni de budget (`D140`/`D142`/`BR112`). | Aucun. |
+| Propriétaire consulte photos/vidéos partagées | **Déjà fait** : `list_project_media` (M010) — médias `PUBLIE` lisibles par OWNER (PRIMARY et CO_OWNER), CONTRACTOR, SITE_MANAGER ; brouillons jamais visibles au propriétaire. | Aucun. |
+| Entreprise propose le prix et l'avance de démarrage | **Déjà fait** : devis proposé par CONTRACTOR et décidé par OWNER/PRIMARY (`propose_quote_version`/`decide_quote_version`, M021) ; avance exigée fixée par CONTRACTOR, plafonnée au montant contractuel (`set_advance_requirement`, M014). | Aucun. |
+| Le solde est versé à la fin | **Déjà satisfait, par construction** : « solde » est un montant CALCULÉ (contrat − versements reconnus, `D142`), pas une étape de workflow distincte ; tout versement (premier ou dernier) passe par le même mécanisme (`declare_advance_payment`). | Aucun — ne pas créer un type de versement « final » distinct : ce serait un circuit nouveau, hors périmètre autorisé. |
+| Dépenses/coûts internes/justificatifs privés à l'entreprise | **Règle déjà actée** (`D086`, `D090`, `BR098`, `BR099`) mais la fonctionnalité « dépenses » elle-même n'existe pas encore en base (conception seule : `SCREENS.csv`, `DATABASE_TABLES.csv`) — rien à « réintroduire », rien n'a jamais été codé. | Aucun aujourd'hui — au jour de la construction de cette fonctionnalité, appliquer `D086`/`D090` dès la première version (pas de lecture propriétaire sauf seuil `BR098`, jamais pour le budget `BR099`). |
+| Propriétaire consulte le catalogue | **Absent** : la page catalogue est réservée en totalité au propriétaire D'ORGANISATION (`organization.owner_profile_id === user.id`) ; aucun accès pour le propriétaire de chantier. | Nouvelle consultation minimale — voir §8. |
+
+## 8. Catalogue — consultation par le propriétaire du chantier (proposition, non implémentée)
+
+Changement minimal proposé, distinct de la gestion du catalogue (page
+existante, inchangée) et du Lot B ci-dessus (copie vers un chantier,
+inchangé). Analyse et proposition uniquement — aucune migration créée ni
+appliquée ce tour.
+
+### 8.1 Décision bloquante préalable (nouvelle, non résolue par le code existant)
+
+« L'organisation liée à ce chantier » suppose un lien déterministe
+chantier → organisation. Vérifié : ce lien **n'existe pas** dans le cas le
+plus courant. `projects.organization_id` n'est écrit qu'une fois, à la
+création (`create_draft_project`, M004b) : toujours `NULL` quand le
+créateur est OWNER (B009/`D`-sourcé), jamais mis à jour ensuite —
+`accept_invitation` (M006a), qui fait rejoindre un CONTRACTOR à un chantier
+déjà créé par son propriétaire, n'écrit que `project_memberships`, jamais
+`projects.organization_id`. Par ailleurs, profil → organisation n'est pas
+1:1 (`organizations.owner_profile_id` sans contrainte d'unicité ;
+`organization_memberships` sans colonne `role`, adhésion M:N, D078) — un
+CONTRACTOR peut posséder ou appartenir à plusieurs organisations, exactement
+la même ambiguïté que `create_draft_project` résout déjà par un choix
+explicite (`organization_choice_required`) quand il crée lui-même un
+chantier.
+
+**Conséquence** : pour un chantier créé par son propriétaire puis rejoint
+par une entreprise invitée (le cas visiblement le plus courant), il n'existe
+aujourd'hui AUCUNE colonne permettant de déterminer quelle organisation lui
+est liée. Avant toute consultation catalogue par le propriétaire, ce lien
+doit être rendu explicite — au moment où un CONTRACTOR rejoint un chantier,
+pas en l'inventant à la lecture.
+
+**Proposition minimale (réutilise le mécanisme déjà validé de
+`create_draft_project`, aucun circuit nouveau)** :
+- Ajouter une colonne nullable `project_memberships.organization_id`
+  (référence `organizations(id)`), renseignée uniquement pour les lignes
+  `role = 'CONTRACTOR'`.
+- `create_draft_project` (CONTRACTOR crée son propre chantier) : reporter le
+  même `v_org_id` déjà résolu sur la ligne `project_memberships` du créateur
+  — aucune nouvelle résolution, valeur déjà calculée.
+- `accept_invitation` (CONTRACTOR rejoint un chantier existant, rôle
+  CONTRACTOR) : exiger la MÊME résolution que `create_draft_project`
+  (auto-sélection si une seule organisation possédée, sinon
+  `organization_choice_required` avec un paramètre explicite déjà du même
+  nom) avant d'insérer la ligne `project_memberships`.
+- Si aucune organisation n'est résolue (cas impossible par construction une
+  fois ce qui précède en place) : `project_memberships.organization_id`
+  reste `NULL`, la consultation catalogue renvoie alors une liste vide,
+  jamais une erreur.
+
+Cette décision doit être validée par le fondateur avant toute migration —
+elle touche `project_memberships` (table déjà utilisée par les droits
+d'accès de tout le reste de l'application) et le flux d'acceptation
+d'invitation existant.
+
+### 8.2 Lecture catalogue — RPC proposée (description seulement)
+
+`list_project_catalog_items_for_owner(p_project_id uuid)` — nouvelle
+fonction, `security definer stable`, grant `authenticated` (lecture
+ordinaire, pas une écriture : pas de frontière `service_role` nécessaire
+ici, à la différence de l'attestation de layout).
+
+- Vérifie l'appelant : `project_memberships` actif, `project_id = p_project_id`,
+  `role = 'OWNER'` (PRIMARY ou CO_OWNER — même lecteur que `D140`), sinon
+  `not_authorized`.
+- Résout l'organisation via la ligne `project_memberships` active
+  `role = 'CONTRACTOR'` du même chantier (§8.1) ; si absente, renvoie un
+  ensemble vide (aucune erreur — un chantier sans entreprise rattachée n'a
+  simplement rien à montrer).
+- Sélectionne UNIQUEMENT les modèles PUBLIÉS de cette organisation :
+  `plan_catalog_items i join plan_catalog_item_versions v on v.id = i.published_version_id`
+  (jamais la dernière version comme `list_organization_catalog_items` —
+  explicitement la version PUBLIÉE), `where i.organization_id = v_org_id and i.archived_at is null`.
+- Colonnes renvoyées, volontairement restreintes : `catalog_item_id`,
+  `label`, `version_number`, `published_at_server`, et une référence au
+  fichier plat (PDF/PNG) pour générer une URL signée d'aperçu via le
+  mécanisme existant — **`layout` jamais sélectionné** (absent de la
+  requête, pas seulement masqué côté client) : aucune lecture du JSON
+  modifiable par ce chemin, par construction.
+- Aucun brouillon, aucune version non publiée, aucune autre organisation :
+  garanti par les deux filtres (`published_version_id` et
+  `organization_id = v_org_id` résolu en §8.1).
+
+### 8.3 Permissions
+
+Nouvelle ligne `PERMISSIONS.csv` (domaine catalogue), proposée pour
+validation :
+
+```
+CATALOG_PUBLISHED_VIEW,catalogue,A,A,N,N,A,"Propriétaire de chantier (principal ou copropriétaire) : modèles PUBLIÉS de l'organisation liée au chantier uniquement, aucun JSON, aucun brouillon. Distinct de CATALOG_ITEM_* (gestion, propriétaire d'organisation)."
+```
+
+(Colonnes dans l'ordre déjà en usage dans le fichier : OWNER/PRIMARY,
+CO_OWNER, CONTRACTOR, SITE_MANAGER, et la dernière colonne = commentaire —
+`CONTRACTOR`/`SITE_MANAGER` restent `N` ici car ils ont déjà leurs propres
+droits de gestion catalogue, sans rapport avec cette consultation
+chantier.)
+
+### 8.4 Page (description seulement)
+
+Nouvelle page `src/app/(app)/chantiers/[id]/catalogue/page.tsx`, lecture
+seule, appelant uniquement `list_project_catalog_items_for_owner` —
+jamais `list_organization_catalog_items` (réservée à la gestion,
+inchangée). Aperçu signé réutilise le mécanisme déjà existant
+(`CatalogVersionFileLinks.tsx`/URL signée), sans dupliquer de logique de
+génération de lien.
+
+### 8.5 Hors périmètre de cette proposition
+
+Copie d'un modèle vers un chantier (reste le Lot B existant, §« Lot B —
+démarrer une demande… », inchangé par cette proposition) ; gestion du
+catalogue (page existante, inchangée) ; accès aux brouillons, versions non
+publiées, ou catalogues d'autres organisations (toujours refusés).

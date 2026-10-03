@@ -1,0 +1,230 @@
+# Préparation — espaces propriétaire et entreprise distincts (maquettes fondateur 2026-10-03)
+
+Analyse et proposition de lots uniquement. Aucun code, aucune migration,
+aucun changement de droits ce tour. Base des huit maquettes fournies (quatre
+« espace propriétaire », quatre « espace entreprise ») comparées à l'état
+réel du code (`src/app/(app)/...`, `supabase/migrations/*.sql`).
+
+## 1. Constat vérifié
+
+### 1.1 Aujourd'hui, les deux espaces partagent la MÊME navigation
+
+`chantiers/[id]/layout.tsx` construit un seul menu, par chantier, dont la
+forme pour OWNER/PRIMARY est **identique** à celle de CONTRACTOR
+(`canInvite`/`canSeeFinancials` vrais pour les deux) :
+Chantier, Inviter, Invitations, Équipe, Photos, Plans, Devis, Avenants,
+Acomptes, Synthèse. C'est exactement ce que la consigne demande de ne plus
+faire (« ne reproduis pas le menu entreprise dans l'espace propriétaire »).
+CO_OWNER a la même liste sans Inviter/Invitations ; SITE_MANAGER n'a que
+Chantier/Équipe/Photos/Plans.
+
+### 1.2 Espace propriétaire visé (4 maquettes) — comparaison
+
+| Écran maquette | Nav actuelle correspondante | État |
+|---|---|---|
+| Mon chantier (fiche + avancement global + étape actuelle + résumé financier) | `chantiers/[id]` (fiche) + `finances` (résumé) | Partiel — fiche et résumé financier existent séparément ; « étape actuelle » n'existe pas |
+| Versements (prix convenu / avance / solde / historique / déclarer) | `chantiers/[id]/acomptes` + `finances` | **Déjà construit** côté RPC (`list_advance_payments`, `get_project_financial_summary`), présentation à regrouper |
+| Photos et vidéos partagées (onglets Tout/Photos/Vidéos/Partagé entreprise) | `chantiers/[id]/photos` | **Déjà construit** (`list_project_media`, statut `PUBLIE`), onglets à ajouter en UI seulement |
+| Avancement des travaux (jauge % + étapes nommées + historique) | **Aucun équivalent** | Absent — nécessite une fonctionnalité neuve (§3.1) |
+
+### 1.3 Espace entreprise visé (4 maquettes) — comparaison
+
+| Écran maquette | Nav/page actuelle correspondante | État |
+|---|---|---|
+| Tableau de bord (mes chantiers, compteurs, activité récente) | **Aucune page organisation n'existe** (`organisations/[id]/` ne contient que `catalogue/` et `ingenieurs/`) ; le plus proche est `tableau-de-bord` (liste personnelle sans compteurs ni barres de progression) | Absent — nécessite une coquille (« shell ») organisation neuve (§3.2) |
+| Photos, vidéos et avancement (partage média + mise à jour d'étape) | `chantiers/[id]/photos` pour le média (déjà construit) ; la mise à jour d'étape dépend de §3.1 | Partiel |
+| Dépenses internes (journal, justificatifs, réservé entreprise) | **N'existe nulle part** (conception seule, `DATABASE_TABLES.csv` T024-T027, jamais migré) | Absent — fonctionnalité neuve complète (§3.3) |
+| Versements clients (mêmes données, vue entreprise) | `chantiers/[id]/acomptes` | **Déjà construit** côté RPC, présentation entreprise à ajouter |
+
+Précision sur la dernière maquette entreprise : la version substituant
+« Générateur de plans » (maquette antérieure) est bien celle analysée ici
+(« Versements clients ») — `/prototype-plans` reste, comme aujourd'hui, une
+action contextuelle depuis l'onglet Plans d'un chantier (`chantiers/[id]/plans`),
+jamais un lien de nav persistant, ce que confirme le code actuel et qui n'est
+contredit par aucune des huit maquettes (aucune ne montre « Générateur de
+plans » comme item de menu).
+
+### 1.4 Chef de chantier (SITE_MANAGER)
+
+Aucune maquette fournie pour ce rôle. Son menu actuel (Chantier/Équipe/
+Photos/Plans) n'est pas traité ici — non modifié par cette analyse.
+
+## 2. Tableau de correspondance (synthèse, 8 écrans)
+
+| # | Écran | Espace | RPC/table déjà existants réutilisables | Manque concret |
+|---|---|---|---|---|
+| 1 | Mon chantier | Propriétaire | fiche projet, `get_project_financial_summary` | « Étape actuelle » (§3.1) |
+| 2 | Versements | Propriétaire | `list_advance_payments`, `get_project_financial_summary`, `advance_requirement_versions` | Aucun — présentation seule |
+| 3 | Photos et vidéos partagées | Propriétaire | `list_project_media` | Aucun — présentation seule (onglets) |
+| 4 | Avancement des travaux | Propriétaire | — | Fonctionnalité « étapes » entière (§3.1) |
+| 5 | Tableau de bord entreprise | Entreprise | `project_memberships` (role=CONTRACTOR), `advances`, `plan_catalog_items` (comptages) | Coquille organisation + agrégation multi-chantiers (§3.2) |
+| 6 | Photos, vidéos et avancement | Entreprise | `list_project_media` (publier/brouillon) | Mise à jour d'étape (§3.1), sélecteur de chantier dans la coquille (§3.2) |
+| 7 | Dépenses internes | Entreprise | aucun (conception seule) | Fonctionnalité « dépenses » entière (§3.3) |
+| 8 | Versements clients | Entreprise | `list_advance_payments`, `advance_events`, `declare_advance_payment` | Aucun — présentation seule |
+
+## 3. Décisions bloquantes nouvelles (à valider avant toute migration)
+
+### 3.1 Étapes de chantier / avancement — fonctionnalité neuve
+
+**Confirmé absent du code** : aucune table `phases`/`project_phases`,
+aucune RPC contenant « phase ». `PERMISSIONS.csv` liste des codes
+`PHASE_*` jamais implémentés ; `D141` acte explicitement que les étapes
+sont différées (B019 suspendue, B027 partielle, AC172 non satisfait par
+B068). **Ceci n'est pas une tâche de présentation : c'est une
+fonctionnalité neuve**, nécessaire à 3 des 8 écrans (Mon chantier,
+Avancement des travaux, Photos/vidéos et avancement entreprise).
+
+Le plan de migration du projet réserve déjà cette place, sans jamais
+l'avoir construite : `MIGRATION_ORDER.csv` lignes 8-9, `M007
+« phase_templates template_items »` et `M008 « project_phases
+phase_versions »` (dépendances `M004;M007`, jalon « version publiée
+immuable »). Aucun fichier `supabase/migrations/*m007*` ni `*m008*`
+n'existe — vérifié. **Proposition : reprendre ces identifiants déjà
+réservés, ne pas en inventer de nouveaux.**
+
+Conception minimale proposée (description seulement, aucune migration
+créée) :
+- `project_phases` : une ligne par étape nommée du chantier (`label`,
+  `position`/ordre, `status` parmi `A_VENIR`/`EN_COURS`/`TERMINEE`),
+  rattachée au `project_id`.
+- `phase_versions` ou simplement des colonnes d'horodatage
+  (`started_at`, `completed_at`) sur `project_phases` — à trancher selon
+  le même principe « versions append-only » déjà en usage partout ailleurs
+  (M008 prévoit `phase_versions`, donc un historique, pas une simple mise
+  à jour en place).
+- Écriture réservée à CONTRACTOR (même principe que `authorize_work_start`,
+  `set_advance_requirement` : l'entreprise pilote, le propriétaire
+  consulte) — aucun droit nouveau pour le propriétaire, cohérent avec
+  « aucun élargissement de droits ».
+- Lecture : mêmes lecteurs que `get_project_financial_summary`
+  (CONTRACTOR, OWNER/PRIMARY, CO_OWNER) — réutilise `D140`.
+- « Photo de l'avancement » (maquette 4) : réutilise `list_project_media`
+  (la plus récente `PUBLIE`), aucune colonne photo dupliquée sur
+  `project_phases`.
+
+**Décision à valider par le fondateur** : liste des étapes fixe (ex.
+Fondations/Élévation des murs/Toiture/Finitions, comme la maquette) ou
+modèle personnalisable par chantier (plus proche de `phase_templates`
+déjà nommé dans M007) ? Ce choix détermine si M007 (modèles réutilisables)
+est nécessaire dès ce lot ou seulement M008 (liste directe par chantier).
+
+### 3.2 Coquille (shell) organisation pour l'espace entreprise — restructuration de navigation
+
+Les maquettes entreprise montrent un menu PERSISTANT indépendant d'un
+chantier précis (Tableau de bord / Chantiers / Versements clients /
+Dépenses internes / Photos et vidéos / Catalogue de plans / Équipe), avec
+un sélecteur de chantier DANS le contenu (ex. maquette 6 : « Maison Sanogo
+— Bamako ▾ »). **Rien de tel n'existe aujourd'hui** : toute la navigation
+entreprise actuelle est scopée par chantier (`chantiers/[id]/layout.tsx`),
+il n'y a aucune page `organisations/[id]/page.tsx` ni nav organisation.
+
+C'est une restructuration de navigation, pas seulement de nouveaux écrans :
+nécessite un nouveau `organisations/[id]/layout.tsx` (ou équivalent) avec
+son propre menu, et que les pages concernées (versements, photos,
+dépenses) acceptent un chantier choisi dans leur propre contenu plutôt que
+par l'URL `chantiers/[id]/...`. Les pages déjà construites
+(`organisations/[id]/catalogue`, `organisations/[id]/ingenieurs`)
+s'intègrent sans changement à ce nouveau menu.
+
+**Décision à valider** : les URLs `chantiers/[id]/photos`,
+`chantiers/[id]/acomptes` restent-elles la source de vérité (la nouvelle
+coquille organisation n'étant qu'une liste de liens vers elles, filtrée
+par chantier choisi — changement minimal, aucune donnée dupliquée), ou
+l'entreprise obtient-elle de nouvelles routes `organisations/[id]/...`
+dédiées (plus proche de la maquette mais plus de code) ? Recommandation :
+la première option (liens filtrés), qui ne duplique aucune logique déjà
+construite.
+
+### 3.3 Dépenses internes — fonctionnalité neuve, déjà actée en droits
+
+Confirmé absent du code (conception seule). La règle de confidentialité
+est déjà tranchée et ne change pas : `D086`/`D090`/`BR098`/`BR099` — privé
+par défaut envers le client, CONTRACTOR seul en écriture et lecture par
+défaut. Construire cette fonctionnalité est un lot de migration à part
+entière (tables `expenses`/`expense_categories`/`receipts`, déjà nommées
+dans `DATABASE_TABLES.csv` T024-T027) — **non détaillé dans ce tour**
+(hors demande explicite actuelle, qui porte sur la navigation et les
+écrans déjà couverts par des règles validées) sauf si le fondateur demande
+de le chiffrer maintenant.
+
+### 3.4 Relocalisation Équipe / Invitations / Devis / Avenants côté propriétaire
+
+Les maquettes propriétaire n'ont ni « Équipe » ni « Devis »/« Avenants »
+en nav persistante. Ces fonctions restent nécessaires (OWNER/PRIMARY doit
+toujours pouvoir inviter un CO_OWNER ou une entreprise, et décider d'un
+devis/avenant — `D112`, inchangé) : **rien n'est supprimé, seulement
+déplacé hors du menu principal**. Proposition minimale : accessibles
+depuis la fiche « Mon chantier » (ex. un bandeau d'action quand une
+décision est en attente — devis proposé, avenant proposé — et un accès
+« Gérer l'équipe » à côté du bouton « Modifier » déjà existant sur cette
+fiche). Aucun droit nouveau, aucune route supprimée — uniquement une
+question d'emplacement dans l'interface, à valider par le fondateur avant
+toute modification de nav.
+
+## 4. Lots proposés
+
+### Lot ESPACES-1 — nav propriétaire épurée + consultation catalogue (aucune fonctionnalité neuve)
+
+Regroupe en 3 écrans (Mon chantier / Versements / Photos et vidéos) des
+données déjà lisibles aujourd'hui (`get_project_financial_summary`,
+`list_advance_payments`, `list_project_media`), retire Devis/Avenants/
+Acomptes/Synthèse/Inviter/Invitations/Équipe du menu persistant (relocalisés,
+§3.4), ajoute l'item « Catalogue » déjà proposé et non implémenté au tour
+précédent (`PREPARATION_CATALOGUE_MODIFIABLE.md` §8 — `list_project_catalog_items_for_owner`,
+bloqué par la même décision de résolution organisation↔chantier). Aucune
+migration pour ce lot seul (présentation + relocalisation) hormis celle déjà
+décrite au §8 du document catalogue.
+
+### Lot ESPACES-2 — étapes de chantier / avancement (M007/M008, fonctionnalité neuve)
+
+Construit la fonctionnalité décrite en §3.1 : tables, RPC de lecture
+(propriétaire + entreprise) et RPC d'écriture (entreprise). Alimente
+l'écran « Avancement des travaux » (propriétaire), la section « Étape
+actuelle » de « Mon chantier », et la mise à jour d'étape de « Photos,
+vidéos et avancement » (entreprise). **Dépend de la décision §3.1** (liste
+fixe ou modèle personnalisable) avant toute migration.
+
+### Lot ESPACES-3 — coquille organisation + nav entreprise (restructuration)
+
+Construit la coquille décrite en §3.2, migre les écrans déjà existants
+(photos, versements/acomptes, catalogue, ingénieurs) dans ce nouveau menu
+avec sélecteur de chantier, ajoute le tableau de bord organisation
+(compteurs, activité récente — agrégations en lecture seule sur des
+données déjà existantes, aucune nouvelle table nécessaire pour les
+compteurs eux-mêmes). **Dépend de la décision §3.2** (liens filtrés vs
+routes dédiées).
+
+### Lot ESPACES-4 — dépenses internes (fonctionnalité neuve, hors chiffrage de ce tour)
+
+Construit l'écran « Dépenses internes » (§3.3). Migrations et permissions
+à détailler dans un tour dédié si le fondateur valide sa priorité
+maintenant — les règles de confidentialité sont déjà actées (`D086`/`D090`),
+seule la table n'existe pas.
+
+### Lot ESPACES-5 — versements clients (entreprise), présentation seule
+
+Réutilise intégralement `list_advance_payments`/`advance_events`/
+`declare_advance_payment` (M014, inchangés) pour l'écran « Versements
+clients ». Aucune migration. Peut être livré indépendamment des autres
+lots, y compris avant ESPACES-3 (en restant temporairement sous
+`chantiers/[id]/acomptes`, avec une présentation entreprise dédiée).
+
+## 5. Permissions concernées
+
+Aucune permission existante n'est élargie. Nouvelles lignes nécessaires
+(description seulement, non ajoutées à `PERMISSIONS.csv` ce tour) :
+- `PHASE_VIEW`/`PHASE_UPDATE` (déjà présentes dans `PERMISSIONS.csv` à
+  l'état de conception, §3.1 les rendrait réelles — CONTRACTOR écrit,
+  OWNER/PRIMARY et CO_OWNER lisent, SITE_MANAGER à trancher).
+- `CATALOG_PUBLISHED_VIEW` (déjà proposée, `PREPARATION_CATALOGUE_MODIFIABLE.md` §8.3).
+- Permissions « dépenses » (`EXPENSE_*`) déjà présentes dans
+  `PERMISSIONS.csv` à l'état de conception — inchangées par ce tour
+  (Lot ESPACES-4 seulement, non chiffré ici).
+
+## 6. Hors périmètre de cette analyse
+
+Chef de chantier (aucune maquette fournie, menu actuel inchangé) ;
+`/prototype-plans` (reste une action contextuelle, jamais un lien de nav
+persistant) ; copie catalogue vers un chantier (Lot B du document
+catalogue, inchangé) ; toute migration ou changement de droits — aucun
+n'est créé ni appliqué par cette analyse.
