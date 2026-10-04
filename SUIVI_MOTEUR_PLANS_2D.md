@@ -220,8 +220,8 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 | B1 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
 | B2 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
 | B3 — *reclassé : limite de recherche à analyser* | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
-| B4 | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
-| B5 | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
+| B4 — **corrigé** (voir « Correctif B4/B5 ») | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
+| B5 — **corrigé** (voir « Correctif B4/B5 ») | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
 
 #### Difficultés d'utilisation (la fonction existe)
 
@@ -318,7 +318,7 @@ et l'élément concerné.
 | `test-plans-geometry.mjs` | **779/779** (755 antérieurs + 24 nouveaux) |
 | Reproduction de B2 | L'ancien ancrage coupe l'accès de Chambre 1 ; le nouveau refuse explicitement, état intact ; même refus par les poignées |
 | Reproduction de B1 | Refus nommant « Chambre 2 », largeur réelle intacte ; ressaisir la valeur affichée ne compte pas comme un changement |
-| Balayage des 4 façades × 7 pièces × 2 dimensions × 3 écarts | 32 acceptés, 136 refusés. Chaque acceptation conserve accès, portes et autres pièces, et applique la valeur exacte ; aucun refus ne modifie l'état reçu |
+| Balayage : 4 façades × 7 pièces × 2 dimensions × 3 écarts = **168 essais au total** (42 par façade, le facteur 4 est inclus) | 32 acceptés, 136 refusés, 0 « inchangé » (32 + 136 = 168). Chaque acceptation conserve accès, portes et autres pièces, et applique la valeur exacte ; aucun refus ne modifie l'état reçu |
 | Portes sur les 4 murs | Acceptations sur des pièces dont la porte est en haut, en bas, à gauche et à droite |
 | Pièce verrouillée | Refusée pour elle-même ; inchangée quand une autre pièce est modifiée |
 | Autre pièce affectée | Refus nommant « Cuisine 1 » |
@@ -350,6 +350,115 @@ prudente devient le principal frein à l'édition des dimensions. À analyser
 dans un lot dédié ; aucune règle de vérification n'a été modifiée ici.
 L'aperçu des poignées reste un contrôle rapide : un rectangle affiché comme
 possible peut encore être refusé au relâchement, avec motif.
+
+**Précision sur le balayage (2026-10-04, sans nouvelle exécution)** : les
+boucles réellement exécutées par `scripts/test-plans-geometry.mjs` (section
+26) sont `for side of [front, back, left, right]` → `rooms.forEach` (7
+pièces) → `for field of [w, d]` → `for delta of [-0.3, +0.3, +0.6]`, soit
+4 × 7 × 2 × 3 = **168 appels au total** (42 par façade). Résultat
+consigné par l'exécution du commit `37de14f` : 32 acceptés + 136 refusés =
+168, aucun « inchangé ».
+
+### Correctif B4/B5 — éditeur sur mobile et libellés lisibles (réalisé le 2026-10-04)
+
+Point de départ : HEAD `37de14f` (corrections B1/B2 et leurs contrôles
+conservés, intacts). **Aucune géométrie modifiée** : seules la mise en page
+et l'affichage changent.
+
+**Mode de vérification** : Playwright (navigateur Chromium sans interface,
+profil vierge, origine `http://localhost:3001`). Le navigateur intégré
+n'était pas utilisable : panneau masqué, captures expirées. Les mesures
+sont prises par script dans le DOM, le même script avant et après le
+correctif, aux largeurs 1280, 390 et 375 px. Captures et scripts :
+`exports/preuves/generateur-b4-b5-2026-10-04/` et
+`exports/preuves/*.js`, hors Git.
+
+**Fichiers touchés et raison :**
+- `PrototypeClient.tsx` (B4) : le tableau « Besoins (pièces) » est placé
+  dans un conteneur à défilement horizontal propre. Ce conteneur est une
+  région nommée et focalisable, une indication « ↔ » s'affiche sous 640 px,
+  et la colonne « Pièce » reste figée pendant le défilement. Aucune colonne
+  masquée, aucune réduction générale.
+- `PlanEditor.tsx` (B5) :
+  - même critère de renvoi numéroté que l'export (`isSmallRoom` ou
+    `!roomTextFits`, à l'échelle du dessin) ;
+  - numéros **uniques** 1..n, et une légende cliquable sous le plan
+    (nom, dimensions, surface ; un clic sélectionne la pièce) ;
+  - la ligne « Sélection » affiche nom, dimensions et surface ;
+  - textes, portes, fenêtres et poignées inchangés.
+- `render.ts` : `roomTextFits` est seulement exportée, pour être
+  réutilisée sans copie. Le rendu exporté reste identique.
+
+**Mesures (le même script avant et après) :**
+
+| Largeur | Avant : largeur de document | Après | Éléments hors écran après | Tableau après | Libellés après |
+|---|---|---|---|---|---|
+| 375 px | **485** | 360 (barre verticale de 15 px) | 0 | défile dans son conteneur (279 → 704 px), région nommée | 0 débordement, 0 chevauchement |
+| 390 px | **485** | 375 | 0 | idem (293 → 704 px) | idem |
+| 1280 px | 1265 | 1265 | 0 | 687 → 704 px, défilement local | idem |
+
+Avant le correctif, à toutes les largeurs : « Sanitaire 1/2 » et leurs cotes
+débordaient de la pièce et se chevauchaient. Après : légende « 1 — Cuisine
+1 : 2,69 × 3,00 m (8,1 m²) », « 2 — Sanitaire 1 … », « 3 — Sanitaire 2 … ».
+Plus petite hauteur de texte mesurée sur le plan : 10,7 px, identique avant
+et après (aucune réduction).
+
+**Contrôles fonctionnels (375, 390, 1280 px)**, tous réussis :
+- clic sur « Sanitaire 1 » dans la légende : « Sélection : Sanitaire 1 —
+  1,61 × 2,00 m (3,2 m²) », pastille surlignée, 4 poignées visibles ;
+- sélection du Salon sur le plan, largeur 4,08 → 4,38 par le champ :
+  « appliqué, mur gauche conservé », puis un Annuler ramène à 4,08 ;
+- zoom « + » : la page ne s'élargit pas (le plan défile dans son cadre) ;
+- `touch-action: none` conservé sur le plan, 7 tracés de portes et
+  ouvertures présents ;
+- brouillon (`layout`) **identique** avant et après chaque changement de
+  largeur et en fin de parcours.
+
+Non-régression : `npm run verify` (voir commit).
+
+**Observation, non corrigée (hors périmètre)** : l'**export** SVG/PNG
+numérote ses pastilles avec `r.number`. « Cuisine 1 » et « Sanitaire 1 »
+y portent donc toutes deux le numéro « 1 ». L'éditeur utilise désormais
+des numéros uniques. Les numéros de l'éditeur et de l'export peuvent donc
+différer ; une harmonisation de l'export est à décider.
+
+### Lot à préparer — preuve de façade extérieure (non développé)
+
+**Constat** : `hasExteriorTouch` et `openingLeadsOutside` considèrent un mur
+comme extérieur seulement s'il touche le **rectangle englobant** du bâti.
+C'est la cause principale des refus de redimensionnement en façade (lot
+`37de14f`) : une pièce en retrait, ou les voisines d'une pièce agrandie,
+perdent leur « ouverture extérieure ».
+
+**Objectif** : remplacer ce critère unique par une preuve géométrique, sans
+le relâcher. Un mur n'est extérieur que si l'espace situé de l'autre côté
+est démontré extérieur.
+
+**Exigences du futur modèle :**
+- classer l'espace qui borde chaque segment de mur en **extérieur**,
+  **cour** ou **vide intérieur**, et jamais « extérieur » par défaut ;
+- une zone vide ne devient pas extérieure du seul fait qu'elle n'est pas
+  bâtie : il faut démontrer qu'elle communique avec l'extérieur de
+  l'emprise (par exemple, une propagation depuis le bord de l'emprise sur
+  la grille des rectangles bâtis), avec une largeur minimale à préciser ;
+- un vide **enclos** (entouré de pièces ou de circulations) reste intérieur ;
+  une cour reste une cour (règles existantes conservées) ;
+- les fenêtres sont vérifiées segment par segment, sur leur propre portion
+  de mur.
+
+**Preuves attendues :**
+- cas de référence où le résultat ne doit PAS changer (toutes les
+  dispositions actuellement générées : 755+ tests et batterie de 11 cas
+  inchangés) ;
+- cas de retrait ouvert sur l'extérieur (accepté) ;
+- cas de vide enclos (refusé) ;
+- cas de cour ;
+- rejeu du balayage de la section 26 pour mesurer l'effet sur les refus.
+
+**Hors de ce lot** : aucune modification de la règle actuelle n'est faite
+ici. Risque à suivre : un critère plus fin peut changer les dispositions
+retenues par la génération, ce qui demande une comparaison avant/après
+complète.
 
 ---
 

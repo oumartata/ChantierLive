@@ -456,10 +456,26 @@ export function PrototypeClient({
           remplissage automatique de l&apos;emprise) — hypothèses de conception, pas une norme. À 0, une pièce est
           exclue du calcul et ses dimensions sont désactivées.
         </p>
-        <table className="w-full text-sm">
+        {/* B4 (diagnostic 2026-10-04) : six colonnes de champs ne tiennent pas
+            sur un téléphone (≈ 460 px). Le défilement horizontal est limité à
+            CE conteneur, identifié (région nommée, focalisable, indication
+            visible sur petit écran) ; la colonne « Pièce » reste visible
+            pendant le défilement. Aucune colonne masquée, aucune réduction
+            générale de l'interface. */}
+        <p className="text-xs text-slate-500 sm:hidden" aria-hidden="true">
+          ↔ Faites défiler le tableau horizontalement pour voir toutes les colonnes.
+        </p>
+        <div
+          role="region"
+          aria-label="Tableau des besoins (pièces), défilement horizontal possible"
+          tabIndex={0}
+          data-testid="needs-table-scroll"
+          className="max-w-full overflow-x-auto rounded focus:outline focus:outline-2 focus:outline-slate-400"
+        >
+        <table className="w-full min-w-max text-sm">
           <thead>
             <tr className="text-left text-slate-500">
-              <th>Pièce</th>
+              <th className="sticky left-0 z-10 bg-sand pr-2">Pièce</th>
               <th>Nombre</th>
               <th>Largeur minimale (m)</th>
               <th>Profondeur minimale (m)</th>
@@ -472,7 +488,7 @@ export function PrototypeClient({
               const disabled = room.count === 0;
               return (
                 <tr key={room.type} className={disabled ? "opacity-60" : ""}>
-                  <td className="py-1">{room.label}</td>
+                  <td className="sticky left-0 z-10 bg-sand py-1 pr-2">{room.label}</td>
                   <td><input type="number" min={0} value={room.count} onChange={(e) => updateRoom(i, { count: Number(e.target.value) })} className="w-16 rounded border border-slate-300 px-2 py-1" /></td>
                   <td>{numberInput(room.minWidth, (v) => updateRoom(i, { minWidth: v }), 0.1, disabled)}</td>
                   <td>{numberInput(room.minDepth, (v) => updateRoom(i, { minDepth: v }), 0.1, disabled)}</td>
@@ -483,6 +499,7 @@ export function PrototypeClient({
             })}
           </tbody>
         </table>
+        </div>
       </section>
 
       <button onClick={handleGenerate} className="w-fit rounded bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">

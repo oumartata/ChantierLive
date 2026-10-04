@@ -27,7 +27,7 @@ function estimateTextWidth(text: string, fontSizePx: number, bold = false): numb
 // un texte qui ne tient pas. Sinon, un simple numéro renvoie à la légende
 // (mêmes entrées que legendFor, pour que la légende affichée corresponde
 // toujours exactement à ce qui est numéroté sur le dessin).
-function roomTextFits(r: PlacedRoom, rwPx: number, rdPx: number): boolean {
+export function roomTextFits(r: PlacedRoom, rwPx: number, rdPx: number): boolean {
   const pad = 10;
   const line1 = estimateTextWidth(`${r.label} ${r.number}`, 11, true);
   const line2 = estimateTextWidth(`${r.w.toFixed(2)} × ${r.d.toFixed(2)} m`, 9);

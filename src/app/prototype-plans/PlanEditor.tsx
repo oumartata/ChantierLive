@@ -25,7 +25,7 @@ import {
   type VerificationIssue,
   type WallSide,
 } from "./geometry";
-import { escapeXml, renderSvg, renderSvgToPngBlob, STAMP } from "./render";
+import { escapeXml, isSmallRoom, renderSvg, renderSvgToPngBlob, roomTextFits, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
 import type { DepositContext } from "./PrototypeClient";
 // Actions serveur RÉELLES et INCHANGÉES du chantier (Lots 1/2,
@@ -50,6 +50,7 @@ const ALIGN_THRESHOLD = 0.12; // m — accrochage aux bords d'autres pièces
 type Tool = "select" | "move" | "resize" | "add-door" | "remove-door";
 type Corner = "nw" | "ne" | "sw" | "se";
 type ResizeSource = "w" | "d" | "handles";
+const fmtDim = (v: number) => v.toFixed(2).replace(".", ",");
 const OPPOSITE_CORNER: Record<Corner, Corner> = { nw: "se", ne: "sw", sw: "ne", se: "nw" };
 
 const WALL_LABEL: Record<WallSide, string> = { left: "gauche", right: "droite", top: "haut", bottom: "bas" };
@@ -132,6 +133,18 @@ export function PlanEditor({
   const resizeRef = useRef<{ roomIndex: number; corner: Corner; anchorX: number; anchorY: number } | null>(null);
 
   const current = history[history.length - 1];
+  // B5 : pièces dont le libellé ne tient pas lisiblement (même critère que
+  // l'export : isSmallRoom || !roomTextFits, à l'échelle du dessin). Numéros
+  // UNIQUES 1..n dans l'ordre des pièces — jamais r.number seul, qui donne
+  // deux « 1 » pour « Cuisine 1 » et « Sanitaire 1 ».
+  const badgeNumbers = useMemo(() => {
+    const map = new Map<number, number>();
+    let n = 0;
+    current.rooms.forEach((r, i) => {
+      if (!r.parked && (isSmallRoom(r) || !roomTextFits(r, r.w * SCALE, r.d * SCALE))) map.set(i, ++n);
+    });
+    return map;
+  }, [current]);
   const issues: VerificationIssue[] = useMemo(() => independentVerify(current), [current]);
   const errorCount = issues.filter((i) => i.severity === "error").length;
 
@@ -804,7 +817,9 @@ export function PlanEditor({
         {tool === "resize" && "Sélectionnez une pièce, puis glissez un coin pour la redimensionner, ou utilisez les champs largeur/profondeur ci-dessous."}
         {tool === "add-door" && "Sélectionnez une pièce, puis cliquez un de ses murs en pointillés : vert = entrée extérieure, violet = porte intérieure vers un espace réel, gris = aucun espace de ce côté."}
         {tool === "remove-door" && "Sélectionnez une pièce, puis cliquez un mur en rouge (porte présente) pour la retirer."}
-        {selected !== null ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number}.` : " Aucune sélection."}
+        {selected !== null
+          ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number} — ${fmtDim(current.rooms[selected].w)} × ${fmtDim(current.rooms[selected].d)} m (${(current.rooms[selected].w * current.rooms[selected].d).toFixed(1).replace(".", ",")} m²).`
+          : " Aucune sélection."}
       </p>
       {tool === "resize" && selected !== null && !current.rooms[selected].parked ? (
         <div className="flex flex-wrap items-center gap-3 text-sm">
@@ -931,6 +946,7 @@ export function PlanEditor({
         />
       ) : (
       <div className="flex flex-col gap-3 md:flex-row">
+      <div className="flex min-w-0 flex-col gap-2">
       <div className="overflow-auto rounded border border-slate-300 bg-white" style={{ maxHeight: "70vh" }}>
         <svg
           ref={svgRef}
@@ -995,13 +1011,28 @@ export function PlanEditor({
                   style={{ cursor: tool === "move" && !r.locked ? "grab" : "pointer" }}
                   onPointerDown={(e) => handleRoomPointerDown(e, i)}
                 />
-                <text x={rx + rw / 2} y={ry + rd / 2 - 4} fontSize={11} fontWeight={600} textAnchor="middle" fill="#0f172a" style={{ pointerEvents: "none" }}>
-                  {r.locked ? "🔒 " : ""}{r.label} {r.number}
-                </text>
-                <text x={rx + rw / 2} y={ry + rd / 2 + 11} fontSize={9} textAnchor="middle" fill="#334155" style={{ pointerEvents: "none" }}>
-                  {(isResizePreview ? resizePreview!.w : r.w).toFixed(2)} × {(isResizePreview ? resizePreview!.d : r.d).toFixed(2)} m
-                  {isResizePreview ? ` — ${(resizePreview!.w * resizePreview!.d).toFixed(1)} m²` : ""}
-                </text>
+                {badgeNumbers.has(i) ? (
+                  // B5 : même critère que l'export (isSmallRoom || !roomTextFits) —
+                  // un numéro renvoie à la légende sous le plan, jamais un
+                  // texte réduit ni qui déborde. Nom et dimensions restent
+                  // consultables : légende cliquable et ligne « Sélection ».
+                  <g style={{ pointerEvents: "none" }} data-testid={`room-badge-${i}`}>
+                    <circle cx={rx + rw / 2} cy={ry + rd / 2} r={11} fill={isSelected ? "#bfdbfe" : "#ffffff"} stroke="#1e293b" strokeWidth={1.5} />
+                    <text x={rx + rw / 2} y={ry + rd / 2 + 4} fontSize={11} fontWeight={700} textAnchor="middle" fill="#0f172a">
+                      {badgeNumbers.get(i)}
+                    </text>
+                  </g>
+                ) : (
+                  <>
+                    <text x={rx + rw / 2} y={ry + rd / 2 - 4} fontSize={11} fontWeight={600} textAnchor="middle" fill="#0f172a" style={{ pointerEvents: "none" }}>
+                      {r.locked ? "🔒 " : ""}{r.label} {r.number}
+                    </text>
+                    <text x={rx + rw / 2} y={ry + rd / 2 + 11} fontSize={9} textAnchor="middle" fill="#334155" style={{ pointerEvents: "none" }}>
+                      {(isResizePreview ? resizePreview!.w : r.w).toFixed(2)} × {(isResizePreview ? resizePreview!.d : r.d).toFixed(2)} m
+                      {isResizePreview ? ` — ${(resizePreview!.w * resizePreview!.d).toFixed(1)} m²` : ""}
+                    </text>
+                  </>
+                )}
                 {tool === "resize" && isSelected && !r.parked && !r.locked ? (
                   <ResizeHandles rx={rx} ry={ry} rw={rw} rd={rd} onPick={(corner, e) => handleResizeHandlePointerDown(e, i, corner)} />
                 ) : null}
@@ -1024,6 +1055,29 @@ export function PlanEditor({
             );
           })}
         </svg>
+      </div>
+      {badgeNumbers.size > 0 ? (
+        <div data-testid="editor-legend" className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700">
+          <p className="font-semibold">Pièces numérotées sur le plan (libellé trop long pour la pièce)</p>
+          <ol className="mt-1 flex flex-col gap-1">
+            {[...badgeNumbers.entries()].map(([roomIndex, n]) => {
+              const r = current.rooms[roomIndex];
+              return (
+                <li key={roomIndex}>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(roomIndex)}
+                    aria-pressed={selected === roomIndex}
+                    className={`rounded px-1 text-left underline-offset-2 hover:underline ${selected === roomIndex ? "bg-blue-100 font-semibold" : ""}`}
+                  >
+                    {n} — {r.locked ? "🔒 " : ""}{r.label} {r.number} : {fmtDim(r.w)} × {fmtDim(r.d)} m ({(r.w * r.d).toFixed(1).replace(".", ",")} m²)
+                  </button>
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+      ) : null}
       </div>
 
       <div
