@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, StatusChip } from "@/components/ui";
 import { DraftEditor, ProgressForm, RestructureToggle, DEFAULT_ROWS, type Row } from "./PhasePlanForms";
+import { formatPercent } from "./phasePlanDiff";
 
 interface PlanView {
   plan_id: string | null;
@@ -120,7 +121,7 @@ export default async function AvancementPage({ params }: { params: Promise<{ id:
         <>
           <Card className="flex flex-col gap-2" data-testid="global-progress">
             <h2 className="text-h2 font-semibold text-ink">Avancement déclaré par l&apos;entreprise</h2>
-            <p className="text-display font-bold text-ink">{Math.round(Number(plan.global_progress) * 100) / 100} %</p>
+            <p className="text-display font-bold text-ink">{formatPercent(plan.global_progress)}</p>
             {plan.last_event_at ? (
               <p className="text-caption text-muted">
                 Dernière mise à jour le {new Date(plan.last_event_at).toLocaleString("fr-FR")}
@@ -137,7 +138,7 @@ export default async function AvancementPage({ params }: { params: Promise<{ id:
                 key={p.phase_id}
                 projectId={id}
                 phaseId={p.phase_id}
-                label={`${p.label} (poids ${p.weight} %)`}
+                label={`${p.label} (poids ${formatPercent(p.weight)})`}
                 expectedRevision={plan.revision ?? 0}
                 initialProgression={Number(p.progression)}
                 canEdit={canUpdateProgress}
@@ -158,7 +159,7 @@ export default async function AvancementPage({ params }: { params: Promise<{ id:
                     n° {e.event_seq} — {EVENT_LABEL[e.event_type]}
                     {e.phase_label ? ` (${e.phase_label})` : ""} par {ACTOR_LABEL[e.actor_role]}
                     {e.reason ? ` — motif : ${e.reason}` : ""} — avancement global à cet instant :{" "}
-                    {Math.round(Number(e.computed_global_progress) * 100) / 100} % · {new Date(e.created_at_server).toLocaleString("fr-FR")}
+                    {formatPercent(e.computed_global_progress)} · {new Date(e.created_at_server).toLocaleString("fr-FR")}
                   </li>
                 ))}
               </ol>

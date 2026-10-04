@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import { Button, AlertBanner, TextField } from "@/components/ui";
 import { saveDraftAction, publishPlanAction, updateProgressAction, restructurePlanAction, type PhaseActionState } from "./actions";
+import { formatPercent } from "./phasePlanDiff";
 
 type Action = (prev: PhaseActionState, formData: FormData) => Promise<PhaseActionState>;
 
@@ -102,6 +103,9 @@ export function DraftEditor({ projectId, expectedRevision, initialRows }: { proj
     <div className="flex flex-col gap-4">
       {save.error ? <AlertBanner variant="error" title="Enregistrement impossible" explanation={save.error} /> : null}
       {publish.error ? <AlertBanner variant="error" title="Publication impossible" explanation={publish.error} /> : null}
+      {save.state && "ok" in save.state && !save.pending ? (
+        <AlertBanner variant="information" title="Brouillon enregistré" explanation="Les étapes et les poids affichés sont enregistrés. Ils ne sont pas encore visibles par le propriétaire." />
+      ) : null}
       <RowEditor rows={rows} setRows={setRows} />
       <form action={save.formAction}>
         <input type="hidden" name="project_id" value={projectId} />
@@ -114,6 +118,7 @@ export function DraftEditor({ projectId, expectedRevision, initialRows }: { proj
       <form action={publish.formAction}>
         <input type="hidden" name="project_id" value={projectId} />
         <input type="hidden" name="expected_revision" value={expectedRevision} />
+        <input type="hidden" name="phases" value={toPhasesJson(rows, false)} />
         <Button type="submit" loading={publish.pending} disabled={sum !== 100}>
           Publier (verrouille les poids, démarre l&apos;avancement)
         </Button>
@@ -127,6 +132,12 @@ export function RestructureEditor({ projectId, expectedRevision, initialRows, on
   const [reason, setReason] = useState("");
   const op = useOp(restructurePlanAction);
   const sum = sumWeights(rows);
+  // Fermeture après succès : laisser le formulaire ouvert, motif conservé,
+  // permettait un second envoi identique enregistré comme une nouvelle
+  // modification dans l'historique.
+  useEffect(() => {
+    if (op.state && "ok" in op.state) onCancel();
+  }, [op.state, onCancel]);
   const impact = useMemo(() => {
     const total = rows.reduce((acc, r) => acc + (Number(r.weight) || 0) * r.progression, 0);
     return Math.round((total / 100) * 100) / 100;
@@ -143,7 +154,7 @@ export function RestructureEditor({ projectId, expectedRevision, initialRows, on
       <RowEditor rows={rows} setRows={setRows} />
       <TextField label="Motif de la modification" value={reason} onChange={(e) => setReason(e.target.value)} required />
       <p className="text-label font-semibold text-ink" data-testid="restructure-impact">
-        Impact immédiat sur l&apos;avancement global après confirmation : {impact} %
+        Impact immédiat sur l&apos;avancement global après confirmation : {formatPercent(impact)}
       </p>
       <form action={op.formAction} className="flex gap-3">
         <input type="hidden" name="project_id" value={projectId} />
@@ -168,7 +179,7 @@ export function ProgressForm({ projectId, phaseId, label, expectedRevision, init
     return (
       <div className="flex items-center justify-between gap-3">
         <span className="text-body text-ink">{label}</span>
-        <span className="text-body font-semibold text-ink">{initialProgression} %</span>
+        <span className="shrink-0 whitespace-nowrap text-body font-semibold text-ink">{formatPercent(initialProgression)}</span>
       </div>
     );
   }

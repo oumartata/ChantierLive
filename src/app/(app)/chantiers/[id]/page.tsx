@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, Button, StatusChip } from "@/components/ui";
+import { formatPercent } from "./avancement/phasePlanDiff";
 
 interface FinancialSummary {
   contract_amount_fcfa: string | null;
@@ -194,7 +195,7 @@ export default async function ChantierFichePage({
             <h2 className="text-h2 font-semibold text-ink">Avancement</h2>
             {phasePlan?.status === "PUBLIE" ? (
               <>
-                <p className="text-display font-bold text-ink">{Math.round(Number(phasePlan.global_progress) * 100) / 100} %</p>
+                <p className="text-display font-bold text-ink">{formatPercent(phasePlan.global_progress)}</p>
                 <StatusChip variant="info" label="Déclaré par l'entreprise" className="self-start" />
               </>
             ) : (

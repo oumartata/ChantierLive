@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
+import { isSameStructure, type CurrentPhase } from "./phasePlanDiff";
 
 export type PhaseActionState = { error: string } | { ok: true } | null;
 
@@ -82,12 +83,26 @@ export async function publishPlanAction(_prev: PhaseActionState, formData: FormD
   if (!guard.ok) return { error: guard.message };
   const projectId = formData.get("project_id");
   const revision = readRevision(formData);
-  if (!isUuid(projectId) || revision === null) return { error: "Requête invalide." };
+  const phases = readPhases(formData);
+  if (!isUuid(projectId) || revision === null || phases === null) return { error: "Requête invalide." };
 
+  // Publie exactement les étapes affichées : elles sont d'abord enregistrées
+  // dans le brouillon (révision attendue revérifiée par le serveur), puis la
+  // publication porte sur la révision ainsi obtenue — jamais sur un brouillon
+  // antérieur différent de l'écran.
   const supabase = await createClient();
+  const saved = await supabase.rpc("upsert_phase_plan_draft", {
+    p_project_id: projectId,
+    p_phases: phases,
+    p_expected_revision: revision,
+  });
+  if (saved.error) return { error: mapPhaseError(saved.error.message) };
+  const savedRow = Array.isArray(saved.data) ? saved.data[0] : saved.data;
+  if (typeof savedRow?.revision !== "number") return { error: mapPhaseError(undefined) };
+
   const { error } = await supabase.rpc("publish_phase_plan", {
     p_project_id: projectId,
-    p_expected_revision: revision,
+    p_expected_revision: savedRow.revision,
   });
   if (error) return { error: mapPhaseError(error.message) };
   return done(projectId);
@@ -128,6 +143,11 @@ export async function restructurePlanAction(_prev: PhaseActionState, formData: F
   }
 
   const supabase = await createClient();
+  const current = await supabase.rpc("list_project_phases", { p_project_id: projectId });
+  if (current.error) return { error: mapPhaseError(current.error.message) };
+  if (isSameStructure(phases, (current.data ?? []) as CurrentPhase[])) {
+    return { error: "Aucune modification : les étapes et les poids sont identiques à ceux en vigueur." };
+  }
   const { error } = await supabase.rpc("restructure_phase_plan", {
     p_project_id: projectId,
     p_phases: phases,
