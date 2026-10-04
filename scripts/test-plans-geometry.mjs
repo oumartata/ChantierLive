@@ -1784,6 +1784,229 @@ try {
       );
     }
 
+
+    // 26) Redimensionnement fiable en édition — correctifs B1/B2 (diagnostic
+    // d'usage du 2026-10-04, SUIVI_MOTEUR_PLANS_2D.md). resizeRoomDimension
+    // (champs) et checkRoomResize (poignées) : accepté intégralement sans
+    // anomalie NOUVELLE, ou refusé avec un motif précis sans jamais modifier
+    // l'état reçu ; mur de la porte gardé fixe ; pièces verrouillées et
+    // autres pièces jamais touchées.
+    {
+      const NEEDS_DIAG = [
+        { type: "chambre", label: "Chambre", count: 3, minWidth: 3, minDepth: 3, targetWidth: 3.5, targetDepth: 3.5 },
+        { type: "salon", label: "Salon", count: 1, minWidth: 4, minDepth: 4, targetWidth: 5, targetDepth: 4.5 },
+        { type: "cuisine", label: "Cuisine", count: 1, minWidth: 2.5, minDepth: 2.5, targetWidth: 3, targetDepth: 3 },
+        { type: "sanitaire", label: "Sanitaire", count: 2, minWidth: 1.5, minDepth: 1.8, targetWidth: 1.8, targetDepth: 2 },
+        { type: "garage", label: "Garage", count: 0, minWidth: 3, minDepth: 5, targetWidth: 3.5, targetDepth: 5.5 },
+      ];
+      // Cas exact du diagnostic : valeurs par défaut de l'écran (15×20, reculs 3/2/2/2).
+      const genDiag = (side) =>
+        g.generateVariants({
+          orientation: "N", setbacks: { front: 3, back: 2, left: 2, right: 2 }, entryMode: "direct", courtyardDepth: 3, centralSalon: false,
+          roomsConnectVia: "corridor", sanitaireConnectVia: "corridor", terrainWidth: 15, terrainDepth: 20, accessSide: side, needs: NEEDS_DIAG,
+        }).variants[0];
+      const idx = (L, label, number) => L.rooms.findIndex((r) => r.label === label && r.number === number);
+      const snapshot = (L) => JSON.stringify(L);
+      const sameOpening = (a, b) => Math.abs(a.cx - b.cx) < 1e-6 && Math.abs(a.cy - b.cy) < 1e-6 && Math.abs(a.width - b.width) < 1e-6;
+      const sameRect = (a, b) => Math.abs(a.x - b.x) < 1e-9 && Math.abs(a.y - b.y) < 1e-9 && Math.abs(a.w - b.w) < 1e-9 && Math.abs(a.d - b.d) < 1e-9;
+
+      const front = genDiag("front");
+      record("26. Cas du diagnostic généré sans anomalie (15×20, accès avant)", !!front && g.independentVerify(front).length === 0);
+      const c1 = idx(front, "Chambre", 1);
+
+      // B2 — reproduction exacte puis correctif.
+      {
+        const before = snapshot(front);
+        const r = front.rooms[c1];
+        const old = g.resizeRoom(front, c1, r.x, r.y, r.w, 3.2);
+        const oldNew = old ? g.newVerificationIssues(front, old) : [];
+        record(
+          "26. B2 reproduit : l'ancien ancrage haut-gauche (resizeRoom seul) coupe Chambre 1 de la circulation",
+          oldNew.some((m) => m.includes("n'est reliée au dégagement")),
+          oldNew.join(" | ")
+        );
+        const a = g.resizeRoomDimension(front, c1, "d", 3.2);
+        record(
+          "26. B2 corrigé : profondeur 3,50 → 3,20 refusée explicitement (mur bas de la porte gardé fixe, nouvelle anomalie nommée)",
+          a.kind === "refused" && a.reason.includes("Mur bas") && a.reason.includes("circulation") && a.reason.includes("Chambre 1"),
+          a.kind === "refused" ? a.reason : a.kind
+        );
+        record("26. B2 : refus sans aucune mutation de l'état reçu", snapshot(front) === before);
+        const viaHandles = g.checkRoomResize(front, c1, { x: r.x, y: r.y, w: r.w, d: 3.2 });
+        record(
+          "26. B2 par les poignées (même rectangle, mur bas déplacé) : refusé, motif nommant la porte du mur bas",
+          !viaHandles.ok && viaHandles.reason.includes("La porte de « Chambre 1 » (mur bas)"),
+          viaHandles.ok ? "accepté" : viaHandles.reason
+        );
+      }
+
+      // B1 — reproduction exacte : largeur 3,50 refusée, motif précis, plan intact.
+      {
+        const before = snapshot(front);
+        const a = g.resizeRoomDimension(front, c1, "w", 3.5);
+        record(
+          "26. B1 : largeur 3,50 refusée avec la cause et l'élément concerné (« Chambre 2 »)",
+          a.kind === "refused" && a.reason.includes("chevaucherait") && a.reason.includes("« Chambre 2 »"),
+          a.kind === "refused" ? a.reason : a.kind
+        );
+        record("26. B1 : refus sans mutation (largeur réelle toujours 3,03)", snapshot(front) === before && Math.abs(front.rooms[c1].w - 3.0333333) < 1e-3);
+        const same = g.resizeRoomDimension(front, c1, "w", Number(front.rooms[c1].w.toFixed(2)));
+        record("26. Ressaisir la valeur affichée (2 décimales) n'est pas un changement", same.kind === "unchanged", same.kind);
+        const below = g.resizeRoomDimension(front, c1, "w", 2.5);
+        record("26. Sous le minimum : motif chiffré", below.kind === "refused" && below.reason.includes("minimum") && below.reason.includes("3,00 m"), below.kind === "refused" ? below.reason : below.kind);
+      }
+
+      // Balayage : chaque pièce, chaque dimension, ±0,3 / +0,6 m, sur les
+      // quatre façades. Tout résultat accepté doit préserver l'accès, toutes
+      // les portes, les autres pièces ; tout refus laisse l'état intact.
+      const doorWallsAccepted = new Set();
+      let accepted = 0;
+      let refused = 0;
+      let acceptedFaults = [];
+      let nonDefaultAnchor = 0;
+      for (const side of ["front", "back", "left", "right"]) {
+        const L = genDiag(side);
+        const before = snapshot(L);
+        const reachBefore = g.computeReachableRooms(L);
+        L.rooms.forEach((room, i) => {
+          for (const field of ["w", "d"]) {
+            for (const delta of [-0.3, 0.3, 0.6]) {
+              const value = (field === "w" ? room.w : room.d) + delta;
+              const a = g.resizeRoomDimension(L, i, field, value);
+              if (a.kind === "refused") { refused++; continue; }
+              if (a.kind !== "applied") continue;
+              accepted++;
+              const N = a.layout;
+              const faults = [];
+              if (g.newVerificationIssues(L, N).length > 0) faults.push("anomalie nouvelle");
+              const reachAfter = g.computeReachableRooms(N);
+              if (![...reachBefore].every((k) => reachAfter.has(k))) faults.push("accès perdu");
+              const newSize = field === "w" ? N.rooms[i].w : N.rooms[i].d;
+              if (Math.abs(newSize - value) > 1e-9) faults.push("dimension non appliquée intégralement");
+              L.doors.forEach((d, k) => { if (!sameOpening(d, N.doors[k])) faults.push("porte modifiée"); });
+              L.rooms.forEach((o, k) => { if (k !== i && !sameRect(o, N.rooms[k])) faults.push(`pièce ${k} modifiée`); });
+              L.windows.forEach((w, k) => { if (w.roomIndex !== i && !sameOpening(w, N.windows[k])) faults.push("fenêtre d'une autre pièce modifiée"); });
+              if (faults.length) acceptedFaults.push(`${side} ${room.label} ${room.number} ${field}${delta}: ${faults.join(",")}`);
+              for (const d of g.doorsOf(L, i)) doorWallsAccepted.add(d.wall);
+              if (/mur (droit|bas) conservé/.test(a.message) && !/\(/.test(a.message)) nonDefaultAnchor++;
+            }
+          }
+        });
+        record(`26. Balayage ${side} : aucun refus ni essai n'a modifié l'état reçu`, snapshot(L) === before);
+      }
+      record(
+        "26. Balayage 4 façades : toute modification acceptée conserve accès, portes, autres pièces, et applique la valeur exacte",
+        accepted > 0 && acceptedFaults.length === 0,
+        `${accepted} acceptées, ${refused} refusées${acceptedFaults.length ? " — " + acceptedFaults.slice(0, 3).join(" ; ") : ""}`
+      );
+      record(
+        "26. Modifications acceptées sur des pièces dont la porte est sur chacun des quatre murs",
+        ["left", "right", "top", "bottom"].every((w) => doorWallsAccepted.has(w)),
+        [...doorWallsAccepted].sort().join(",")
+      );
+      record("26. Le bord fixe non standard (droit/bas) est choisi et annoncé quand le bord haut/gauche échoue", nonDefaultAnchor > 0, `${nonDefaultAnchor} cas`);
+
+      // Pièce verrouillée : refus explicite pour elle, strictement inchangée
+      // quand une autre pièce est redimensionnée.
+      {
+        const L = genDiag("left");
+        const target = idx(L, "Salon", 1);
+        const lockedIdx = idx(L, "Chambre", 3);
+        const locked = g.lockRoom(L, lockedIdx);
+        const refusedLocked = g.resizeRoomDimension(locked, lockedIdx, "d", locked.rooms[lockedIdx].d - 0.3);
+        record("26. Pièce verrouillée : redimensionnement refusé avec motif", refusedLocked.kind === "refused" && refusedLocked.reason.includes("verrouillée"), refusedLocked.kind === "refused" ? refusedLocked.reason : refusedLocked.kind);
+        const a = g.resizeRoomDimension(locked, target, "d", locked.rooms[target].d - 0.3);
+        const lockedSame =
+          a.kind === "applied" &&
+          sameRect(locked.rooms[lockedIdx], a.layout.rooms[lockedIdx]) &&
+          a.layout.rooms[lockedIdx].locked === true &&
+          locked.doors.every((d, k) => d.roomIndex !== lockedIdx || sameOpening(d, a.layout.doors[k])) &&
+          locked.windows.every((w, k) => w.roomIndex !== lockedIdx || sameOpening(w, a.layout.windows[k]));
+        record("26. Pièce verrouillée strictement inchangée (position, dimensions, portes, fenêtres) quand une autre pièce est modifiée", lockedSame, a.kind === "applied" ? a.message : a.kind === "refused" ? a.reason : a.kind);
+      }
+
+      // Autre pièce affectée : le refus nomme l'autre pièce, rien n'est modifié.
+      {
+        const L = genDiag("front");
+        const before = snapshot(L);
+        const salon = idx(L, "Salon", 1);
+        const a = g.resizeRoomDimension(L, salon, "d", L.rooms[salon].d + 0.3);
+        record(
+          "26. Conséquence sur une autre pièce détectée : refus qui nomme la pièce touchée (« Cuisine 1 »), état intact",
+          a.kind === "refused" && a.reason.includes("« Cuisine 1 »") && snapshot(L) === before,
+          a.kind === "refused" ? a.reason : a.kind
+        );
+      }
+
+      // Fenêtre : jamais déplacée le long de son mur ni réduite.
+      {
+        const L = genDiag("left");
+        const k = idx(L, "Cuisine", 1);
+        const room = L.rooms[k];
+        const winIdx = L.windows.findIndex((w) => w.roomIndex === k);
+        const shifted = g.cloneLayout(L);
+        const w = shifted.windows[winIdx];
+        // Fenêtre poussée contre l'extrémité gauche de son mur (haut) : une
+        // réduction ancrée à gauche la ferait glisser.
+        w.cx = room.x + w.width / 2;
+        const leftAnchored = g.checkRoomResize(shifted, k, { x: room.x, y: room.y, w: room.w - 0.3, d: room.d });
+        // Fenêtre poussée à droite : la même réduction ancrée à gauche la décale.
+        const shiftedRight = g.cloneLayout(L);
+        shiftedRight.windows[winIdx].cx = room.x + room.w - shiftedRight.windows[winIdx].width / 2;
+        const clampCase = g.checkRoomResize(shiftedRight, k, { x: room.x, y: room.y, w: room.w - 0.3, d: room.d });
+        record(
+          "26. Fenêtre qui serait décalée le long de son mur : refus explicite (« La fenêtre »)",
+          !clampCase.ok && clampCase.reason.includes("La fenêtre"),
+          clampCase.ok ? "accepté" : clampCase.reason
+        );
+        const viaField = g.resizeRoomDimension(shiftedRight, k, "w", room.w - 0.3);
+        record(
+          "26. Même cas par le champ : l'autre bord est essayé et annoncé, fenêtre intacte, ou refus motivé — jamais un déplacement silencieux",
+          (viaField.kind === "applied" && viaField.message.includes("mur droit conservé") && sameOpening(shiftedRight.windows[winIdx], viaField.layout.windows[winIdx])) ||
+            (viaField.kind === "refused" && viaField.reason.length > 0),
+          viaField.kind === "applied" ? viaField.message : viaField.kind === "refused" ? viaField.reason : viaField.kind
+        );
+        record("26. Fenêtre déjà au bord fixe : réduction ancrée acceptée", leftAnchored.ok === true, leftAnchored.ok ? "accepté" : leftAnchored.reason);
+      }
+
+      // Ancrage ambigu : portes sur les deux bords de l'axe → refus précis.
+      {
+        const L = genDiag("left");
+        const k = idx(L, "Chambre", 1);
+        const room = L.rooms[k];
+        const own = g.doorsOf(L, k)[0];
+        const ambiguous = g.cloneLayout(L);
+        const opposite = own.wall === "left" ? "right" : "left";
+        ambiguous.doors.push({ ...own, wall: opposite, cx: opposite === "right" ? room.x + room.w : room.x, cy: room.y + room.d / 2 });
+        const before = snapshot(ambiguous);
+        const a = g.resizeRoomDimension(ambiguous, k, "w", room.w - 0.3);
+        record(
+          "26. Portes sur les deux murs de l'axe : refus « plutôt que de choisir arbitrairement », état intact",
+          a.kind === "refused" && a.reason.includes("arbitrairement") && snapshot(ambiguous) === before,
+          a.kind === "refused" ? a.reason : a.kind
+        );
+      }
+
+      // Annuler/rétablir au niveau du moteur : une modification acceptée est
+      // une disposition distincte ; la modification inverse rend exactement la
+      // géométrie de départ (l'historique de l'éditeur empile ces dispositions).
+      {
+        const L = genDiag("left");
+        const k = idx(L, "Salon", 1);
+        const d0 = L.rooms[k].d;
+        const there = g.resizeRoomDimension(L, k, "d", d0 - 0.3);
+        const back = there.kind === "applied" ? g.resizeRoomDimension(there.layout, k, "d", d0) : null;
+        record(
+          "26. Modification acceptée puis inverse : géométrie et ouvertures identiques à l'origine",
+          there.kind === "applied" && there.layout !== L && back?.kind === "applied" &&
+            L.rooms.every((r, i) => sameRect(r, back.layout.rooms[i])) &&
+            L.doors.every((d, i) => sameOpening(d, back.layout.doors[i])) &&
+            L.windows.every((w, i) => sameOpening(w, back.layout.windows[i])),
+          there.kind === "applied" ? there.message : there.kind
+        );
+      }
+    }
+
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

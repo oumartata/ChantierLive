@@ -239,6 +239,15 @@ L'entrée n° 5 (doublon de D3) **reste dans l'historique du chantier de
 démonstration** : l'historique est append-only, et un déclencheur refuse
 toute modification ou suppression. Rien n'a été contourné pour l'effacer.
 
+Nature du doublon, vérifiée en base le 2026-10-04 : il s'agit de **deux
+actions distinctes**, et non d'une seule action enregistrée deux fois. Les
+événements n° 4 et n° 5 ont chacun leur numéro de séquence et leur
+horodatage (18:38:18 puis 18:38:40 UTC, soit 21,6 s d'écart). Le n° 5
+correspond au second clic sur « Confirmer » dans l'éditeur resté ouvert ;
+sa valeur précédente est identique à sa nouvelle valeur (aucun
+changement). C'est exactement le cas que le correctif D3 empêche
+désormais.
+
 Tests : `scripts/test-phase-plan-actions.mjs` 17/17 (logique pure et
 séquence RPC exacte de la publication corrigée) ; non-régression
 `scripts/test-project-phases.mjs` 37/37. Limite : les Server Actions Next

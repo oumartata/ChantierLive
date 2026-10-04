@@ -217,9 +217,9 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 
 | # | Gestes exacts | Attendu | Obtenu |
 |---|---|---|---|
-| B1 | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
-| B2 | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
-| B3 | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant |
+| B1 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
+| B2 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
+| B3 — *reclassé : limite de recherche à analyser* | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
 | B4 | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
 | B5 | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
 
@@ -242,7 +242,7 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 | # | Constat |
 |---|---|
 | F1 | Aucun outil pour déplacer, ajouter ou supprimer une **fenêtre** : seules les portes sont éditables (aucune commande, confirmé dans `PlanEditor.tsx`) |
-| F2 | Aucune régénération qui accepte de **redimensionner** les pièces non verrouillées autour d'un verrou ; c'est la limite derrière B3 |
+| F2 | Aucune régénération qui accepte de **redimensionner** les pièces non verrouillées autour d'un verrou. **Hypothèse non démontrée** : cette absence pourrait expliquer B3 ; à confirmer par l'analyse de B3 avant tout développement |
 
 #### Premier correctif proposé (non développé)
 
@@ -266,6 +266,90 @@ la vérification existante. Tests : cas ajoutés à
 puis parcours navigateur B1/B2 rejoué. B4 (tableau mobile) est le
 candidat suivant : correction de présentation isolée. B3/F2 relèvent du
 moteur et demandent un lot dédié.
+
+### Correctif B1/B2 — redimensionnement fiable (réalisé le 2026-10-04)
+
+Autorisé par le fondateur le 2026-10-04. Point de départ : HEAD `8396683`,
+arbre propre. Brouillon de test isolé : profil Playwright vierge sur
+`http://localhost:3001`, aucune clé de stockage avant le test. Aucun
+brouillon existant n'a été touché. Le navigateur intégré a été abandonné
+pour ce parcours : panneau masqué de 279 px, captures expirées (« Screenshot
+timed out after 5s: the page did not finish rendering in time ») et clics
+décalés sous émulation.
+
+**Règle appliquée** : une modification de dimensions est acceptée en
+entier (une seule entrée Annuler/Rétablir), ou refusée sans toucher au plan
+(aucune entrée d'historique), avec un motif persistant qui nomme la cause
+et l'élément concerné.
+
+**Fichiers touchés et raison :**
+- `geometry.ts` : c'est le seul module qui connaît portes, chevauchements
+  et vérification indépendante. Ajouts : `resizeRoomDimension` (choix du mur
+  fixe), `checkRoomResize` (contrôle complet sur copie candidate),
+  `newVerificationIssues`. `resizeRoom` est inchangée.
+- `PlanEditor.tsx` : branchement des champs ET des poignées sur ces
+  contrôles, avis persistants par champ, champ remonté sur la valeur réelle
+  après un refus.
+- `scripts/test-plans-geometry.mjs` : section 26, 24 tests.
+
+**Comportement :**
+- Le mur fixe est déduit des **coordonnées réelles** des portes qui
+  desservent la pièce : ses portes, celles d'autres pièces qui y
+  débouchent, l'entrée, la porte véhicule. Une porte compte sur un bord
+  seulement si sa ligne coïncide avec ce bord et si toute sa largeur y tient.
+- Portes sur les deux bords de l'axe modifié : refus « plutôt que de choisir
+  arbitrairement ».
+- Aucune porte sur l'axe : bord haut/gauche fixe d'abord, sinon le bord
+  opposé. Le bord conservé est annoncé dans le message.
+- Sur la copie candidate :
+  - aucune porte (de la pièce ou véhicule) ne bouge ni ne rétrécit ;
+  - une fenêtre peut suivre son propre mur, mais ne glisse pas le long de
+    ce mur et ne rétrécit pas ;
+  - aucune anomalie **nouvelle** sur l'ensemble du plan (accès depuis
+    l'entrée, portes des autres pièces, fenêtres extérieures,
+    chevauchements, emprise) ; les anomalies préexistantes ne bloquent pas.
+- Les autres pièces ne sont jamais modifiées. Les pièces verrouillées sont
+  inchangées, et une pièce verrouillée ne se redimensionne pas.
+
+**Preuves :**
+
+| Preuve | Résultat |
+|---|---|
+| `test-plans-geometry.mjs` | **779/779** (755 antérieurs + 24 nouveaux) |
+| Reproduction de B2 | L'ancien ancrage coupe l'accès de Chambre 1 ; le nouveau refuse explicitement, état intact ; même refus par les poignées |
+| Reproduction de B1 | Refus nommant « Chambre 2 », largeur réelle intacte ; ressaisir la valeur affichée ne compte pas comme un changement |
+| Balayage des 4 façades × 7 pièces × 2 dimensions × 3 écarts | 32 acceptés, 136 refusés. Chaque acceptation conserve accès, portes et autres pièces, et applique la valeur exacte ; aucun refus ne modifie l'état reçu |
+| Portes sur les 4 murs | Acceptations sur des pièces dont la porte est en haut, en bas, à gauche et à droite |
+| Pièce verrouillée | Refusée pour elle-même ; inchangée quand une autre pièce est modifiée |
+| Autre pièce affectée | Refus nommant « Cuisine 1 » |
+| Fenêtre décalée le long du mur | Refusée ; par le champ, le bord opposé est essayé et annoncé, fenêtre intacte |
+| Ancrage ambigu | Refus motivé |
+| Aller-retour (modification puis modification inverse) | Géométrie identique |
+
+**Navigateur** (captures dans
+`exports/preuves/generateur-correctif-2026-10-04/`, hors Git) :
+- Chambre 1, largeur `3.50` → Tab : avis « Largeur — refusé, plan inchangé :
+  « Chambre 1 » chevaucherait « Chambre 2 » » ; champ revenu à 3,03 ;
+  « Annuler » désactivé.
+- Puis profondeur `3.20` → Tab : second avis (« Mur bas de « Chambre 1 »
+  gardé fixe (la porte vers la circulation). Refusé, ce changement créerait
+  une anomalie : … ») ; champs à 3,03 / 3,50 ; le premier avis reste
+  affiché, y compris 3 s plus tard ; aucune anomalie dans le brouillon.
+- Salon 1, largeur 4,38 → 4,08 : « appliqué, mur gauche conservé ». Un seul
+  Annuler revient à 4,38 et désactive Annuler. Rétablir réapplique 4,08. Le
+  brouillon stocké suit chaque étape.
+
+**Limite mise en évidence, non traitée (hors périmètre)** : dans un plan en
+rangées, une variation de profondeur d'une pièce de façade est presque
+toujours refusée. Le vérificateur existant ne juge un mur extérieur que
+s'il touche le **rectangle englobant** du bâti (`hasExteriorTouch`,
+`openingLeadsOutside`). Une pièce en retrait, ou les voisines d'une pièce
+agrandie, perdent alors leur « ouverture extérieure ». Le refus est
+cohérent avec les contrôles existants, comme demandé, mais cette règle
+prudente devient le principal frein à l'édition des dimensions. À analyser
+dans un lot dédié ; aucune règle de vérification n'a été modifiée ici.
+L'aperçu des poignées reste un contrôle rapide : un rectangle affiché comme
+possible peut encore être refusé au relâchement, avec motif.
 
 ---
 

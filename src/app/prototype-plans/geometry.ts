@@ -2760,6 +2760,249 @@ export function resizeRoom(layout: Layout, roomIndex: number, newX: number, newY
   return recomputeDerivedGeometry(next);
 }
 
+// ---------------------------------------------------------------------------
+// Redimensionnement FIABLE en édition (correctifs B1/B2, diagnostic du
+// 2026-10-04, SUIVI_MOTEUR_PLANS_2D.md). resizeRoom ci-dessus applique un
+// rectangle tel quel ; les fonctions suivantes décident QUEL rectangle
+// demander et si le résultat est acceptable, sans jamais modifier l'état
+// reçu (copie candidate seulement) :
+//   - accepté intégralement : une seule nouvelle disposition, aucune
+//     anomalie NOUVELLE par rapport à l'état de départ (les anomalies
+//     préexistantes ne bloquent pas, une nouvelle dégradation si) ;
+//   - ou refusé avec un motif précis nommant la cause et l'élément concerné.
+// Aucun autre élément n'est translaté, réduit ou régénéré : seule la pièce
+// visée et ses propres ouvertures changent, les pièces verrouillées jamais.
+
+export type ResizeEdge = WallSide;
+
+export type ResizeAttempt =
+  | { kind: "applied"; layout: Layout; message: string }
+  | { kind: "refused"; reason: string }
+  | { kind: "unchanged" };
+
+// Tolérance d'égalité d'une dimension saisie : la précision affichée dans
+// les champs (2 décimales). Ressaisir la valeur affichée n'est pas un
+// changement — jamais une micro-modification issue d'un arrondi d'affichage.
+const RESIZE_FIELD_TOLERANCE = 0.005;
+const EDGE_EPS = 1e-6;
+
+const EDGE_LABEL: Record<WallSide, string> = { left: "gauche", right: "droit", top: "haut", bottom: "bas" };
+
+function fmtM(v: number): string {
+  return `${v.toFixed(2).replace(".", ",")} m`;
+}
+
+function roomName(r: PlacedRoom): string {
+  return `« ${r.label} ${r.number} »`;
+}
+
+// Bord de la pièce sur lequel se trouve RÉELLEMENT une ouverture, déduit de
+// ses coordonnées (jamais du seul nom de mur enregistré) : la ligne de la
+// baie doit coïncider avec le bord, et toute sa largeur doit tenir dans ce
+// bord. null si l'ouverture ne repose sur aucun bord de cette pièce.
+function edgeCarryingOpening(room: Rect, o: { cx: number; cy: number; width: number }): WallSide | null {
+  const half = o.width / 2;
+  const onVertical = (lineX: number) =>
+    Math.abs(o.cx - lineX) < EDGE_EPS && o.cy - half >= room.y - EDGE_EPS && o.cy + half <= room.y + room.d + EDGE_EPS;
+  const onHorizontal = (lineY: number) =>
+    Math.abs(o.cy - lineY) < EDGE_EPS && o.cx - half >= room.x - EDGE_EPS && o.cx + half <= room.x + room.w + EDGE_EPS;
+  if (onVertical(room.x)) return "left";
+  if (onVertical(room.x + room.w)) return "right";
+  if (onHorizontal(room.y)) return "top";
+  if (onHorizontal(room.y + room.d)) return "bottom";
+  return null;
+}
+
+interface RoomPassage {
+  edge: WallSide;
+  label: string;
+}
+
+// Toutes les PORTES qui desservent la pièce (les siennes, celles d'autres
+// pièces qui débouchent dans elle, l'entrée du bâti, la porte véhicule),
+// avec le bord qu'elles occupent réellement. Ce sont les murs à garder fixes.
+function passagesOfRoom(layout: Layout, roomIndex: number): RoomPassage[] {
+  const room = layout.rooms[roomIndex];
+  const rect = roomRect(room);
+  const out: RoomPassage[] = [];
+  for (const d of layout.doors) {
+    const own = d.roomIndex === roomIndex;
+    const incoming = d.to.kind === "room" && d.to.index === roomIndex;
+    if (!own && !incoming) continue;
+    const edge = edgeCarryingOpening(rect, d);
+    if (!edge) continue;
+    let label: string;
+    if (own) {
+      label =
+        d.to.kind === "circulation"
+          ? "la porte vers la circulation"
+          : d.to.kind === "room"
+            ? `la porte vers ${roomName(layout.rooms[d.to.index])}`
+            : d.to.kind === "courtyard"
+              ? "la porte vers la cour"
+              : "la porte extérieure";
+    } else {
+      label = `la porte de ${roomName(layout.rooms[d.roomIndex])}`;
+    }
+    out.push({ edge, label });
+  }
+  if (layout.entryDoor) {
+    const edge = edgeCarryingOpening(rect, layout.entryDoor);
+    if (edge) out.push({ edge, label: "l'entrée du logement" });
+  }
+  if (room.vehicleDoor) {
+    const edge = edgeCarryingOpening(rect, room.vehicleDoor);
+    if (edge) out.push({ edge, label: "la porte véhicule" });
+  }
+  return out;
+}
+
+// Nom de l'élément qui empêche un rectangle candidat (premier trouvé), pour
+// un motif de refus précis — même liste d'obstacles que roomBlocksAt.
+function blockerName(layout: Layout, excludeIndex: number, candidate: Rect): string | null {
+  const named: [Rect | null, string][] = [
+    [layout.corridor, "la circulation"],
+    [layout.courtyard, "la cour réservée"],
+    ...layout.corridorFillers.map((r): [Rect, string] => [r, "la circulation"]),
+    ...layout.circulations.map((r): [Rect, string] => [r, "la circulation"]),
+    ...(layout.exteriorPaths ?? []).map((r): [Rect, string] => [r, "le cheminement extérieur"]),
+  ];
+  for (const [r, name] of named) if (r && rectsOverlap(candidate, r)) return name;
+  for (let i = 0; i < layout.rooms.length; i++) {
+    if (i === excludeIndex || layout.rooms[i].parked) continue;
+    if (rectsOverlap(candidate, roomRect(layout.rooms[i]))) return roomName(layout.rooms[i]);
+  }
+  return null;
+}
+
+function issueCounts(issues: VerificationIssue[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const i of issues) m.set(i.message, (m.get(i.message) ?? 0) + 1);
+  return m;
+}
+
+// Anomalies présentes après et absentes avant (multi-ensemble de messages :
+// une seconde occurrence d'un message déjà présent compte comme nouvelle).
+export function newVerificationIssues(before: Layout, after: Layout): string[] {
+  const prev = issueCounts(independentVerify(before));
+  const out: string[] = [];
+  for (const [msg, n] of issueCounts(independentVerify(after))) {
+    for (let k = prev.get(msg) ?? 0; k < n; k++) out.push(msg);
+  }
+  return out;
+}
+
+// Contrôle complet d'un rectangle candidat pour la pièce, sur une COPIE :
+// verrou, minimums, emprise, chevauchement (nommé), ouvertures de la pièce
+// (aucune porte ne bouge ni ne rétrécit ; une fenêtre ne peut que suivre son
+// propre mur déplacé, sans rétrécir), puis aucune anomalie nouvelle sur
+// l'ensemble du plan (accès depuis l'entrée, portes des autres pièces,
+// fenêtres extérieures, chevauchements…). Utilisé par la saisie numérique ET
+// par les poignées : une seule définition de « redimensionnement acceptable ».
+export function checkRoomResize(layout: Layout, roomIndex: number, candidate: Rect): { ok: true; layout: Layout } | { ok: false; reason: string } {
+  const room = layout.rooms[roomIndex];
+  if (!room || !layout.emprise) return { ok: false, reason: "Pièce introuvable." };
+  const name = roomName(room);
+  if (room.parked) return { ok: false, reason: `${name} est de côté : replacez-la avant de la redimensionner.` };
+  if (room.locked) return { ok: false, reason: `${name} est verrouillée : déverrouillez-la avant de la redimensionner.` };
+  if (candidate.w < room.minW - 1e-6) return { ok: false, reason: `Largeur ${fmtM(candidate.w)} inférieure au minimum de ${name} (${fmtM(room.minW)}).` };
+  if (candidate.d < room.minD - 1e-6) return { ok: false, reason: `Profondeur ${fmtM(candidate.d)} inférieure au minimum de ${name} (${fmtM(room.minD)}).` };
+  if (!rectWithin(candidate, layout.emprise)) return { ok: false, reason: `${name} sortirait de l'emprise constructible.` };
+  const blocker = blockerName(layout, roomIndex, candidate);
+  if (blocker) return { ok: false, reason: `${name} chevaucherait ${blocker}.` };
+
+  const next = resizeRoom(layout, roomIndex, candidate.x, candidate.y, candidate.w, candidate.d);
+  if (!next) return { ok: false, reason: `Redimensionnement de ${name} impossible.` };
+
+  const before = roomRect(room);
+  const sameOpening = (a: { cx: number; cy: number; width: number }, b: { cx: number; cy: number; width: number }) =>
+    Math.abs(a.cx - b.cx) < EDGE_EPS && Math.abs(a.cy - b.cy) < EDGE_EPS && Math.abs(a.width - b.width) < EDGE_EPS;
+  for (let k = 0; k < layout.doors.length; k++) {
+    const d = layout.doors[k];
+    if (d.roomIndex !== roomIndex) continue;
+    if (!sameOpening(d, next.doors[k])) {
+      const edge = edgeCarryingOpening(before, d);
+      return { ok: false, reason: `La porte de ${name} (mur ${EDGE_LABEL[edge ?? d.wall]}) serait déplacée ou réduite : redimensionnement refusé.` };
+    }
+  }
+  if (room.vehicleDoor && next.rooms[roomIndex].vehicleDoor && !sameOpening(room.vehicleDoor, next.rooms[roomIndex].vehicleDoor!)) {
+    return { ok: false, reason: `La porte véhicule de ${name} serait déplacée ou réduite : redimensionnement refusé.` };
+  }
+  for (let k = 0; k < layout.windows.length; k++) {
+    const w = layout.windows[k];
+    if (w.roomIndex !== roomIndex) continue;
+    const nw = next.windows[k];
+    const edge = edgeCarryingOpening(before, w);
+    const vertical = w.wall === "left" || w.wall === "right";
+    const along = vertical ? Math.abs(w.cy - nw.cy) : Math.abs(w.cx - nw.cx);
+    if (Math.abs(w.width - nw.width) > EDGE_EPS || along > EDGE_EPS) {
+      return { ok: false, reason: `La fenêtre de ${name} (mur ${EDGE_LABEL[edge ?? w.wall]}) serait déplacée le long du mur ou réduite : redimensionnement refusé.` };
+    }
+  }
+
+  const fresh = newVerificationIssues(layout, next);
+  if (fresh.length > 0) {
+    const more = fresh.length > 1 ? ` (et ${fresh.length - 1} autre(s) anomalie(s) nouvelle(s))` : "";
+    return { ok: false, reason: `Refusé, ce changement créerait une anomalie : ${fresh[0]}${more}` };
+  }
+  return { ok: true, layout: next };
+}
+
+// Saisie numérique d'UNE dimension (largeur ou profondeur). Le mur à garder
+// fixe est choisi d'après les portes réellement posées sur les deux bords
+// concernés (gauche/droit pour la largeur, haut/bas pour la profondeur) :
+//   - portes sur un seul de ces bords : ce bord reste fixe (l'autre bouge) ;
+//   - portes sur les deux bords : ancrage ambigu, refus explicite plutôt
+//     qu'un choix arbitraire qui couperait forcément l'un des passages ;
+//   - aucune porte sur ces bords : bord haut/gauche fixe d'abord (comportement
+//     historique), sinon le bord opposé ; le bord conservé est annoncé.
+// Chaque essai passe par checkRoomResize ; le premier essai refusé donne le
+// motif retenu si aucun ne passe.
+export function resizeRoomDimension(layout: Layout, roomIndex: number, field: "w" | "d", value: number): ResizeAttempt {
+  const room = layout.rooms[roomIndex];
+  if (!room) return { kind: "refused", reason: "Pièce introuvable." };
+  if (!Number.isFinite(value) || value <= 0) return { kind: "refused", reason: "Dimension invalide : saisissez une valeur positive en mètres." };
+  const current = field === "w" ? room.w : room.d;
+  if (Math.abs(value - current) < RESIZE_FIELD_TOLERANCE) return { kind: "unchanged" };
+
+  const name = roomName(room);
+  const [lowEdge, highEdge]: [WallSide, WallSide] = field === "w" ? ["left", "right"] : ["top", "bottom"];
+  const passages = passagesOfRoom(layout, roomIndex);
+  const onLow = passages.filter((p) => p.edge === lowEdge);
+  const onHigh = passages.filter((p) => p.edge === highEdge);
+  if (onLow.length > 0 && onHigh.length > 0) {
+    return {
+      kind: "refused",
+      reason: `${name} a ${onLow[0].label} sur le mur ${EDGE_LABEL[lowEdge]} et ${onHigh[0].label} sur le mur ${EDGE_LABEL[highEdge]} : changer la ${field === "w" ? "largeur" : "profondeur"} déplacerait forcément l'un de ces passages. Refusé plutôt que de choisir arbitrairement.`,
+    };
+  }
+
+  const keepEdges: WallSide[] = onHigh.length > 0 ? [highEdge] : onLow.length > 0 ? [lowEdge] : [lowEdge, highEdge];
+  let firstRefusal: string | null = null;
+  for (const keep of keepEdges) {
+    const rect: Rect = { x: room.x, y: room.y, w: room.w, d: room.d };
+    if (field === "w") {
+      rect.w = value;
+      if (keep === "right") rect.x = room.x + room.w - value;
+    } else {
+      rect.d = value;
+      if (keep === "bottom") rect.y = room.y + room.d - value;
+    }
+    const check = checkRoomResize(layout, roomIndex, rect);
+    if (check.ok) {
+      const why = keepEdges.length === 1 ? ` (${(onHigh[0] ?? onLow[0]).label})` : "";
+      return {
+        kind: "applied",
+        layout: check.layout,
+        message: `${field === "w" ? "Largeur" : "Profondeur"} de ${name} : ${fmtM(current)} → ${fmtM(value)}, mur ${EDGE_LABEL[keep]} conservé${why}.`,
+      };
+    }
+    firstRefusal ??=
+      keepEdges.length === 1 ? `Mur ${EDGE_LABEL[keep]} de ${name} gardé fixe (${(onHigh[0] ?? onLow[0]).label}). ${check.reason}` : check.reason;
+  }
+  return { kind: "refused", reason: firstRefusal ?? `Redimensionnement de ${name} impossible.` };
+}
+
 // Met une pièce de côté (zone de rangement temporaire) : identité, type,
 // numéro et dimensions conservés à l'identique, mais la porte est retirée —
 // un rattachement à un mur qui n'existe plus une fois la pièce hors du

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  checkRoomResize,
   cloneLayout,
   doorsOf,
   flipDoorSwing,
@@ -13,6 +14,7 @@ import {
   regenerateUnlocked,
   removeDoor,
   resizeRoom,
+  resizeRoomDimension,
   tryMoveRoom,
   unlockRoom,
   wallAdjacency,
@@ -47,6 +49,7 @@ const ALIGN_THRESHOLD = 0.12; // m — accrochage aux bords d'autres pièces
 
 type Tool = "select" | "move" | "resize" | "add-door" | "remove-door";
 type Corner = "nw" | "ne" | "sw" | "se";
+type ResizeSource = "w" | "d" | "handles";
 const OPPOSITE_CORNER: Record<Corner, Corner> = { nw: "se", ne: "sw", sw: "ne", se: "nw" };
 
 const WALL_LABEL: Record<WallSide, string> = { left: "gauche", right: "droite", top: "haut", bottom: "bas" };
@@ -86,6 +89,20 @@ export function PlanEditor({
   const [tool, setTool] = useState<Tool>("select");
   const [selected, setSelected] = useState<number | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
+  // Avis PERSISTANTS du redimensionnement (correctif B1) : un par source
+  // (champ largeur, champ profondeur, poignées), rattachés à la pièce
+  // concernée. Jamais un flash temporaire : un refus reste affiché tant que
+  // l'utilisateur ne retente pas CETTE même dimension, ne change pas de
+  // pièce, n'annule/rétablit ou ne le ferme — une action sur l'autre champ
+  // ne l'efface jamais.
+  const [resizeNotices, setResizeNotices] = useState<{
+    roomIndex: number;
+    entries: Partial<Record<ResizeSource, { kind: "refused" | "applied"; text: string }>>;
+  } | null>(null);
+  // Incrémenté à chaque refus : force les champs à se remonter sur la
+  // dimension RÉELLEMENT appliquée (sinon defaultValue garde la saisie
+  // refusée, la clé dérivée de room.w/room.d ne changeant pas).
+  const [resizeFieldNonce, setResizeFieldNonce] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [dragRoomIndex, setDragRoomIndex] = useState<number | null>(null);
   const [resizingRoomIndex, setResizingRoomIndex] = useState<number | null>(null);
@@ -452,12 +469,14 @@ export function PlanEditor({
     const previous = history[history.length - 2];
     setFuture((f) => [history[history.length - 1], ...f]);
     setHistory((h) => h.slice(0, -1));
+    setResizeNotices(null);
     saveNow(previous, currentOrientation);
   }
   function redo() {
     if (future.length === 0) return;
     setHistory((h) => [...h, future[0]]);
     setFuture((f) => f.slice(1));
+    setResizeNotices(null);
     saveNow(future[0], currentOrientation);
   }
 
@@ -539,11 +558,16 @@ export function PlanEditor({
       const preview = resizePreview;
       setResizePreview(null);
       if (!preview) return;
-      const next = resizeRoom(current, resize.roomIndex, preview.x, preview.y, preview.w, preview.d);
-      commit(
-        next,
-        "Redimensionnement refusé : en dessous des dimensions minimales définies, hors de l'emprise constructible, ou chevauchement (pièce, corridor, cour)."
-      );
+      // Même contrôle complet que la saisie numérique (checkRoomResize) :
+      // l'aperçu reste un contrôle rapide, la décision finale refuse aussi
+      // toute anomalie NOUVELLE (accès perdu, fenêtre devenue intérieure…).
+      const check = checkRoomResize(current, resize.roomIndex, { x: preview.x, y: preview.y, w: preview.w, d: preview.d });
+      if (check.ok) {
+        commit(check.layout, "");
+        noteResize(resize.roomIndex, "handles", "applied", "Dimensions appliquées par les poignées.");
+      } else {
+        noteResize(resize.roomIndex, "handles", "refused", check.reason);
+      }
     }
   }
 
@@ -560,17 +584,31 @@ export function PlanEditor({
     (e.target as Element).setPointerCapture(e.pointerId);
   }
 
-  // Alternative simple au glisser des poignées : champs numériques,
-  // appliqués depuis le coin haut-gauche actuel (position inchangée, seules
-  // largeur/profondeur varient) — mêmes contrôles que le glissé.
+  // Avis persistant pour UNE source de redimensionnement : remplace l'avis
+  // précédent de cette même source seulement (jamais celui de l'autre champ).
+  function noteResize(roomIndex: number, source: ResizeSource, kind: "refused" | "applied", text: string) {
+    setResizeNotices((prev) => ({
+      roomIndex,
+      entries: { ...(prev && prev.roomIndex === roomIndex ? prev.entries : {}), [source]: { kind, text } },
+    }));
+    if (kind === "refused") setResizeFieldNonce((n) => n + 1);
+  }
+
+  // Champs numériques (correctifs B1/B2) : resizeRoomDimension choisit le
+  // mur à garder fixe d'après les portes réellement posées, travaille sur
+  // une copie et ne renvoie une disposition que si elle est acceptable en
+  // entier. Accepté : UNE entrée d'historique. Refusé : aucune entrée,
+  // plan intact, champ remis à la valeur réelle, motif persistant.
   function handleResizeField(roomIndex: number, field: "w" | "d", value: number) {
-    const room = current.rooms[roomIndex];
-    if (!room || !Number.isFinite(value) || value <= 0) return;
-    const next = resizeRoom(current, roomIndex, room.x, room.y, field === "w" ? value : room.w, field === "d" ? value : room.d);
-    commit(
-      next,
-      "Redimensionnement refusé : en dessous des dimensions minimales définies, hors de l'emprise constructible, ou chevauchement (pièce, corridor, cour)."
-    );
+    if (!current.rooms[roomIndex]) return;
+    const attempt = resizeRoomDimension(current, roomIndex, field, value);
+    if (attempt.kind === "unchanged") return;
+    if (attempt.kind === "refused") {
+      noteResize(roomIndex, field, "refused", attempt.reason);
+      return;
+    }
+    commit(attempt.layout, "");
+    noteResize(roomIndex, field, "applied", attempt.message);
   }
 
   function handleParkSelected() {
@@ -777,7 +815,7 @@ export function PlanEditor({
               step={0.1}
               min={current.rooms[selected].minW}
               defaultValue={current.rooms[selected].w.toFixed(2)}
-              key={`w-${selected}-${current.rooms[selected].w}`}
+              key={`w-${selected}-${current.rooms[selected].w}-${resizeFieldNonce}`}
               onBlur={(e) => handleResizeField(selected, "w", Number(e.target.value))}
               className="w-20 rounded border border-slate-300 px-2 py-1"
             />
@@ -789,7 +827,7 @@ export function PlanEditor({
               step={0.1}
               min={current.rooms[selected].minD}
               defaultValue={current.rooms[selected].d.toFixed(2)}
-              key={`d-${selected}-${current.rooms[selected].d}`}
+              key={`d-${selected}-${current.rooms[selected].d}-${resizeFieldNonce}`}
               onBlur={(e) => handleResizeField(selected, "d", Number(e.target.value))}
               className="w-20 rounded border border-slate-300 px-2 py-1"
             />
@@ -800,6 +838,40 @@ export function PlanEditor({
           </span>
         </div>
       ) : null}
+      {resizeNotices && resizeNotices.roomIndex === selected
+        ? (["w", "d", "handles"] as const).map((source) => {
+            const notice = resizeNotices.entries[source];
+            if (!notice) return null;
+            const what = source === "w" ? "Largeur" : source === "d" ? "Profondeur" : "Poignées";
+            return (
+              <div
+                key={source}
+                role={notice.kind === "refused" ? "alert" : "status"}
+                data-testid={`resize-notice-${source}`}
+                className={`flex items-start justify-between gap-2 rounded p-2 text-xs ${notice.kind === "refused" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}
+              >
+                <span>
+                  <strong>{what} — {notice.kind === "refused" ? "refusé, plan inchangé" : "appliqué"} :</strong> {notice.text}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Fermer cet avis"
+                  className="shrink-0 px-1"
+                  onClick={() =>
+                    setResizeNotices((prev) => {
+                      if (!prev) return prev;
+                      const entries = { ...prev.entries };
+                      delete entries[source];
+                      return { ...prev, entries };
+                    })
+                  }
+                >
+                  ×
+                </button>
+              </div>
+            );
+          })
+        : null}
       <div className="flex flex-wrap items-center gap-2">
         {selected !== null
           ? doorsOf(current, selected).map((d) => (
