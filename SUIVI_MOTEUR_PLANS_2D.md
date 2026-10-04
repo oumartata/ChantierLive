@@ -155,7 +155,7 @@ clôture** (jamais présentées comme résolues) :
   normes réglementaires certifiées (rappelé explicitement dans l'interface
   elle-même).
 
-### Prochain diagnostic d'usage — préparé le 2026-10-04, non exécuté
+### Diagnostic d'usage — protocole (préparé le 2026-10-04)
 
 Problème rapporté par le fondateur : **les modifications sont difficiles et
 le comportement est perçu comme instable.** Le diagnostic n'attend pas de
@@ -186,6 +186,86 @@ Isolation, obligatoire :
 
 Rappel : le brouillon navigateur d'origine n'est pas récupéré à ce stade
 (voir `PROJECT_STATE.yaml`, `restoration_2026_10_04`).
+
+### Diagnostic d'usage — exécuté le 2026-10-04 (aucun code modifié)
+
+**Conditions.** `next dev` lancé depuis `C:\Projets\ChantierLive` sur le
+port 3001. Origine de test `http://localhost:3001`, vide avant le test
+(aucune clé `localStorage`, aucun brouillon). Les origines du port 3000
+n'ont pas été touchées. Cas : valeurs par défaut (terrain 15×20, accès
+avant, 3 chambres, 1 salon, 1 cuisine, 2 sanitaires). Vue 1024×768, puis
+390×844. Aucun import de fixture : l'import passe par le sélecteur de
+fichier natif et une confirmation, que le navigateur de test ne pilote pas.
+L'aller-retour export/import reste couvert par M4. Captures hors Git :
+`exports/preuves/generateur-2026-10-04/`.
+
+**Ce qui fonctionne (constaté) :**
+- génération (variantes, vérification indépendante sans problème) ;
+- ouverture de l'éditeur, avec brouillon enregistré à ce moment ;
+- sélection d'une pièce au clic ;
+- réduction de dimension acceptée et refus d'un chevauchement ;
+- Annuler / Rétablir / Annuler, avec restauration exacte du plan et des
+  anomalies ;
+- verrouillage et déverrouillage ;
+- fermeture des propositions sans modifier le brouillon ;
+- rechargement puis « Reprendre ce brouillon » : plan identique au
+  stockage, verrou conservé ;
+- confirmations avant d'écraser un brouillon par une nouvelle génération
+  ou un import (vérifiées dans le code, non cliquées).
+
+#### Défauts reproduits
+
+| # | Gestes exacts | Attendu | Obtenu |
+|---|---|---|---|
+| B1 | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
+| B2 | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
+| B3 | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant |
+| B4 | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
+| B5 | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
+
+#### Difficultés d'utilisation (la fonction existe)
+
+| # | Constat |
+|---|---|
+| U1 | Les champs Largeur/Profondeur n'existent qu'en mode « Redimensionner ». En mode « Sélectionner », une pièce sélectionnée n'offre aucun moyen visible de saisir ses dimensions |
+| U2 | Message de refus générique (« minimum, emprise ou chevauchement ») qui ne nomme ni la cause ni la pièce gênante (ici Chambre 2) |
+| U3 | La régénération n'apparaît qu'après le verrouillage d'une pièce. Quand rien n'est trouvé, l'écran propose quand même « Choisir cette disposition » pour la disposition actuelle |
+| U4 | Murs cliquables de l'outil porte signalés par de fins pointillés colorés, peu visibles à 100 %. Le mur portant la porte actuelle n'est pas cliquable |
+| U5 | La page saute verticalement quand la barre d'outils change de hauteur (changement d'outil ou de sélection) |
+| U6 | Après rechargement, le bandeau « Reprendre ce brouillon » est en haut de page alors que le navigateur rétablit le défilement plus bas : il peut passer inaperçu |
+| U7 | Textes d'introduction obsolètes : « aucune persistance » (alors qu'il existe un brouillon local et un fichier de projet) et « le déplacement libre des pièces à la souris n'est pas encore proposé » (alors que l'outil « Déplacer » existe) |
+| U8 | Variantes numérotées « 3, 4, 5 » sans 1 ni 2 (les numéros écartés sont masqués) |
+| U9 | Annuler fait perdre la sélection en cours |
+
+#### Fonctions absentes
+
+| # | Constat |
+|---|---|
+| F1 | Aucun outil pour déplacer, ajouter ou supprimer une **fenêtre** : seules les portes sont éditables (aucune commande, confirmé dans `PlanEditor.tsx`) |
+| F2 | Aucune régénération qui accepte de **redimensionner** les pièces non verrouillées autour d'un verrou ; c'est la limite derrière B3 |
+
+#### Premier correctif proposé (non développé)
+
+**Rendre fiable la saisie des dimensions d'une pièce (B2 + B1, et U2
+pour ce geste)**, sans toucher au moteur de génération :
+1. dans `handleResizeField`, garder fixe le mur qui porte la porte de la
+   pièce vers la circulation, au lieu du seul coin haut-gauche ;
+2. avant d'appliquer, refuser un redimensionnement qui ferait perdre à la
+   pièce son accès réel (même vérification que celle déjà calculée pour
+   les anomalies), avec un message qui nomme la cause ;
+3. après un refus, remettre le champ à la valeur réellement appliquée.
+
+Raison de la priorité : c'est le geste de base demandé (« saisir ses
+dimensions ») et il produit aujourd'hui, en un seul Tab, un plan
+silencieusement cassé ou un champ qui ment. Ce sont les deux symptômes
+les plus proches de « instable ». Portée : `PlanEditor.tsx` (un
+gestionnaire, deux champs) et un contrôle dans `geometry.ts`, réutilisant
+la vérification existante. Tests : cas ajoutés à
+`scripts/test-plans-geometry.mjs` (porte en bas → réduction de profondeur
+→ porte toujours raccordée ; réduction qui couperait l'accès → refusée),
+puis parcours navigateur B1/B2 rejoué. B4 (tableau mobile) est le
+candidat suivant : correction de présentation isolée. B3/F2 relèvent du
+moteur et demandent un lot dédié.
 
 ---
 
