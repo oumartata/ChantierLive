@@ -460,6 +460,158 @@ ici. Risque à suivre : un critère plus fin peut changer les dispositions
 retenues par la génération, ce qui demande une comparaison avant/après
 complète.
 
+### Façades extérieures — diagnostic et preuve isolée (réalisé le 2026-10-04)
+
+Point de départ : HEAD `e13e4b4`, arbre propre. B1/B2 et B4/B5 n'ont pas
+été touchés. **Le vérificateur, la génération, la régénération, les
+surfaces, les exports et le format de projet sont inchangés.** La preuve est
+un module autonome, branché nulle part.
+
+#### 1. Refus actuel reproduit, figé avant toute modification
+
+- Fixture : `scripts/fixtures/plans-facade-retrait-refus.json`. Elle
+  contient la disposition par défaut (15×20, accès avant, 3 chambres) telle
+  que générée, l'entrée de génération, le geste et le motif observé.
+- Geste : « Redimensionner » → Chambre 1 → profondeur 3,50 → 3,20.
+- Motif : « Mur bas de « Chambre 1 » gardé fixe (la porte vers la
+  circulation). Refusé, ce changement créerait une anomalie : « Chambre 1 »
+  n'a aucune ouverture extérieure possible (pièce entièrement intérieure).
+  (et 1 autre(s) anomalie(s) nouvelle(s)) ».
+- Cause isolée par le test : les **seules** anomalies nouvelles sont
+  « aucune ouverture extérieure possible » et « une fenêtre ne débouche plus
+  sur un mur extérieur réel ». Les deux proviennent de `wallTouchesExterior`
+  (le mur doit toucher le rectangle englobant élargi de `WALL_EXT`). Aucun
+  accès, chevauchement ni porte n'est en cause.
+
+#### 2. Ce que le modèle représente réellement
+
+| Élément | Représentation | Utilisable pour une enveloppe ? |
+|---|---|---|
+| Pièces | Rectangles **intérieurs** (dimensions habitables) | Oui, comme masse bâtie |
+| Corridor, raccords, circulations | Rectangles | Oui, comme masse bâtie (ils sont dans le contour actuel) |
+| Murs | **Implicites** : constantes `WALL_EXT` = 0,20 m (autour du contour) et `WALL_INT` = 0,10 m (interstice entre éléments voisins) ; aucun objet mur | Seulement par déduction : épaissir la masse bâtie de `WALL_EXT` |
+| Contour (`footprint`) | **Toujours** le rectangle englobant (limite assumée et commentée dans `Layout.footprint`) | Non : c'est justement la cause du refus |
+| Cour | Rectangle explicite (`courtyard`) | Oui, comme classe distincte |
+| Trajets extérieurs (`exteriorPaths`) | Rectangles reliant l'entrée ; **convention**, pas preuve d'air libre (commentaire du modèle) | Traités comme non bâtis, sans être une preuve |
+| Espaces extérieurs (`exteriorSpaces`) | Bandes rectangulaires dérivées du seul rectangle englobant | Non : ils ignorent tout vide intérieur au rectangle |
+| Résiduel non affecté (`surfaces.nonAffectee`) | Simple surface (nombre), pas de géométrie | Non |
+| Reculs (terrain hors emprise) | Non bâtis par définition de l'emprise | Oui : air libre sur la parcelle |
+| Au-delà du terrain, couverture d'un vide, hauteur | **Non représentés** | Non : incertitude à laisser explicite |
+
+**Conclusion** : il n'existe pas d'enveloppe explicite. L'union des pièces
+et des circulations n'en est **pas** une : elle contient les interstices de
+cloison (0,10 m) et ne dit rien des murs extérieurs. Une enveloppe peut
+toutefois être **déduite prudemment**, en épaississant chaque élément bâti
+de `WALL_EXT`. Cet épaississement ferme tout interstice inférieur à 0,40 m.
+L'exposition d'un vide se démontre ensuite par un chemin libre continu
+jusqu'à la limite du terrain.
+
+#### 3. Évolution minimale proposée et preuve isolée
+
+Module `src/app/prototype-plans/exteriorExposure.ts`, non branché.
+Paramètres fixés **avant** les cas, sans aucun ajustement ensuite :
+- pas de grille de 0,05 m ;
+- une cellule est bâtie dès qu'elle chevauche un élément épaissi (règle
+  prudente) ;
+- dégagement exigé devant l'ouverture = `MIN_WINDOW_WIDTH` (0,60 m),
+  au-delà de l'épaisseur du mur ;
+- contact direct = même distance que `wallAdjacency`.
+
+Classes de résultat :
+- **extérieur** : dégagement entièrement libre et relié à la limite du
+  terrain ;
+- **cour** : dégagement dans la cour identifiée ;
+- **séparation** : autre pièce ou circulation à moins d'une cloison ;
+- **obstruée** : élément bâti dans le dégagement ;
+- **vide intérieur** : libre mais enclos ;
+- **non classé** : sortie du terrain ou classes mêlées.
+
+Un vide n'est **jamais** extérieur par défaut, et aucune incertitude n'est
+convertie en acceptation.
+
+La preuve porte sur la **portion de l'ouverture**, pas sur le mur entier.
+Les extrémités d'un mur en retrait bordent l'épaisseur des pièces voisines ;
+l'ouverture, elle, doit être dégagée sur toute sa largeur.
+
+Script : `scripts/test-plans-exterior-exposure.mjs`, désormais dans
+`npm test` : **17/17**.
+
+| Cas | Attendu | Obtenu | Règle actuelle | Raison géométrique |
+|---|---|---|---|---|
+| Rectangle simple, fenêtre de Chambre 1 | extérieur | extérieur | extérieur | 360/360 cellules libres reliées au bord du terrain |
+| **Retrait exposé** : fenêtre de Chambre 1 après 3,50 → 3,20 | extérieur | extérieur | **refusé** | retrait de 0,30 m ouvert vers le recul avant |
+| Retrait, mur entier | obstruée | obstruée | refusé | extrémités contre l'épaisseur des voisines (la preuve vise l'ouverture) |
+| **Bâtiment en L** (Chambre 3 retirée), portion centrale du mur droit de Chambre 2 | extérieur | extérieur | **refusé** | angle rentrant ouvert, 420/420 cellules |
+| Cour identifiée (15×25, entrée par cour), mur haut de Chambre 1 | cour | cour | extérieur | contact direct avec le rectangle de cour |
+| Vide intérieur fermé (anneau de 4 pièces) | vide intérieur | vide intérieur | refusé | aucun chemin libre jusqu'au bord |
+| Même vide, ouvert d'un côté | extérieur | extérieur | refusé | communication avec l'extérieur sur 2,9 m |
+| Mur mitoyen d'une pièce | séparation | séparation | refusé | interstice de cloison |
+| Mur mitoyen de la circulation | séparation | séparation | refusé | idem |
+| Pièce voisine à 0,50 m | obstruée | obstruée | refusé | dégagement < 0,20 + 0,60 m |
+| Interstice de 0,10 m / 0,30 m | séparation | séparation | refusé | à moins d'une cloison |
+| Interstice de 0,38 m | obstruée | obstruée | refusé | fermé par l'épaississement (720 cellules bâties) |
+| Pièce contre la limite du terrain (recul nul) | non classé | non classé | **extérieur** | au-delà du terrain : non représenté |
+
+Non-régression mesurée : **1400 fenêtres** générées sur 64 configurations
+(4 façades × 4 terrains × 2 modes d'entrée × salon central oui/non) sont
+toutes démontrées extérieures ou sur cour.
+
+Coût mesuré : environ **13 ms** par grille (15×20, 120 000 cellules),
+contre 0,12 ms pour `independentVerify`. La cause est le test de chaque
+cellule contre chaque rectangle.
+
+#### 4. Impact (analysé, rien n'est appliqué)
+
+| Domaine | Effet si la preuve était branchée | Précaution |
+|---|---|---|
+| Redimensionnement | Le cas de la fixture deviendrait acceptable : sa fenêtre est démontrée exposée. La règle « pièce avec au moins une ouverture extérieure possible » (`hasExteriorTouch`) devrait devenir « au moins une portion de la taille d'une fenêtre démontrée exposée » | `checkRoomResize` inchangé : il lit le vérificateur |
+| Fenêtres de pièces verrouillées | Aucune fenêtre n'est déplacée. La vérification seule change | La non-régression couvre les fenêtres générées |
+| Génération | `chooseExteriorWindow` resterait sur la règle actuelle. La faire évoluer changerait le choix des murs et donc des dispositions | Hors du premier lot ; comparaison complète avant/après exigée |
+| Régénération | Utilise vérificateur et `chooseExteriorWindow` : même remarque | Idem |
+| Surfaces | `nonAffectee` et `exteriorSpaces` restent dérivés du rectangle englobant. Un retrait exposé reste compté comme « résiduel » | Inchangé dans le premier lot ; une reclassification est un lot à part |
+| Exports | Mêmes messages et même dessin | Inchangé |
+| Projets sauvegardés | Aucun champ stocké ne dépend de cette règle. Un projet relu n'est jamais réécrit. Deux écarts de verdict existent : (a) fenêtre sur **cour**, aujourd'hui « extérieure », (b) pièce **contre la limite du terrain**, aujourd'hui « extérieure », ici « non classée » | Ne jamais rendre plus sévère un projet existant : (a) et (b) gardent le verdict actuel |
+
+#### 5. Recommandation
+
+**Déductible sûrement du modèle actuel** :
+- masse bâtie et murs implicites ;
+- exposition d'une ouverture vers les reculs ou vers un vide relié au bord
+  du terrain ;
+- contact avec la cour identifiée ;
+- vide enclos ;
+- séparation et obstruction.
+
+**Exige une information supplémentaire** :
+- ce qui est au-delà de la limite du terrain (voisins, mitoyenneté) ;
+- la couverture d'un vide (auvent, débord de toit) ;
+- une exigence de dégagement réglementaire, qui n'est jamais une norme
+  certifiée dans ce prototype ;
+- une enveloppe explicite, si des bâtiments non rectangulaires deviennent
+  générés.
+
+**Lot d'implémentation minimal proposé** :
+1. Dans `independentVerify` seulement : une fenêtre est valide si la règle
+   actuelle l'accepte **OU** si la preuve la classe « extérieur » sur sa
+   propre portion. Le contrôle « ouverture extérieure possible » de la
+   pièce suit la même règle, avec une portion de la taille d'une fenêtre.
+   C'est une union stricte : aucun cas accepté aujourd'hui ne devient
+   refusé. Cour et limite du terrain gardent leur verdict actuel.
+2. Inchangés : `chooseExteriorWindow` (génération, régénération), surfaces,
+   `exteriorSpaces`, exports, format de projet.
+3. Rasterisation par plages d'indices de chaque rectangle au lieu du test
+   cellule par cellule ; une grille par vérification au plus.
+
+**Critères de réussite** :
+- 779 tests de géométrie et batterie de 11 cas inchangés ;
+- les 17 cas de la preuve inchangés ;
+- le geste de la fixture devient accepté, avec la porte toujours raccordée ;
+- vide enclos, interstices, obstruction et limite du terrain restent
+  refusés, ou gardent le verdict actuel ;
+- balayage de la section 26 rejoué, avec le nombre de nouvelles
+  acceptations justifiées une à une ;
+- coût de la vérification inférieur ou égal à 5 ms sur 15×20, mesuré.
+
 ---
 
 ## 3. Journal des lots
