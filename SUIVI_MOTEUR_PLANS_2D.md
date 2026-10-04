@@ -612,6 +612,141 @@ cellule contre chaque rectangle.
   acceptations justifiées une à une ;
 - coût de la vérification inférieur ou égal à 5 ms sur 15×20, mesuré.
 
+### Façades extérieures — branchement dans la vérification (réalisé le 2026-10-04/05)
+
+Point de départ : HEAD `1148026`, arbre propre. Le diagnostic livré n'est
+pas refait.
+
+**Ce qui change**, dans `independentVerify` seulement, et pour deux
+contrôles :
+- « une fenêtre ne débouche plus sur un mur extérieur réel » ;
+- « aucune ouverture extérieure possible ».
+
+Chacun garde la règle historique (contact avec le rectangle englobant) et
+accepte **en plus** une fenêtre dont la propre portion de mur est classée
+« extérieur » par `exteriorExposure.ts` (`windowProvenExterior`). La preuve
+n'ajoute que des acceptations ; elle ne court-circuite aucun autre contrôle
+(chevauchement, emprise, portes, accès depuis l'entrée, battants, verrou,
+contrôles de `checkRoomResize`).
+
+Inchangés :
+- `chooseExteriorWindow` ;
+- les règles de génération et de régénération qui appellent directement
+  `hasExteriorTouch` (lignes ≈ 3809, 4443, 5069) ;
+- les surfaces, `exteriorSpaces`, les exports et le format de projet.
+
+Aucun projet n'est réécrit.
+
+**Cours et limite du terrain** : leur verdict **historique** est conservé
+(la règle historique les accepte toujours). Ce n'est **pas** une preuve
+d'exposition. La preuve classe une fenêtre sur cour « cour », et une pièce
+contre la limite du terrain « non classé » ; ces classes ne sont jamais
+comptées comme exposition prouvée.
+
+**Fichiers touchés et raison :**
+- `exteriorExposure.ts` :
+  - constantes lues au moment de l'appel (import circulaire avec
+    `geometry.ts`) ;
+  - tracé par plages d'indices et cellules en octets (performance) ;
+  - cache d'une grille par état géométrique (WeakMap : les dispositions
+    sont immuables) ;
+  - passage minimal (ouverture morphologique) ;
+  - `windowProvenExterior`, qui exige que la baie repose réellement sur
+    la ligne de son mur.
+- `geometry.ts` : import et deux conditions du vérificateur.
+- `scripts/test-plans-geometry.mjs` :
+  - le test B2 encodait le refus historique et vérifie maintenant
+    l'acceptation ;
+  - le cas négatif « autre pièce » porte désormais sur une vraie
+    obstruction ;
+  - l'ancien montage « contour stocké raccourci » est remplacé par une
+    vraie obstruction (élément bâti devant la fenêtre, contour recalculé),
+    et documenté à part.
+- `scripts/test-plans-exterior-exposure.mjs` : fixture rejouée, risques de
+  grille, justification des acceptations.
+- `scripts/snapshot-plans-verifier-effects.mjs` (nouveau) : instantané et
+  comparaison avant/après de la génération, de la régénération et du
+  redimensionnement.
+
+#### Passage minimal annoncé (0,60 m) et bascule observée (1,20 m)
+
+Les trois grandeurs sont distinctes. Chacune n'est comptée qu'**une fois**.
+
+1. **Écartement brut g** entre les deux rectangles de pièces (bords
+   intérieurs, sans mur).
+2. **Largeur restante après épaississement des murs** : chaque élément bâti
+   est épaissi de `WALL_EXT` = 0,20 m, une seule fois. Il reste donc
+   g − 0,40 m. Aucun autre épaississement géométrique n'est appliqué.
+3. **Effet de la grille** (pas de 0,05 m), en deux parties :
+   - *marquage prudent* : une cellule qui touche un élément épaissi, même
+     par un seul bord, est bâtie. On perd jusqu'à une cellule de chaque
+     côté, selon la position des bords par rapport à la grille ;
+   - *arrondi du passage* : le paramètre de 0,60 m devient P = ⌈0,30 / 0,05⌉
+     = 6 cellules de dégagement de chaque côté. Une cellule n'est
+     traversable qu'avec une course libre de 2P + 1 = **13 cellules
+     (0,65 m)**.
+
+Ce n'est pas un double comptage. Les murs sont retirés à l'étape 2 ;
+l'étape 3 ne traite que la discrétisation de la largeur restante.
+
+**Résultat du seul cas testé** (test 4c : fente droite entre deux
+rectangles parallèles), mesuré en faisant varier l'alignement sur la
+grille :
+
+| Écartement brut g | Libre après murs | Résultat |
+|---|---|---|
+| < 1,055 m | < 0,655 m | toujours fermé |
+| 1,055 à 1,105 m | 0,655 à 0,705 m | fermé **ou** ouvert selon l'alignement |
+| ≥ 1,105 m | ≥ 0,705 m | toujours ouvert |
+
+Le test (grille alignée) donne 1,10 m fermé et 1,20 m ouvert, ce qui est
+cohérent avec ce tableau. Ces seuils **ne se généralisent pas** à toutes
+les géométries : un passage oblique, coudé ou au bord d'une cour peut avoir
+un autre seuil. L'incertitude d'alignement, de l'ordre d'une cellule, reste
+explicite.
+
+L'exigence effective est donc plus stricte que le paramètre annoncé. C'est
+voulu, par prudence. Retrouver exactement 0,60 m serait un relâchement à
+décider explicitement ; je ne l'ai pas fait.
+
+**Hypothèses retenues** :
+- murs implicites d'épaisseur constante (`WALL_EXT` = 0,20 m) ;
+- grille de 0,05 m ;
+- dégagement devant la baie de 0,60 m (`MIN_WINDOW_WIDTH`) ;
+- reculs non bâtis ;
+- rien n'est supposé au-delà de la limite du terrain ;
+- trajets extérieurs non bâtis (convention du modèle) ;
+- aucune couverture de vide représentée.
+
+#### Résultats
+
+| Contrôle | Résultat |
+|---|---|
+| Fixture (Chambre 1, 3,50 → 3,20 m) | **Acceptée**, avec le message « mur bas conservé (la porte vers la circulation) ». Valeur exacte appliquée ; porte intacte et raccordée ; fenêtre conservée (même mur, même position le long du mur, même largeur) ; autres pièces identiques ; 0 anomalie. La règle historique refuse toujours cette fenêtre ; c'est la preuve qui l'accepte |
+| 168 essais de redimensionnement (4 façades × 7 pièces × 2 dimensions × 3 écarts) | Avant : 32 acceptés et 136 refusés. Après : **76 acceptés** et 92 refusés. Les **44** nouvelles acceptations étaient toutes refusées pour la seule règle d'exposition ; aucun cas n'est passé d'« accepté » à « refusé ». Chacune est justifiée automatiquement (test 5) : toutes les fenêtres que la règle historique refuse sont démontrées « extérieur », et il reste 0 anomalie |
+| Cas négatifs conservés | Obstruction réelle par élargissement d'une pièce voisine : refus qui nomme « A 1 ». Vide fermé, fentes de 0,50 à 1,10 m, élément à 1,10 m ou moins devant la fenêtre : jamais « extérieur ». Vraie obstruction (Consolidation d) détectée |
+| Risques de grille (tests 4a à 4c) | Passage par un seul coin (δ = 0 à 0,30 m) : vide intérieur. Décalages de grille de 0,013, 0,027 et 0,049 m : classification identique. Seuils : voir ci-dessus |
+| Génération (80 configurations) | **0 différence structurelle** (variantes, formes, ordre, rejets, anomalies). Seul le compteur d'échecs, borné par le budget de temps (`maxMillis`), varie : 8 configurations entre avant et après, contre 3 (avant contre avant) et 6 (après contre après) entre deux exécutions identiques. C'est du bruit de même ordre |
+| Régénération (70 cas, une pièce verrouillée à chaque fois) | 0 différence |
+| Batterie de 11 cas (avant sur une copie de `1148026` hors dépôt, puis après) | Identique, hors durées et compteurs d'échecs. Une variation du compteur « autre » de 8 à 9 sur un cas, sans autre écart ; durées de 2 à 17 ms (mesure unique) |
+| Performance (12 configurations fixes, 15×20 et autres) | Grille : 3,29 à 4,34 ms (moyenne 3,61), **cible de 5 ms tenue**. Vérification sans recours à la preuve : 0,010 à 0,083 ms. Premier appel qui construit la grille : 5,56 ms (mesure unique, à froid), puis 0,077 ms en cache. Un geste complet sur la fixture : 4,42 ms |
+| Glissé de poignée | Aucun calcul de grille : l'aperçu n'utilise que `resizeRoom` / `tryMoveRoom` ; la vérification complète n'a lieu qu'au relâchement |
+| Navigateur (Playwright, profil isolé, `localhost:3001`) | Fixture rejouée dans l'interface : 3,50 → 3,20 appliqué, mur bas inchangé (6,70 m), portes identiques, fenêtre conservée, autres pièces identiques, aucune anomalie. Annuler : état d'origine exact, puis bouton désactivé. Rétablir : état accepté exact. Rechargement et « Reprendre ce brouillon » : état identique, étiquette « 3.03 × 3.20 m ». Valeur du profil de test restaurée ; console sans erreur. Captures `nav_01` à `nav_03` dans `exports/preuves/facade-branchement-2026-10-04/` |
+| `npm run verify` | Vert : lint 0 erreur (3 avertissements préexistants), typecheck, 781/781 et 30/30, build. Après ce lancement, `exteriorExposure.ts` n'a reçu que des **commentaires** ; lint, typecheck et les deux suites ont été rejoués sur la version finale |
+
+**Limites :**
+- les seuils de passage ne valent que pour le cas testé ;
+- l'exigence effective (0,65 à 0,705 m) est plus stricte que le paramètre
+  annoncé (0,60 m) ;
+- la cour et la limite du terrain restent sur leur verdict historique, qui
+  n'est pas une preuve ;
+- la génération (`chooseExteriorWindow`, `hasExteriorTouch` direct) ne
+  profite pas de la preuve ;
+- le premier calcul de grille d'un état coûte environ 4 à 6 ms ;
+- la comparaison de génération reste soumise au bruit du budget de temps.
+
+Captures, instantanés et scripts de mesure : `exports/preuves/facade-branchement-2026-10-04/` (hors Git).
+
 ---
 
 ## 3. Journal des lots

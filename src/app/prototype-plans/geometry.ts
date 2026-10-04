@@ -9,6 +9,10 @@
 // garantie par construction, revérifiée indépendamment via un graphe
 // d'accessibilité réel). Chaque pièce garde SA PROPRE taille cible — aucun
 // remplissage automatique de l'emprise, aucune mise à l'échelle partagée.
+// Preuve d'exposition des fenêtres (lot « façades extérieures ») : import
+// circulaire volontaire, sans risque — exteriorExposure.ts ne lit les
+// constantes de ce fichier qu'au moment de l'appel, jamais au chargement.
+import { windowProvenExterior } from "./exteriorExposure";
 
 export interface RoomNeed {
   type: string;
@@ -2372,8 +2376,16 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   // N'IMPORTE LEQUEL des 4 murs ?), jamais lue depuis le champ posé à la
   // construction. Une pièce à côté (touchant) une autre pièce n'est JAMAIS
   // comptée comme extérieure : seul le contact avec footprint compte.
+  // COMPLÉMENT (lot « façades extérieures », 2026-10-04) : la règle
+  // historique ci-dessus reste appliquée telle quelle ; une pièce qui ne
+  // touche pas le rectangle englobant n'est plus signalée si l'une de SES
+  // fenêtres est PROUVÉE donner sur l'extérieur (exteriorExposure.ts, sur
+  // sa propre portion de mur). Jamais l'inverse : cette preuve n'ajoute que
+  // des acceptations, aucune sévérité nouvelle. Grille calculée une seule
+  // fois par état (cache), et seulement si la règle historique échoue.
   for (const r of activeRooms) {
-    if (!hasExteriorTouch(r, layout.footprint)) {
+    const ri = layout.rooms.indexOf(r);
+    if (!hasExteriorTouch(r, layout.footprint) && !layout.windows.some((w) => w.roomIndex === ri && windowProvenExterior(layout, w))) {
       issues.push({ severity: "warning", message: `« ${r.label} ${r.number} » n'a aucune ouverture extérieure possible (pièce entièrement intérieure).` });
     }
   }
@@ -2386,7 +2398,8 @@ export function independentVerify(layout: Layout): VerificationIssue[] {
   for (const w of layout.windows) {
     if (!activeIndexSet.has(w.roomIndex)) continue;
     const room = layout.rooms[w.roomIndex];
-    if (!openingLeadsOutside(layout, w.roomIndex, w.wall)) {
+    // Même complément : règle historique OU exposition prouvée de CETTE baie.
+    if (!openingLeadsOutside(layout, w.roomIndex, w.wall) && !windowProvenExterior(layout, w)) {
       issues.push({ severity: "error", message: `« ${room.label} ${room.number} » : une fenêtre ne débouche plus sur un mur extérieur réel après déplacement.` });
     }
   }

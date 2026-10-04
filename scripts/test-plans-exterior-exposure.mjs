@@ -75,17 +75,29 @@ try {
     const fx = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-facade-retrait-refus.json"), "utf8"));
     const L = fx.layout;
     const i1 = fx.roomIndex;
-    const replay = g.resizeRoomDimension(L, i1, fx.gesture.field, fx.gesture.to);
-    record("1. Fixture : le refus actuel est reproduit à l'identique (geste et motif figés)", replay.kind === "refused" && replay.reason === fx.observedRefusal, replay.reason);
+    // Refus HISTORIQUE (avant branchement) figé dans la fixture ; le même
+    // geste rejoué est désormais accepté, sans rien relâcher d'autre.
     const r1 = L.rooms[i1];
-    const candidate = g.resizeRoom(L, i1, r1.x, r1.y + (r1.d - fx.gesture.to), r1.w, fx.gesture.to);
-    const newIssues = g.newVerificationIssues(L, candidate);
+    const replay = g.resizeRoomDimension(L, i1, fx.gesture.field, fx.gesture.to);
+    record("1. Fixture : refus historique consigné (motif « rectangle englobant »)", /n'a aucune ouverture extérieure possible/.test(fx.observedRefusal), fx.observedRefusal);
+    const R = replay.kind === "applied" ? replay.layout : null;
+    const doorsOk = !!R && L.doors.every((d, k) => Math.abs(d.cx - R.doors[k].cx) < 1e-9 && Math.abs(d.cy - R.doors[k].cy) < 1e-9 && d.width === R.doors[k].width && JSON.stringify(d.to) === JSON.stringify(R.doors[k].to));
+    const winBefore = L.windows.find((w) => w.roomIndex === i1);
+    const winAfter = R ? R.windows.find((w) => w.roomIndex === i1) : null;
+    const winOk = !!winAfter && winAfter.wall === winBefore.wall && Math.abs(winAfter.cx - winBefore.cx) < 1e-9 && winAfter.width === winBefore.width;
+    const othersOk = !!R && L.rooms.every((o, k) => k === i1 || JSON.stringify(o) === JSON.stringify(R.rooms[k]));
+    const reach = R ? g.computeReachableRooms(R) : new Set();
     record(
-      "1. Cause isolée : seules des anomalies d'« extérieur » (rectangle englobant) motivent le refus",
-      newIssues.length > 0 && newIssues.every((m) => /ouverture extérieure possible|ne débouche plus sur un mur extérieur/.test(m)),
-      newIssues.join(" | ")
+      "1. Fixture rejouée : 3,50 → 3,20 appliqué exactement, porte raccordée et intacte, fenêtre conservée (même mur, même position, même largeur), autres pièces inchangées, 0 anomalie",
+      !!R && Math.abs(R.rooms[i1].d - fx.gesture.to) < 1e-12 && doorsOk && winOk && othersOk && reach.has(i1) && g.independentVerify(R).length === 0,
+      replay.kind === "applied" ? replay.message : replay.kind === "refused" ? replay.reason : replay.kind
     );
+    const candidate = R ?? g.resizeRoom(L, i1, r1.x, r1.y + (r1.d - fx.gesture.to), r1.w, fx.gesture.to);
     const win1 = candidate.windows.find((w) => w.roomIndex === i1);
+    record(
+      "1. Cause de l'acceptation : la règle historique refuse toujours cette fenêtre, la preuve la démontre exposée",
+      !currentSaysExterior(candidate, i1, win1.wall) && x.windowProvenExterior(candidate, win1)
+    );
 
     // ---- 2. Cas ciblés.
     const rect = check("Bâtiment rectangulaire simple — fenêtre de Chambre 1 (avant geste)", "exterieur", L, i1, L.windows.find((w) => w.roomIndex === i1).wall, spanOf(L.windows.find((w) => w.roomIndex === i1)));
@@ -177,6 +189,100 @@ try {
       total > 0 && disagreements.length === 0,
       `${total} fenêtres${disagreements.length ? " — " + disagreements.slice(0, 3).join(" ; ") : ""}`
     );
+
+    // ---- 4. Risques liés à la grille.
+    // a) Passage uniquement diagonal / fentes fines : anneau dont deux pièces
+    //    ne se rejoignent qu'en un coin (décalage δ). Le vide reste intérieur.
+    for (const delta of [0, 0.02, 0.06, 0.12, 0.3]) {
+      const lay = manual([
+        ["Nord", 5, 5, 6, 3],
+        ["Est", 11 + delta, 8 + delta, 2, 3.1],
+        ["Sud", 5, 11.1 + delta, 8 + delta, 3],
+        ["Ouest", 5, 8.1, 3, 2.9],
+      ]);
+      const k = x.classifyWallExposure(lay, 3, "right", centralHalf(lay.rooms[3], "right"));
+      record(`4a. Coin seulement (δ = ${delta.toFixed(2)} m) : le vide reste intérieur, jamais extérieur`, k.kind === "vide_interieur", `${k.kind} ${JSON.stringify(k.evidence)}`);
+    }
+    // b) Petits décalages par rapport aux cellules : on décale l'ORIGINE du
+    //    terrain (les pièces restent), la classification ne doit pas changer.
+    const shiftTerrain = (lay, o) => ({ ...JSON.parse(JSON.stringify(lay)), terrain: { x: lay.terrain.x - o, y: lay.terrain.y - o, w: lay.terrain.w + o, d: lay.terrain.d + o } });
+    const keyCases = [
+      ["retrait exposé", candidate, i1, win1.wall, spanOf(win1)],
+      ["vide fermé", ring, 2, "right", centralHalf(ring.rooms[2], "right")],
+      ["vide ouvert", ringOpen, 2, "right", centralHalf(ringOpen.rooms[2], "right")],
+      ["mitoyen", L, i1, "right", undefined],
+    ];
+    for (const o of [0.013, 0.027, 0.049]) {
+      const same = keyCases.every(([, lay, i, wall, span]) => x.classifyWallExposure(shiftTerrain(lay, o), i, wall, span).kind === x.classifyWallExposure(lay, i, wall, span).kind);
+      record(`4b. Grille décalée de ${o} m : classification identique sur les cas clés`, same);
+    }
+    // c) Seuils : largeur de passage (0,60 m exigés) et dégagement devant la
+    //    fenêtre (0,20 m de mur + 0,60 m). Assertions loin des seuils,
+    //    valeurs au voisinage RAPPORTÉES telles qu'obtenues.
+    const passage = (gap) => {
+      const lay = manual([
+        ["Nord", 5, 5, 8, 3],
+        ["Sud", 5, 11.1, 8, 3],
+        ["Ouest", 5, 8.1, 3, 2.9],
+        ["EstHaut", 11, 8.1, 2, 1.45 - gap / 2],
+        ["EstBas", 11, 9.55 + gap / 2, 2, 1.45 - gap / 2],
+      ]);
+      return x.classifyWallExposure(lay, 2, "right", centralHalf(lay.rooms[2], "right")).kind;
+    };
+    const pv = Object.fromEntries([0.5, 0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.5].map((gp) => [gp, passage(gp)]));
+    record("4c. Fente de 0,50 à 0,80 m entre pièces (passage libre < 0,60 m après murs) : vide intérieur", pv[0.5] === "vide_interieur" && pv[0.8] === "vide_interieur", JSON.stringify(pv));
+    const monotone = (() => {
+      let seen = false;
+      for (const gp of [0.5, 0.8, 0.9, 0.95, 1.0, 1.05, 1.1, 1.2, 1.5]) {
+        if (pv[gp] === "exterieur") seen = true;
+        else if (seen) return false;
+      }
+      return true;
+    })();
+    record("4c. Ouverture de 1,50 m : extérieur ; bascule monotone (jamais extérieur puis intérieur en élargissant)", pv[1.5] === "exterieur" && monotone, JSON.stringify(pv));
+    const facing = (dist) => {
+      const lay = manual([
+        ["A", 5, 5, 3, 3],
+        ["B", 8 + dist, 4, 1, 5],
+      ]);
+      return x.classifyWallExposure(lay, 0, "right", centralHalf(lay.rooms[0], "right")).kind;
+    };
+    const fv = Object.fromEntries([0.7, 0.9, 1.0, 1.05, 1.1, 1.2, 1.5].map((d) => [d, facing(d)]));
+    record("4c. Élément à 0,70–0,90 m devant la fenêtre : obstruée ; à 1,50 m : extérieur", fv[0.7] === "obstruee" && fv[0.9] === "obstruee" && fv[1.5] === "exterieur", JSON.stringify(fv));
+
+    // ---- 5. Rejeu des 168 essais : toute acceptation qui dépend de la preuve
+    // (au moins une fenêtre que la règle historique refuse) est justifiée par
+    // une exposition démontrée de CHAQUE fenêtre concernée.
+    let applied = 0, viaProof = 0;
+    const unjustified = [];
+    const viaProofKeys = [];
+    for (const side of ["front", "back", "left", "right"]) {
+      const V = g.generateVariants({ ...fx.generationInput, accessSide: side, terrainWidth: 15, terrainDepth: 20 }).variants[0];
+      V.rooms.forEach((room, i) => {
+        for (const field of ["w", "d"]) {
+          for (const delta of [-0.3, 0.3, 0.6]) {
+            const a = g.resizeRoomDimension(V, i, field, (field === "w" ? room.w : room.d) + delta);
+            if (a.kind !== "applied") continue;
+            applied++;
+            const relying = a.layout.windows.filter((w) => !currentSaysExterior(a.layout, w.roomIndex, w.wall));
+            if (relying.length === 0) continue;
+            viaProof++;
+            viaProofKeys.push(`${side} ${room.label}${room.number} ${field}${delta > 0 ? "+" : ""}${delta}`);
+            for (const w of relying) {
+              const k = x.classifyWallExposure(a.layout, w.roomIndex, w.wall, spanOf(w));
+              if (k.kind !== "exterieur") unjustified.push(`${side} ${room.label} ${field}${delta}: fenêtre de ${a.layout.rooms[w.roomIndex].label} ${k.kind}`);
+            }
+            if (g.independentVerify(a.layout).length !== 0) unjustified.push(`${side} ${room.label} ${field}${delta}: anomalie restante`);
+          }
+        }
+      });
+    }
+    record(
+      "5. 168 essais : chaque acceptation qui dépend de la preuve a toutes ses fenêtres concernées démontrées extérieures, 0 anomalie",
+      viaProof > 0 && unjustified.length === 0,
+      `${applied} acceptés dont ${viaProof} grâce à la preuve${unjustified.length ? " — " + unjustified.slice(0, 3).join(" ; ") : ""}`
+    );
+    console.log("   acceptations dues à la preuve : " + viaProofKeys.join(", "));
 
     console.log("\nTableau des cas (attendu | obtenu | règle actuelle | raison) :");
     for (const t of table) console.log(`- ${t.name} | ${t.expected} | ${t.got} | ${t.current} | ${t.reason}`);

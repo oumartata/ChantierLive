@@ -576,11 +576,40 @@ try {
       // d) Fenêtre obstruée, corridor=null — le contour bâti recalculé ne
       // touche plus le mur portant la fenêtre (ex. un autre élément a
       // repoussé ce contour), sans qu'elle ait été explicitement retirée.
+      // Depuis le branchement de la preuve d'exposition (lot « façades
+      // extérieures »), l'obstruction est une VRAIE géométrie : un élément
+      // bâti posé devant la fenêtre (0,35 m au-delà du mur, au-delà d'une
+      // cloison mais en deçà du dégagement exigé), contour recalculé comme
+      // le ferait le moteur. Les deux règles (historique et preuve) refusent.
       const obstructed = JSON.parse(JSON.stringify(faultyEntry));
-      obstructed.footprint = { ...obstructed.footprint, d: obstructed.footprint.d - 1.0 };
+      const ow = obstructed.windows[0];
+      const oroom = obstructed.rooms[ow.roomIndex];
+      const half = ow.width / 2 + 0.2;
+      const blocker =
+        ow.wall === "top" ? { x: ow.cx - half, y: oroom.y - 0.35 - 1.0, w: 2 * half, d: 1.0 }
+        : ow.wall === "bottom" ? { x: ow.cx - half, y: oroom.y + oroom.d + 0.35, w: 2 * half, d: 1.0 }
+        : ow.wall === "left" ? { x: oroom.x - 0.35 - 1.0, y: ow.cy - half, w: 1.0, d: 2 * half }
+        : { x: oroom.x + oroom.w + 0.35, y: ow.cy - half, w: 1.0, d: 2 * half };
+      obstructed.circulations = [...obstructed.circulations, blocker];
+      const fpx = Math.min(obstructed.footprint.x, blocker.x - g.WALL_EXT), fpy = Math.min(obstructed.footprint.y, blocker.y - g.WALL_EXT);
+      const fpX = Math.max(obstructed.footprint.x + obstructed.footprint.w, blocker.x + blocker.w + g.WALL_EXT);
+      const fpY = Math.max(obstructed.footprint.y + obstructed.footprint.d, blocker.y + blocker.d + g.WALL_EXT);
+      obstructed.footprint = { x: fpx, y: fpy, w: fpX - fpx, d: fpY - fpy };
       record(
-        "Consolidation (corridor=null) — fenêtre obstruée détectée (mur qui ne débouche plus réellement dehors)",
+        "Consolidation (corridor=null) — fenêtre obstruée détectée (élément bâti réel devant la fenêtre, contour recalculé)",
         g.independentVerify(obstructed).some((i) => i.severity === "error" && i.message.includes("fenêtre ne débouche plus"))
+      );
+      // Ancien montage conservé et documenté : contour STOCKÉ raccourci
+      // artificiellement, géométrie réelle dégagée. La règle historique le
+      // signalait ; la preuve, calculée sur la géométrie brute (jamais sur
+      // un champ dérivé stocké), démontre la fenêtre exposée. Ce cas n'est
+      // donc plus une obstruction : il est consigné tel quel, sans le
+      // présenter comme une obstruction détectée.
+      const staleFootprint = JSON.parse(JSON.stringify(faultyEntry));
+      staleFootprint.footprint = { ...staleFootprint.footprint, d: staleFootprint.footprint.d - 1.0 };
+      record(
+        "Consolidation (corridor=null) — contour stocké incohérent mais géométrie dégagée : fenêtre prouvée exposée, aucune obstruction inventée",
+        !g.independentVerify(staleFootprint).some((i) => i.message.includes("fenêtre ne débouche plus"))
       );
     }
 
@@ -1826,12 +1855,25 @@ try {
           oldNew.join(" | ")
         );
         const a = g.resizeRoomDimension(front, c1, "d", 3.2);
+        // Avant le branchement de la preuve d'exposition (lot « façades
+        // extérieures ») ce geste était refusé pour la seule raison du
+        // rectangle englobant (fixture plans-facade-retrait-refus.json) ; il
+        // est désormais accepté : mur bas (porte) fixe, fenêtre haute prouvée
+        // exposée sur sa propre portion.
+        const accepted =
+          a.kind === "applied" &&
+          a.message.includes("mur bas conservé (la porte vers la circulation)") &&
+          Math.abs(a.layout.rooms[c1].d - 3.2) < 1e-9 &&
+          Math.abs(a.layout.rooms[c1].y + a.layout.rooms[c1].d - (r.y + r.d)) < 1e-9 &&
+          front.doors.every((d, k) => d.roomIndex !== c1 || (Math.abs(d.cx - a.layout.doors[k].cx) < 1e-9 && Math.abs(d.cy - a.layout.doors[k].cy) < 1e-9 && d.width === a.layout.doors[k].width)) &&
+          front.rooms.every((o, k) => k === c1 || sameRect(o, a.layout.rooms[k])) &&
+          g.independentVerify(a.layout).length === 0;
         record(
-          "26. B2 corrigé : profondeur 3,50 → 3,20 refusée explicitement (mur bas de la porte gardé fixe, nouvelle anomalie nommée)",
-          a.kind === "refused" && a.reason.includes("Mur bas") && a.reason.includes("circulation") && a.reason.includes("Chambre 1"),
-          a.kind === "refused" ? a.reason : a.kind
+          "26. B2 avec preuve d'exposition : 3,50 → 3,20 accepté, mur bas (porte) fixe, porte intacte, autres pièces inchangées, 0 anomalie",
+          accepted,
+          a.kind === "applied" ? a.message : a.kind === "refused" ? a.reason : a.kind
         );
-        record("26. B2 : refus sans aucune mutation de l'état reçu", snapshot(front) === before);
+        record("26. B2 : l'état reçu n'est jamais muté (copie candidate)", snapshot(front) === before);
         const viaHandles = g.checkRoomResize(front, c1, { x: r.x, y: r.y, w: r.w, d: 3.2 });
         record(
           "26. B2 par les poignées (même rectangle, mur bas déplacé) : refusé, motif nommant la porte du mur bas",
@@ -1926,16 +1968,33 @@ try {
       }
 
       // Autre pièce affectée : le refus nomme l'autre pièce, rien n'est modifié.
+      // (L'ancien cas — Salon +0,30 m en accès avant — est désormais accepté :
+      // la fenêtre de « Cuisine 1 » en retrait est prouvée exposée.) Cas
+      // négatif conservé sur une VRAIE obstruction : « B » élargie vers la
+      // fenêtre de « A » jusqu'à 0,50 m, dégagement insuffisant.
       {
-        const L = genDiag("front");
+        const W = g.WALL_EXT;
+        const mk = (label, number, x0, y0, w, d) => ({ type: "test", label, number, x: x0, y: y0, w, d, minW: 1, minD: 1, exteriorWall: null, vehicleDoor: null });
+        const rooms = [mk("A", 1, 5, 5, 3, 3), mk("B", 1, 10, 5, 3, 3)];
+        const L = {
+          variantLabel: "test", feasible: true, failureReasons: [], rejected: false, rejectionReasons: [], accessSide: "front",
+          terrain: { x: 0, y: 0, w: 20, d: 20 }, emprise: { x: 2, y: 2, w: 16, d: 16 },
+          footprint: { x: 5 - W, y: 5 - W, w: 8 + 2 * W, d: 3 + 2 * W },
+          corridor: null, corridorFillers: [], circulations: [], exteriorPaths: [], courtyard: null, streetDoor: null, entryDoor: null,
+          rooms, doors: [], windows: [{ roomIndex: 0, wall: "right", cx: 8, cy: 6.5, width: 1.2 }], exteriorSpaces: [], surfaces: {},
+        };
         const before = snapshot(L);
-        const salon = idx(L, "Salon", 1);
-        const a = g.resizeRoomDimension(L, salon, "d", L.rooms[salon].d + 0.3);
+        const windowIssue = (lay) => g.independentVerify(lay).some((i) => i.message.includes("« A 1 » : une fenêtre ne débouche plus"));
+        // Rectangle visé par un relâchement de poignée : « B 1 » élargie vers
+        // la GAUCHE jusqu'à 0,50 m de la fenêtre de « A 1 ».
+        const a = g.checkRoomResize(L, 1, { x: 8.5, y: 5, w: 4.5, d: 3 });
         record(
-          "26. Conséquence sur une autre pièce détectée : refus qui nomme la pièce touchée (« Cuisine 1 »), état intact",
-          a.kind === "refused" && a.reason.includes("« Cuisine 1 »") && snapshot(L) === before,
-          a.kind === "refused" ? a.reason : a.kind
+          "26. Conséquence sur une autre pièce : fenêtre de « A 1 » obstruée par l'élargissement de « B 1 » → refus nommant « A 1 », état intact",
+          !windowIssue(L) && !a.ok && a.reason.includes("« A 1 »") && a.reason.includes("fenêtre") && snapshot(L) === before,
+          a.ok ? "accepté" : a.reason
         );
+        const farther = g.checkRoomResize(L, 1, { x: 9.5, y: 5, w: 3.5, d: 3 });
+        record("26. Même élargissement laissant 1,50 m devant la fenêtre : accepté (fenêtre prouvée exposée)", farther.ok === true, farther.ok ? "accepté" : farther.reason);
       }
 
       // Fenêtre : jamais déplacée le long de son mur ni réduite.
