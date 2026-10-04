@@ -155,6 +155,38 @@ clôture** (jamais présentées comme résolues) :
   normes réglementaires certifiées (rappelé explicitement dans l'interface
   elle-même).
 
+### Prochain diagnostic d'usage — préparé le 2026-10-04, non exécuté
+
+Problème rapporté par le fondateur : **les modifications sont difficiles et
+le comportement est perçu comme instable.** Le diagnostic n'attend pas de
+vidéo : il rejoue lui-même le parcours suivant, en navigateur, sur un
+projet généré.
+
+Parcours : générer → sélectionner une pièce → saisir ses dimensions →
+déplacer une ouverture (si l'outil le permet) → verrouiller → régénérer →
+annuler / rétablir → sauvegarder → recharger.
+
+Chaque constat est classé dans une seule catégorie :
+
+| Catégorie | Définition | Preuve exigée |
+|---|---|---|
+| Défaut reproduit | Comportement contraire à ce que l'interface annonce, reproduit au moins deux fois | Étapes exactes, état avant/après, capture ou état exporté |
+| Commande difficile à comprendre | La fonction existe et marche, mais l'utilisateur ne la trouve pas ou ne comprend pas son effet | Où elle se trouve, ce qui manque (libellé, retour, ordre) |
+| Fonction absente | Le parcours demande une action que l'outil ne propose pas | Étape du parcours concernée, sans conception ni développement à ce stade |
+
+Isolation, obligatoire :
+- le brouillon du générateur vit dans le `localStorage` du navigateur
+  (clé `chantierlive:prototype-plans:draft:v1`), par origine ;
+- tout import de fixture (`scripts/fixtures/*.projet.json`, exports
+  conservés dans `C:\Restauration-E`) se fait dans un espace de test isolé,
+  par exemple une origine distincte (`http://127.0.0.1:3001`) ou un onglet
+  dont on a vérifié au préalable qu'il n'a **aucun brouillon** ;
+- jamais par-dessus un brouillon existant. L'import remplace le brouillon
+  ouvert et son historique Annuler/Rétablir.
+
+Rappel : le brouillon navigateur d'origine n'est pas récupéré à ce stade
+(voir `PROJECT_STATE.yaml`, `restoration_2026_10_04`).
+
 ---
 
 ## 3. Journal des lots
