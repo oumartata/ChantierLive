@@ -219,7 +219,7 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 |---|---|---|---|
 | B1 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
 | B2 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
-| B3 — *reclassé : limite de recherche à analyser* | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
+| B3 — *reclassé : limite de recherche* ; **analysé le 2026-10-05** (voir « B3 — diagnostic ») | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
 | B4 — **corrigé** (voir « Correctif B4/B5 ») | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
 | B5 — **corrigé** (voir « Correctif B4/B5 ») | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
 
@@ -242,7 +242,7 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 | # | Constat |
 |---|---|
 | F1 | Aucun outil pour déplacer, ajouter ou supprimer une **fenêtre** : seules les portes sont éditables (aucune commande, confirmé dans `PlanEditor.tsx`) |
-| F2 | Aucune régénération qui accepte de **redimensionner** les pièces non verrouillées autour d'un verrou. **Hypothèse non démontrée** : cette absence pourrait expliquer B3 ; à confirmer par l'analyse de B3 avant tout développement |
+| F2 | Aucune régénération qui accepte de **redimensionner** les pièces non verrouillées autour d'un verrou. **Lien avec B3 réfuté pour le cas Chambre 2** (2026-10-05) : une disposition nouvelle existe sans redimensionnement (Variante 5). Non démontré pour le cas Salon 1 |
 
 #### Premier correctif proposé (non développé)
 
@@ -729,7 +729,7 @@ décider explicitement ; je ne l'ai pas fait.
 | Génération (80 configurations) | **0 différence structurelle** (variantes, formes, ordre, rejets, anomalies). Seul le compteur d'échecs, borné par le budget de temps (`maxMillis`), varie : 8 configurations entre avant et après, contre 3 (avant contre avant) et 6 (après contre après) entre deux exécutions identiques. C'est du bruit de même ordre |
 | Régénération (70 cas, une pièce verrouillée à chaque fois) | 0 différence |
 | Batterie de 11 cas (avant sur une copie de `1148026` hors dépôt, puis après) | Identique, hors durées et compteurs d'échecs. Une variation du compteur « autre » de 8 à 9 sur un cas, sans autre écart ; durées de 2 à 17 ms (mesure unique) |
-| Performance (12 configurations fixes, 15×20 et autres) | Grille : 3,29 à 4,34 ms (moyenne 3,61), **cible de 5 ms tenue**. Vérification sans recours à la preuve : 0,010 à 0,083 ms. Premier appel qui construit la grille : 5,56 ms (mesure unique, à froid), puis 0,077 ms en cache. Un geste complet sur la fixture : 4,42 ms |
+| Performance (12 configurations fixes, 15×20 et autres) | Grille : 3,29 à 4,34 ms (moyenne 3,61) sur les mesures annoncées, **mais 5,56 ms au premier calcul à froid** (mesure unique) : **la cible de 5 ms n'est donc pas systématiquement tenue**. Vérification sans recours à la preuve : 0,010 à 0,083 ms. Appels suivants, grille en cache : 0,077 ms. Un geste complet sur la fixture : 4,42 ms |
 | Glissé de poignée | Aucun calcul de grille : l'aperçu n'utilise que `resizeRoom` / `tryMoveRoom` ; la vérification complète n'a lieu qu'au relâchement |
 | Navigateur (Playwright, profil isolé, `localhost:3001`) | Fixture rejouée dans l'interface : 3,50 → 3,20 appliqué, mur bas inchangé (6,70 m), portes identiques, fenêtre conservée, autres pièces identiques, aucune anomalie. Annuler : état d'origine exact, puis bouton désactivé. Rétablir : état accepté exact. Rechargement et « Reprendre ce brouillon » : état identique, étiquette « 3.03 × 3.20 m ». Valeur du profil de test restaurée ; console sans erreur. Captures `nav_01` à `nav_03` dans `exports/preuves/facade-branchement-2026-10-04/` |
 | `npm run verify` | Vert : lint 0 erreur (3 avertissements préexistants), typecheck, 781/781 et 30/30, build. Après ce lancement, `exteriorExposure.ts` n'a reçu que des **commentaires** ; lint, typecheck et les deux suites ont été rejoués sur la version finale |
@@ -746,6 +746,127 @@ décider explicitement ; je ne l'ai pas fait.
 - la comparaison de génération reste soumise au bruit du budget de temps.
 
 Captures, instantanés et scripts de mesure : `exports/preuves/facade-branchement-2026-10-04/` (hors Git).
+
+### B3 — diagnostic de la régénération après verrouillage (réalisé le 2026-10-05, aucun code applicatif modifié)
+
+Point de départ : HEAD `d72012e`, arbre propre, aucun stash.
+
+**Conditions d'origine** :
+- *conservés* : le geste (verrou sur Chambre 2, puis sur Salon 1, puis
+  « Proposer de nouvelles dispositions ») et les comptes (75 puis 50
+  explorations écartées) ;
+- *non conservé* : le brouillon du diagnostic du 2026-10-04. Le stockage du
+  navigateur intégré à `localhost:3001` est vide à la lecture ; rien n'a
+  été supprimé par ce lot.
+
+**Reproduction**, clairement identifiée comme telle :
+`scripts/fixtures/plans-b3-regeneration-reproduction.json`. Elle part des
+paramètres par défaut de l'écran et de la première variante affichée
+(« Variante 3 », non modifiée). Le verrou est appliqué au moment de la
+trace. Elle redonne **exactement** 75 et 50 explorations écartées.
+
+Trace : `node scripts/trace-b3-regeneration.mjs`. Elle est en lecture
+seule et n'utilise que l'API publique. Des détails internes ont été
+obtenus sur une **copie instrumentée hors dépôt** du moteur (patch et
+scripts dans `exports/preuves/b3-2026-10-05/`, hors Git) :
+- erreurs de finalisation du retour arrière, aujourd'hui jetées sans
+  trace ;
+- candidats admis puis absorbés comme doublons ;
+- emprise effective de recherche ;
+- journal du placement pas à pas.
+
+#### Classification
+
+| | Chambre 2 verrouillée | Salon 1 verrouillé |
+|---|---|---|
+| Disposition actuelle admissible | oui | oui |
+| Propositions nouvelles | 0 | 0 |
+| Emprise de recherche | complète (11 × 15 m) | **réduite à 11 × 9,80 m** : le mur extérieur bas du salon verrouillé fixe la limite du bâti (règle existante, légitime ; sinon ce mur deviendrait intérieur) |
+| Échecs de placement (ordre fixe) | 59 / 75 (surtout « Salon 1 » sans place) | 50 / 50 (surtout « Chambre 2 », « Chambre 3 » sans place) |
+| Rejets d'accès ou de réseau (ordre fixe) | 16 : 13 « segment de circulation coupé », 3 « trajet d'entrée » | 0 |
+| Retour arrière | 15 recherches, **24 dispositions complètes**, toutes rejetées en finalisation **sans trace** : 10 trajet d'entrée, 8 circulation coupée, 6 fenêtre du salon | 10 recherches, 0 disposition complète |
+| Budget de recherche atteint | 0 / 15 | 0 / 10 (recherche épuisée dans son budget) |
+| Rejets de contrôle final (`independentVerify`) | 0 | 0 |
+| Doublons | 0 | **1** : la branche « corridor partagé, rangée arrière verrouillée » reconstruit exactement la disposition actuelle |
+| Branche « corridor partagé » | entrée, **0 candidat construit, sans trace** | 1 candidat, identique à l'actuel |
+
+#### Causes dominantes (démontrées par la trace)
+
+1. **Placement général** (`packNeedsIntoFreeSpace`) : chaque rectangle
+   libre reçoit **une seule rangée**, le long d'un bord de l'emprise, avec
+   **son propre nouveau couloir** (0,20 + 1,20 + 0,10 + 0,20 = 1,70 m
+   réservés en travers). Les rectangles qui ne touchent aucun bord sont
+   refusés. Une pièce verrouillée au milieu d'une rangée, ou une emprise
+   réduite, fragmente l'espace en morceaux trop étroits. La disposition
+   d'origine utilise **un seul** couloir partagé entre deux rangées ; ce
+   placement ne sait pas la reproduire.
+2. **Branche « corridor partagé » de la régénération** :
+   - rangée avant (Chambre 2) : les pièces non verrouillées de la même
+     rangée ne peuvent aller **qu'à droite** du verrou, et seulement par
+     **type entier**. Les deux chambres non verrouillées doivent pourtant
+     se répartir de part et d'autre (Chambre 1 à gauche) ; aucune
+     combinaison ne tient, aucun candidat n'est construit ;
+   - rangée arrière (Salon 1) : la rangée de jonction suit un **ordre de
+     types figé** (cuisine puis sanitaires). Elle redonne donc la
+     disposition actuelle, et aucune permutation n'est explorée.
+3. **Observabilité** : les rejets de finalisation du retour arrière et
+   l'absence de candidat de la branche partagée ne laissent aucune trace.
+   L'écran affiche « 75 explorations écartées » sans montrer que 24
+   dispositions complètes ont été trouvées puis rejetées.
+
+#### Preuve constructive à paramètres constants
+
+- **Chambre 2 : obtenue.** Avec la **même entrée**, le générateur produit
+  « Variante 5 » :
+  - rangée avant identique, Chambre 2 identique (position, dimensions,
+    porte, fenêtre) ;
+  - rangée arrière réordonnée : Sanitaire 1, Sanitaire 2, Cuisine 1,
+    Salon 1 ;
+  - 0 anomalie, et la règle « fenêtre de chambre ou salon » est respectée ;
+  - ce n'est pas une simple permutation de pièces identiques.
+  
+  Une disposition nouvelle existe donc **sans aucun redimensionnement** :
+  **le lien supposé entre B3 et F2 (absence de redimensionnement
+  automatique) est réfuté pour ce cas**.
+- **Salon 1 : non obtenue.** Aucune variante du générateur ne conserve
+  Salon 1 à l'identique. Les outils de l'éditeur (mettre de côté, replacer,
+  porte) ne permettent pas de réordonner la rangée arrière : les raccords
+  de circulation restent fixes, et une cuisine plus profonde les
+  chevaucherait. C'est une **limite de recherche**, et non une impossibilité.
+  Une rangée de jonction réordonnée (Sanitaire 1, Sanitaire 2, Cuisine 1)
+  tiendrait dimensionnellement (6,11 m pour 6,12 m disponibles), mais
+  cette piste **n'est pas démontrée**.
+
+#### Plus petit correctif proposé (non développé dans ce lot)
+
+1. **Observabilité, sans changement de comportement** : consigner dans
+   `failureReasons` ou `searchStats` :
+   - les erreurs de finalisation du retour arrière ;
+   - les combinaisons refusées de la branche « corridor partagé » ;
+   - les doublons de la disposition actuelle.
+   
+   Critères :
+   - les mêmes variantes avant et après (instantané
+     `snapshot-plans-verifier-effects.mjs` : 0 différence structurelle) ;
+   - la trace montre, pour la fixture Chambre 2, les 24 rejets de
+     finalisation et leur motif.
+2. **Correctif ciblé de la branche « corridor partagé, rangée avant »** :
+   permettre de placer les pièces non verrouillées de la rangée
+   verrouillée **des deux côtés** du verrou (segment gauche entre le foyer
+   et le verrou, segment droit), avec les mêmes contrôles
+   (`finalizeCandidate`, `admitIfValid`). Pas de redimensionnement ni de
+   nouvelle stratégie.
+   
+   Critères :
+   - fixture Chambre 2 verrouillée : au moins une proposition nouvelle
+     admissible (celle de Variante 5 ou équivalente), Chambre 2 strictement
+     inchangée ;
+   - génération : 0 différence ; régénération : seulement des ajouts de
+     variantes admissibles, jamais une perte ;
+   - batterie de 11 cas et tests existants verts.
+
+   L'exploration de l'ordre des types dans la rangée de jonction (cas
+   Salon 1) ne vient qu'**après** une preuve constructive dédiée.
 
 ---
 
