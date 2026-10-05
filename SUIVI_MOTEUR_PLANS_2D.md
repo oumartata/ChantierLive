@@ -1049,6 +1049,93 @@ Salon 1). F2 reste absent ; il n'était nécessaire pour aucun des deux.
 - **Volume de propositions** : il augmente encore sur certains cas de
   référence (ex. 37 → 45), sans tri de présentation.
 
+### Comparer et choisir les propositions de régénération (réalisé le 2026-10-05)
+
+Point de départ : HEAD `79b0759`. **Lot d'affichage uniquement** : le
+moteur (`geometry.ts`) n'est pas modifié.
+
+**Constat sur le classement existant** (`compareLayoutQuality`, laissé
+tel quel, car il peut aussi peser sur la sélection des candidats du
+moteur). Ses critères réels, dans l'ordre :
+1. circulation **intérieure** seule ;
+2. contour englobant ;
+3. distance moyenne à vol d'oiseau jusqu'à l'entrée ;
+4. résiduel non affecté.
+
+Seuil d'égalité : 0,05.
+
+**Limites constatées** :
+- le cheminement extérieur n'est pas compté. Pour la fixture B3 Salon 1,
+  le moteur place les 2 propositions (25,42 + 4,56 = 29,98 m²) **avant**
+  la disposition actuelle (29,74 + 0 = 29,74 m²) ;
+- pour un accès gauche ou droite, les résultats du repère transposé sont
+  ajoutés en fin de liste **sans être reclassés**.
+
+**Interface** (`regenerationView.ts`, `RegenerationPanel`) :
+- **Sections** : « Disposition actuelle — inchangée » et « Nouvelles
+  propositions » sont séparées. Sans nouveauté, l'écran indique « Aucune
+  nouvelle proposition » et propose un seul bouton, « Conserver cette
+  disposition ».
+- **Carte de chaque proposition** :
+  - aperçu (rendu SVG existant) ;
+  - circulation intérieure ;
+  - cheminement extérieur, avec la convention existante en info-bulle ;
+  - total des deux ;
+  - contour englobant (rectangle, dimensions) ;
+  - contrôles (`independentVerify`) ;
+  - verrous conservés (position, dimensions, portes, fenêtres) ;
+  - écart du total avec l'actuelle ;
+  - un avertissement quand la circulation intérieure baisse mais que le
+    cheminement extérieur augmente : « ce n'est pas une économie de
+    surface totale ».
+- **« Classement selon les surfaces »** : un comparateur distinct
+  (`compareBySurfaces`), appliqué à une copie des références après
+  réception de tous les résultats (repère transposé compris).
+  - Mêmes critères et même ordre que le moteur, sauf le premier :
+    circulation intérieure + cheminement extérieur.
+  - Aucun score pondéré.
+  - Égalité : l'ordre du moteur est conservé.
+  - Il est présenté comme un ordre de présentation, jamais comme la
+    garantie d'un meilleur plan.
+- **Affichage progressif** : 6 cartes à la fois, « Afficher davantage »,
+  total disponible affiché. Aucun résultat n'est supprimé ni limité, et
+  aucune recherche n'est relancée.
+- **Numérotation** : « Proposition N », continue et stable tant que le
+  panneau est ouvert. L'identité de la sélection est l'indice dans
+  `result.variants`, jamais le numéro affiché.
+- **Comparaison avant de remplacer** : la disposition actuelle et la
+  proposition sélectionnée sont côte à côte, sur les mêmes indicateurs,
+  avec leurs écarts. Consulter, comparer ou fermer ne modifie pas le
+  brouillon. « Choisir cette disposition » passe par `commit`, donc
+  Annuler/Rétablir fonctionnent comme avant.
+
+**Vérifications** :
+- `scripts/test-plans-regeneration-view.mjs` (branché dans `npm test`) :
+  53/53 ;
+- instantané du moteur : régénération (70 cas) et redimensionnement
+  (168 cas) **0 différence** ; génération (80 cas) 0 différence
+  structurelle (seuls des compteurs d'échecs varient, ±1 : bruit du
+  budget temporel) ;
+- parcours navigateur (profil isolé, ordinateur 1280 px et mobile
+  390 px), sans aucun débordement horizontal à 390 px :
+  - zéro nouveauté (accès gauche 15×20, Chambre 1) ;
+  - Salon 1 : 2 propositions, 29,98 m² dont 4,56 m² de cheminement
+    extérieur, contre 29,74 m² ;
+  - 44 propositions (accès gauche 15×25, Chambre 3) : choix de la
+    proposition 10 après « Afficher davantage », le candidat enregistré
+    correspond à la carte ;
+  - fermeture sans changement ;
+  - Annuler, Rétablir, rechargement et reprise.
+
+**Limites** :
+- `compareLayoutQuality` du moteur garde sa limite : il ne compte pas le
+  cheminement extérieur. Les libellés « Régénération N » posés par le
+  moteur ne sont plus affichés : les accès gauche et droite peuvent en
+  produire deux identiques.
+- Aucun filtre ni regroupement : 44 propositions font 8 pages.
+- La note d'origine du moteur parle de « circulation totale » pour la
+  seule circulation intérieure ; l'interface le précise.
+
 ---
 
 ## 3. Journal des lots

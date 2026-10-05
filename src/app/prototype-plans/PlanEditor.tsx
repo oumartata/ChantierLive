@@ -28,6 +28,7 @@ import {
 } from "./geometry";
 import { escapeXml, isSmallRoom, renderSvg, renderSvgToPngBlob, roomTextFits, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
+import { buildRegenerationView, CURRENT_VARIANT_LABEL, deltaOf, REGEN_PAGE_SIZE, type LayoutMetrics } from "./regenerationView";
 import type { DepositContext } from "./PrototypeClient";
 // Actions serveur RÉELLES et INCHANGÉES du chantier (Lots 1/2,
 // PREPARATION_INTEGRATION_METIER.md) : aucun second mécanisme de dépôt.
@@ -112,7 +113,9 @@ export function PlanEditor({
   // Proposition de régénération en cours de comparaison — jamais appliquée
   // au brouillon (history) tant que l'utilisateur ne choisit pas
   // explicitement "Choisir cette disposition" (voir handleAcceptRegeneration).
-  const [regen, setRegen] = useState<{ base: Layout; result: RegenerationResult; selectedIndex: number } | null>(null);
+  // selectedIndex : indice dans result.variants (identité de la proposition),
+  // jamais son numéro d'affichage ; null tant que rien n'est sélectionné.
+  const [regen, setRegen] = useState<{ base: Layout; result: RegenerationResult; selectedIndex: number | null } | null>(null);
   // Sauvegarde locale automatique initiale (à l'ouverture) puis après chaque
   // modification validée (voir saveNow, appelé par commit/undo/redo/import) —
   // jamais un geste séparé à retenir. Un échec (stockage plein, navigation
@@ -648,12 +651,14 @@ export function PlanEditor({
   // sans y toucher.
   function handleRegenerate() {
     const result = regenerateUnlocked(current);
-    setRegen({ base: current, result, selectedIndex: 0 });
+    setRegen({ base: current, result, selectedIndex: null });
   }
 
   function handleAcceptRegeneration() {
-    if (!regen || regen.result.variants.length === 0) return;
-    commit(regen.result.variants[regen.selectedIndex], "");
+    if (!regen || regen.selectedIndex === null) return;
+    const chosen = regen.result.variants[regen.selectedIndex];
+    if (!chosen || chosen.variantLabel === CURRENT_VARIANT_LABEL) return;
+    commit(chosen, "");
     setRegen(null);
     setSelected(null);
   }
@@ -1326,6 +1331,47 @@ export function PlanEditor({
   );
 }
 
+const m2 = (v: number) => `${v.toFixed(2).replace(".", ",")} m²`;
+const num = (v: number) => v.toFixed(2).replace(".", ",");
+const signedNum = (v: number | null) => (v === null ? "=" : `${v > 0 ? "+" : "−"}${num(Math.abs(v))}`);
+const signed = (v: number | null) => (v === null ? "=" : `${signedNum(v)} m²`);
+const EXTERIOR_CONVENTION =
+  "Trajet dont une extrémité touche l'entrée : classé ainsi par convention de ce modèle (il ne représente aucun mur ni enveloppe bâtie au-delà du contour englobant) — jamais une vérification physique d'exposition à l'air libre.";
+
+// Aperçu réduit : même rendu SVG que l'export, mis à l'échelle de sa carte.
+function RegenPreview({ layout, orientation, label }: { layout: Layout; orientation: string; label: string }) {
+  const html = useMemo(() => renderSvg(layout, orientation), [layout, orientation]);
+  return (
+    <div
+      role="img"
+      aria-label={label}
+      className="overflow-hidden rounded border border-slate-200 bg-white [&_svg]:block [&_svg]:h-auto [&_svg]:w-full"
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+}
+
+function MetricsList({ m }: { m: LayoutMetrics }) {
+  return (
+    <dl className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-0.5 text-xs">
+      <dt>Circulation intérieure</dt>
+      <dd className="text-right tabular-nums">{m2(m.circulation)}</dd>
+      <dt title={EXTERIOR_CONVENTION}>Cheminement extérieur (entrée → bâti, convention)</dt>
+      <dd className="text-right tabular-nums">{m2(m.cheminementExterieur)}</dd>
+      <dt className="font-semibold">Total des deux</dt>
+      <dd className="text-right font-semibold tabular-nums">{m2(m.total)}</dd>
+      <dt>Contour englobant (rectangle{m.footprint ? `, ${m.footprint.w.toFixed(1)}×${m.footprint.d.toFixed(1)} m` : ""})</dt>
+      <dd className="text-right tabular-nums">{m.footprint ? m2(m.footprint.area) : "—"}</dd>
+      <dt>Contrôles (vérification indépendante)</dt>
+      <dd className={`text-right ${m.errors > 0 ? "text-red-700" : "text-green-700"}`}>
+        {m.errors === 0 && m.warnings === 0 ? "aucun problème" : `${m.errors} erreur(s), ${m.warnings} avertissement(s)`}
+      </dd>
+      <dt>Verrous ({m.lockedCount} pièce(s))</dt>
+      <dd className={`text-right ${m.locksPreserved ? "text-green-700" : "text-red-700"}`}>{m.locksPreserved ? "conservés à l'identique" : "MODIFIÉS"}</dd>
+    </dl>
+  );
+}
+
 function RegenerationPanel({
   regen,
   orientation,
@@ -1333,23 +1379,52 @@ function RegenerationPanel({
   onAccept,
   onCancel,
 }: {
-  regen: { base: Layout; result: RegenerationResult; selectedIndex: number };
+  regen: { base: Layout; result: RegenerationResult; selectedIndex: number | null };
   orientation: string;
-  onSelect: (i: number) => void;
+  onSelect: (i: number | null) => void;
   onAccept: () => void;
   onCancel: () => void;
 }) {
-  const { result } = regen;
+  const { result, base } = regen;
+  // Calculé une fois par résultat : la numérotation reste stable tant que le
+  // panneau reste ouvert. « Afficher davantage » ne relance aucune
+  // recherche, il montre seulement plus de cartes déjà calculées.
+  const view = useMemo(() => buildRegenerationView(base, result), [base, result]);
+  const [shown, setShown] = useState(REGEN_PAGE_SIZE);
+  const total = view.proposals.length;
+  const visible = view.proposals.slice(0, shown);
+  const selected = regen.selectedIndex === null ? null : view.proposals.find((p) => p.engineIndex === regen.selectedIndex) ?? null;
+  const details = (
+    <>
+      {result.failureReasons.length > 0 ? (
+        <details className="text-xs text-slate-600">
+          <summary className="cursor-pointer">{result.failureReasons.length} autre(s) exploration(s) écartée(s) — détails</summary>
+          <ul className="mt-1 list-disc pl-5">
+            {result.failureReasons.map((r, i) => (
+              <li key={i}>{r}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+      {result.searchStats.length > 0 ? (
+        <details className="text-xs text-slate-600">
+          <summary className="cursor-pointer">Statistiques de recherche (retour arrière, corridor partagé)</summary>
+          <ul className="mt-1 list-disc pl-5">
+            {result.searchStats.map((s, i) => (
+              <li key={i}>{s}</li>
+            ))}
+          </ul>
+        </details>
+      ) : null}
+    </>
+  );
   return (
-    <div className="flex flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-4">
+    <div className="flex min-w-0 flex-col gap-3 rounded border-2 border-indigo-400 bg-indigo-50 p-2 sm:p-4">
       <h3 className="font-semibold text-indigo-900">Comparer de nouvelles dispositions</h3>
       <p className="text-xs text-indigo-800">
-        Ce calcul (jusqu&apos;à 5 ordres de remplissage et une recherche avec retour arrière, × 2 stratégies de
-        circulation, × plusieurs emprises dont une compacte autour des verrous — quelques millisecondes à quelques
-        dizaines de millisecondes avec le nombre de pièces de ce prototype) s&apos;est déjà terminé — il n&apos;y a
-        rien en cours à interrompre ici. Le brouillon actuel n&apos;est PAS modifié tant que vous n&apos;avez pas cliqué « Choisir cette
-        disposition » ; « Fermer sans appliquer » vous y ramène exactement tel quel. Les pièces verrouillées restent
-        identiques (position, dimensions, portes, fenêtres existantes) dans chaque proposition ci-dessous.
+        Le calcul est terminé. Consulter, comparer ou fermer ce panneau ne modifie PAS le brouillon : seul « Choisir cette
+        disposition » le remplace (et reste annulable avec Annuler/Rétablir). Les pièces verrouillées restent identiques
+        (position, dimensions, portes, fenêtres) dans chaque proposition.
       </p>
       {result.diagnostics ? (
         <p data-testid="regen-summary" className="rounded bg-white/70 p-2 text-xs text-indigo-950">
@@ -1357,6 +1432,7 @@ function RegenerationPanel({
           tentative écartée et les statistiques sont dépliables ci-dessous.
         </p>
       ) : null}
+
       {result.variants.length === 0 ? (
         <div className="rounded bg-red-50 p-3 text-sm text-red-900">
           <p className="font-semibold">Aucune disposition trouvée respectant toutes les contraintes obligatoires.</p>
@@ -1366,68 +1442,154 @@ function RegenerationPanel({
             de disposition satisfaisante pour les pièces non verrouillées, compte tenu des pièces verrouillées
             conservées telles quelles.
           </p>
-          {result.failureReasons.length > 0 ? (
-            <ul className="mt-2 list-disc pl-5 text-xs">
-              {result.failureReasons.map((r, i) => (
-                <li key={i}>{r}</li>
-              ))}
-            </ul>
-          ) : null}
-          {result.searchStats.length > 0 ? (
-            <ul className="mt-2 list-disc pl-5 text-xs text-slate-600">
-              {result.searchStats.map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          ) : null}
         </div>
-      ) : (
-        <>
-          <div className="flex flex-wrap gap-2">
-            {result.variants.map((v, i) => (
-              <button
-                key={i}
-                onClick={() => onSelect(i)}
-                className={`rounded border px-3 py-1 text-sm ${i === regen.selectedIndex ? "border-indigo-900 bg-indigo-900 text-white" : "border-indigo-400 bg-white"}`}
-              >
-                {v.variantLabel}
-              </button>
-            ))}
-          </div>
-          <p className="text-xs text-slate-700">{result.preferenceNotes[regen.selectedIndex]}</p>
-          <div className="overflow-auto rounded border border-slate-300 bg-white p-2" style={{ maxHeight: "60vh" }}>
-            <div dangerouslySetInnerHTML={{ __html: renderSvg(result.variants[regen.selectedIndex], orientation) }} />
-          </div>
-          {result.failureReasons.length > 0 ? (
-            <details className="text-xs text-slate-600">
-              <summary className="cursor-pointer">{result.failureReasons.length} autre(s) exploration(s) écartée(s) — détails</summary>
-              <ul className="mt-1 list-disc pl-5">
-                {result.failureReasons.map((r, i) => (
-                  <li key={i}>{r}</li>
-                ))}
-              </ul>
-            </details>
+      ) : null}
+
+      <section data-testid="regen-current" className="rounded border border-slate-300 bg-white p-3">
+        <h4 className="text-sm font-semibold">Disposition actuelle — inchangée</h4>
+        <p className="mb-2 text-xs text-slate-600">Votre brouillon tel qu&apos;il est ; il n&apos;est jamais modifié par cette consultation.</p>
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,14rem)_1fr]">
+          <RegenPreview layout={base} orientation={orientation} label="Aperçu de la disposition actuelle" />
+          <MetricsList m={view.current} />
+        </div>
+      </section>
+
+      {result.variants.length > 0 && total === 0 ? (
+        <section data-testid="regen-none" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <p className="font-semibold">Aucune nouvelle proposition.</p>
+          <p className="mt-1 text-xs">
+            Cette recherche n&apos;a trouvé aucune disposition nouvelle et admissible pour les pièces non verrouillées. Ce n&apos;est
+            pas un nouveau plan : votre disposition actuelle{view.currentEngineIndex !== null ? " reste admissible et" : ""} est
+            simplement conservée.
+          </p>
+        </section>
+      ) : null}
+
+      {total > 0 ? (
+        <section data-testid="regen-proposals" className="flex flex-col gap-2">
+          <h4 className="text-sm font-semibold">
+            Nouvelles propositions — <span data-testid="regen-count">{Math.min(shown, total)} affichée(s) sur {total}</span>
+          </h4>
+          <p data-testid="regen-order" className="text-xs text-slate-700">
+            <strong>Classement selon les surfaces</strong> (ordre de présentation, jamais la garantie d&apos;un meilleur plan) :
+            1) circulation intérieure + cheminement extérieur, la plus faible ; 2) contour englobant le plus petit ; 3) distance
+            moyenne à vol d&apos;oiseau entre l&apos;entrée et les pièces, la plus courte ; 4) résiduel non affecté le plus faible.
+            Ce sont les critères du moteur, dans le même ordre, sauf le premier qui compte aussi le cheminement extérieur ; à
+            égalité, l&apos;ordre de la recherche est conservé.
+          </p>
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {visible.map((p) => {
+              const isSel = p.engineIndex === regen.selectedIndex;
+              return (
+                <li
+                  key={p.engineIndex}
+                  data-testid="regen-card"
+                  className={`flex min-w-0 flex-col gap-2 rounded border-2 bg-white p-2 ${isSel ? "border-indigo-900" : "border-slate-200"}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-semibold">Proposition {p.displayNumber}</span>
+                    <button
+                      onClick={() => onSelect(isSel ? null : p.engineIndex)}
+                      aria-pressed={isSel}
+                      className={`rounded border px-2 py-1 text-xs ${isSel ? "border-indigo-900 bg-indigo-900 text-white" : "border-indigo-400"}`}
+                    >
+                      {isSel ? "Sélectionnée" : `Comparer la proposition ${p.displayNumber}`}
+                    </button>
+                  </div>
+                  <RegenPreview layout={result.variants[p.engineIndex]} orientation={orientation} label={`Aperçu de la proposition ${p.displayNumber}`} />
+                  <MetricsList m={p.metrics} />
+                  <p className="text-xs text-slate-700">
+                    Total : {m2(p.metrics.total)} (actuelle : {m2(view.current.total)}, écart {signed(deltaOf(p.metrics.total, view.current.total))}).
+                  </p>
+                  {p.exteriorTradeoff ? (
+                    <p className="rounded bg-amber-50 p-1.5 text-xs text-amber-900">
+                      Circulation intérieure {signed(deltaOf(p.metrics.circulation, view.current.circulation))}, mais cheminement
+                      extérieur {signed(deltaOf(p.metrics.cheminementExterieur, view.current.cheminementExterieur))} :{" "}
+                      {p.metrics.total > view.current.total + 0.05
+                        ? "ce n'est pas une économie de surface totale."
+                        : "comparez le total, pas la seule circulation intérieure."}
+                    </p>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+          {shown < total ? (
+            <button onClick={() => setShown((n) => n + REGEN_PAGE_SIZE)} className="w-fit rounded border border-indigo-400 bg-white px-3 py-2 text-sm">
+              Afficher davantage ({Math.min(REGEN_PAGE_SIZE, total - shown)} de plus, {total - shown} restante(s))
+            </button>
           ) : null}
-          {result.searchStats.length > 0 ? (
-            <details className="text-xs text-slate-600">
-              <summary className="cursor-pointer">Statistiques de recherche (retour arrière, corridor partagé)</summary>
-              <ul className="mt-1 list-disc pl-5">
-                {result.searchStats.map((s, i) => (
-                  <li key={i}>{s}</li>
+        </section>
+      ) : null}
+
+      {selected ? (
+        <section data-testid="regen-compare" className="rounded border-2 border-indigo-900 bg-white p-2 sm:p-3">
+          <h4 className="text-sm font-semibold">Comparer : disposition actuelle et proposition {selected.displayNumber}</h4>
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <RegenPreview layout={base} orientation={orientation} label="Disposition actuelle" />
+            <RegenPreview layout={result.variants[selected.engineIndex]} orientation={orientation} label={`Proposition ${selected.displayNumber}`} />
+          </div>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left">
+                  <th className="pr-1 sm:pr-2">Indicateur (m²)</th>
+                  <th className="whitespace-nowrap pr-1 sm:pr-2 text-right">Actuelle</th>
+                  <th className="whitespace-nowrap pr-1 sm:pr-2 text-right">Prop. {selected.displayNumber}</th>
+                  <th className="whitespace-nowrap text-right">Écart</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {(
+                  [
+                    ["Circulation intérieure", view.current.circulation, selected.metrics.circulation],
+                    ["Cheminement extérieur (conv.)", view.current.cheminementExterieur, selected.metrics.cheminementExterieur],
+                    ["Total des deux", view.current.total, selected.metrics.total],
+                    ["Contour englobant", view.current.footprint?.area ?? 0, selected.metrics.footprint?.area ?? 0],
+                  ] as const
+                ).map(([label, a, b]) => (
+                  <tr key={label}>
+                    <td className="pr-1 sm:pr-2" title={label.startsWith("Cheminement") ? EXTERIOR_CONVENTION : undefined}>{label}</td>
+                    <td className="whitespace-nowrap pr-1 sm:pr-2 text-right">{num(a)}</td>
+                    <td className="whitespace-nowrap pr-1 sm:pr-2 text-right">{num(b)}</td>
+                    <td className="whitespace-nowrap text-right">{signedNum(deltaOf(b, a))}</td>
+                  </tr>
                 ))}
-              </ul>
-            </details>
+                <tr>
+                  <td className="pr-1 sm:pr-2">Contrôles</td>
+                  <td className="pr-1 sm:pr-2 text-right">{view.current.errors} err.</td>
+                  <td className="pr-1 sm:pr-2 text-right">{selected.metrics.errors} err.</td>
+                  <td />
+                </tr>
+                <tr>
+                  <td className="pr-1 sm:pr-2">Verrous</td>
+                  <td className="pr-1 sm:pr-2 text-right">référence</td>
+                  <td className="pr-1 sm:pr-2 text-right">{selected.metrics.locksPreserved ? "conservés" : "MODIFIÉS"}</td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {selected.note ? (
+            <p className="mt-2 text-xs text-slate-600">
+              Note de la recherche (sa « circulation totale » désigne la circulation intérieure seule, sans le cheminement extérieur) : {selected.note}
+            </p>
           ) : null}
-        </>
-      )}
-      <div className="flex gap-2">
-        {result.variants.length > 0 ? (
+        </section>
+      ) : total > 0 ? (
+        <p className="text-xs text-slate-600">Sélectionnez une proposition (« Comparer ») pour la mettre côte à côte avec la disposition actuelle avant de choisir.</p>
+      ) : null}
+
+      {details}
+
+      <div className="flex flex-wrap gap-2">
+        {selected ? (
           <button onClick={onAccept} className="rounded bg-indigo-900 px-3 py-2 text-sm font-semibold text-white">
-            Choisir cette disposition
+            Choisir cette disposition (proposition {selected.displayNumber})
           </button>
         ) : null}
-        <button onClick={onCancel} className="rounded border border-indigo-400 px-3 py-2 text-sm">
-          Fermer sans appliquer — garder le brouillon actuel
+        <button onClick={onCancel} className="rounded border border-indigo-400 bg-white px-3 py-2 text-sm">
+          {total === 0 && result.variants.length > 0 ? "Conserver cette disposition" : "Fermer sans appliquer — garder le brouillon actuel"}
         </button>
       </div>
     </div>
