@@ -219,7 +219,7 @@ L'aller-retour export/import reste couvert par M4. Captures hors Git :
 |---|---|---|---|
 | B1 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Largeur `3,50` → Tab (refusé : chevauche Chambre 2) → Profondeur `3,20` → Tab | Après le refus, le champ revient à la largeur réelle (3,03) | Le champ garde `3.50` ; la pièce reste à 3,03. Après la modification suivante, le message de refus disparaît et le champ affiche toujours 3,50 : **valeur affichée ≠ plan, sans signal**. Cause : `defaultValue` avec une clé `w-${selected}-${room.w}` inchangée en cas de refus (`PlanEditor.tsx:774-781`) |
 | B2 — **corrigé** (voir « Correctif B1/B2 ») | Éditeur → « Redimensionner » → Chambre 1 → Profondeur `3,50` → `3,20` → Tab. Reproduit à l'identique sur Chambre 2 | Soit la pièce garde le mur qui porte sa porte vers la circulation, soit le geste est refusé ou signalé aussitôt | Acceptée. La pièce raccourcit du côté de sa porte et se détache de la circulation : « n'est reliée au dégagement par aucune ouverture réelle », « n'est pas réellement accessible depuis l'entrée ». Ces anomalies s'affichent seulement sous le tableau des surfaces, hors de vue. Le mur est alors « gris » : impossible d'y remettre une porte. Cause : saisie numérique toujours ancrée au coin haut-gauche (`PlanEditor.tsx:563-573`), et `resizeRoom` (`geometry.ts:2740`) ne contrôle pas la perte d'accès |
-| B3 — *reclassé : limite de recherche* ; **analysé le 2026-10-05** (voir « B3 — diagnostic ») ; **Chambre 2 résolu le 2026-10-05**, Salon 1 limite ouverte (voir « B3 — correctif en deux sous-lots ») | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
+| B3 — *reclassé : limite de recherche* ; **analysé le 2026-10-05** (voir « B3 — diagnostic ») ; **Chambre 2 résolu le 2026-10-05** (voir « B3 — correctif en deux sous-lots ») ; **Salon 1 résolu le 2026-10-05** (voir « B3 — Salon 1 verrouillé ») | Cas par défaut → verrouiller Chambre 2 → « Proposer de nouvelles dispositions… » ; puis la même chose avec Salon 1 verrouillé | Au moins une disposition nouvelle | 2/2 : « aucune disposition NOUVELLE » (75 puis 50 explorations écartées, toutes « cette recherche bornée n'a pas trouvé de place »). Limite connue de la régénération générale, hors corridor partagé (§2), constatée ici sur le cas le plus courant. **Reclassement (2026-10-04)** : ce n'est pas un défaut de comportement reproduit, mais une limite de couverture de la recherche bornée ; sa cause n'est pas encore analysée |
 | B4 — **corrigé** (voir « Correctif B4/B5 ») | Vue 390×844, page du générateur | Page à la largeur de l'écran | Mise en page élargie à 485 px par le tableau « Besoins (pièces) » (6 colonnes de champs `w-20`) : toute la page, plan compris, est dézoomée sur téléphone |
 | B5 — **corrigé** (voir « Correctif B4/B5 ») | Éditeur à 100 % | Libellés lisibles | Libellés des deux sanitaires superposés (« SanitaireSanitaire 2 », cotes tronquées). L'export, lui, numérote les petites pièces |
 
@@ -950,8 +950,9 @@ Le brouillon préexistant du profil de test a été sauvegardé puis restauré
 
 **Statut** :
 - **B3, cas Chambre 2 : résolu** ;
-- **B3, cas Salon 1 : limite ouverte** (réordonner la rangée de jonction,
-  non traité) ;
+- **B3, cas Salon 1 : limite ouverte** à la date de ce sous-lot
+  (réordonner la rangée de jonction, non traité) ; traité ensuite, voir
+  « B3 — Salon 1 verrouillé » ;
 - **F2 reste absent**, et n'est **pas nécessaire** pour Chambre 2.
 
 **Limites** :
@@ -962,6 +963,91 @@ Le brouillon préexistant du profil de test a été sauvegardé puis restauré
 - **Doublons préexistants** : les 4 permutations de pièces identiques
   venaient des chemins antérieurs, dont la déduplication se fait par
   identifiant. Elles n'ont pas été traitées.
+
+### B3 — Salon 1 verrouillé (réalisé le 2026-10-05)
+
+Point de départ : HEAD `b726d2e`, arbre propre, aucun stash. Fixture
+inchangée (`plans-b3-regeneration-reproduction.json`).
+
+**Preuve constructive** (copie hors dépôt, paramètres et dimensions
+constants). La rangée de jonction est construite dans l'ordre inverse :
+Sanitaire 1, Sanitaire 2, Cuisine 1, à droite du salon. Elle passe par le
+pipeline complet (`finalizeCandidate`, `admitIfValid`).
+
+Résultat :
+- 0 erreur `independentVerify`, 0 anomalie, candidat non rejeté ;
+- salon identique (position, dimensions, porte, fenêtre).
+
+La piste « 6,11 m pour 6,12 m », non démontrée dans le diagnostic, est
+donc **confirmée** : portes, fenêtres, circulation et accès passent le
+vérificateur.
+
+**Correctif générique** : dans la jonction des deux côtés
+(`exploreTwoSided`), chaque segment libre essaie désormais des **ordres
+distincts** de ses pièces.
+- **Ordres essayés** : permutations de multi-ensemble. Des pièces
+  identiques (même type, mêmes dimensions) gardent leur ordre relatif, ce
+  n'est jamais un échange d'identifiants. L'ordre reçu vient en premier.
+- **Borne** : au plus `MAX_JOIN_ORDERS` = 6 combinaisons d'ordres par
+  répartition. Le plafond est fixe ; quand il est atteint, il est compté
+  (`sharedOrdersCapped`) et affiché dans le bilan et les statistiques.
+- **Aucun ordre propre à la fixture.**
+- **Chemins actuels conservés** : la combinaison historique (ordre reçu,
+  segment de droite, rangée fraîche dans son ordre) reste sautée,
+  puisqu'elle est déjà couverte.
+- **Inchangé** : mêmes contrôles, aucun redimensionnement, aucune
+  modification du terrain, du programme ou des règles.
+- **Rangée fraîche** : seuls son ordre et son miroir sont essayés
+  (inchangé).
+
+**Résultats** :
+
+| | Avant (`b726d2e`) | Après |
+|---|---|---|
+| Fixture Salon 1 : propositions nouvelles | 0 | **2** : jonction (Sanitaire 1, Sanitaire 2, Cuisine 1) et (Sanitaire 1, Cuisine 1, Sanitaire 2). Salon identique, 0 erreur, géométries typées distinctes entre elles et de l'actuelle |
+| Circulation intérieure / cheminement extérieur / total | 29,74 / 0 / 29,74 m² (disposition actuelle) | 25,42 / 4,56 / 29,98 m² (chacune des 2 propositions) |
+| Fixture Chambre 2 | 1 proposition nouvelle (Variante 5) | identique |
+| Durée médiane Salon 1 (7 essais, 2 séries côte à côte) | 42 ms | 45–46 ms |
+| Durée médiane Chambre 2 | 293–294 ms | 292–299 ms |
+| Budget de recherche atteint (fixtures) | 0/15 et 0/10 | 0/15 et 0/10 |
+| Génération initiale (80 cas de référence) | — | 0 différence structurelle (5 compteurs d'échecs ±1 = bruit du budget temporel) |
+| Régénération (70 cas de référence) | — | **0 proposition perdue**, 32 ajoutées dans 10 cas, permutations de pièces identiques inchangées (4) |
+| Redimensionnement (168 cas) | — | 0 différence |
+| Batterie 11 cas | — | identique, sauf : C9, 7 → 15 nouvelles (16 propositions, toutes distinctes, 0 erreur ; durée 37 → 47 ms) ; compteur d'échecs de génération de C2/C9 8 → 9 (bruit). C8 inchangé (1 nouvelle) |
+| `test-plans-geometry` | 970 | 1059 : 8 nouveaux tests (section 29), 1 test retiré (28, « Salon 1 sans proposition », devenu faux), 82 vérifications de sections existantes appliquées aux nouvelles propositions. Le libellé du test 27 Salon est ajusté |
+
+**D'où vient le cheminement extérieur** : de la construction historique
+du cas B, inchangée. Aucun foyer intérieur n'y est posé à la main. Le
+recours d'entrée rejoint donc le couloir par une bande extérieure de
+1,20 × 3,80 m à gauche de Chambre 1. Ce n'est pas introduit par ce lot,
+mais c'est une **différence de qualité visible** par rapport à la
+disposition actuelle (entrée par une bande extérieure plutôt que par un
+dégagement intérieur).
+
+Parcours navigateur (profil Playwright isolé, `localhost:3001`) :
+1. générer ;
+2. « Modifier ce plan », puis verrouiller Salon 1 ;
+3. « Proposer » : 2 propositions nouvelles ;
+4. choisir « Régénération 1 » ;
+5. recharger, puis « Reprendre ce brouillon » : on retrouve la même
+   disposition, Salon 1 toujours verrouillé, sans anomalie.
+
+Le brouillon préexistant du profil a été sauvegardé puis restauré
+(empreinte identique).
+
+**Statut** : **B3 résolu** pour les deux cas du diagnostic (Chambre 2 et
+Salon 1). F2 reste absent ; il n'était nécessaire pour aucun des deux.
+
+**Limites** :
+- **Cheminement extérieur** : il vient du cas B historique, voir
+  ci-dessus.
+- **Troncature** : le plafond de 6 ordres tronque l'énumération dans
+  l'ordre lexicographique, donc sans garantie d'exhaustivité sur des
+  rangées de jonction longues (plafond atteint 1 fois sur la fixture
+  Salon 1, 8 fois sur Chambre 2).
+- **Rangée fraîche** : elle n'est pas réordonnée.
+- **Volume de propositions** : il augmente encore sur certains cas de
+  référence (ex. 37 → 45), sans tri de présentation.
 
 ---
 

@@ -3109,6 +3109,9 @@ export interface RegenerationDiagnostics {
   // disposition actuelle ou à une combinaison déjà construite — permutation
   // de pièces identiques comprise — écartées AVANT construction.
   sharedEquivalentSkipped: number;
+  // Répartitions dont les ordres de pièces de jonction ont été tronqués au
+  // plafond MAX_JOIN_ORDERS (jamais silencieux : compté et affiché).
+  sharedOrdersCapped: number;
   candidates: number;
   controlRejected: number;
   admitted: number;
@@ -3122,7 +3125,7 @@ function emptyRegenerationDiagnostics(): RegenerationDiagnostics {
   return {
     orderedAttempts: 0, orderedPlacementFailures: 0, orderedFinalizeRejected: 0,
     backtrackSearches: 0, backtrackBudgetHit: 0, backtrackComplete: 0, backtrackFinalizeRejected: 0,
-    sharedAttempted: false, sharedNotAttemptedReason: null, sharedCombinations: 0, sharedRefused: {}, sharedFinalizeRejected: 0, sharedEquivalentSkipped: 0,
+    sharedAttempted: false, sharedNotAttemptedReason: null, sharedCombinations: 0, sharedRefused: {}, sharedFinalizeRejected: 0, sharedEquivalentSkipped: 0, sharedOrdersCapped: 0,
     candidates: 0, controlRejected: 0, admitted: 0, duplicatesOfCurrent: 0, duplicatesAmongNew: 0, newProposals: 0, currentAdmissible: false,
   };
 }
@@ -3147,6 +3150,7 @@ function mergeRegenerationDiagnostics(a: RegenerationDiagnostics | undefined, b:
     sharedRefused: refused,
     sharedFinalizeRejected: a.sharedFinalizeRejected + b.sharedFinalizeRejected,
     sharedEquivalentSkipped: a.sharedEquivalentSkipped + b.sharedEquivalentSkipped,
+    sharedOrdersCapped: a.sharedOrdersCapped + b.sharedOrdersCapped,
     candidates: a.candidates + b.candidates,
     controlRejected: a.controlRejected + b.controlRejected,
     admitted: a.admitted + b.admitted,
@@ -3160,7 +3164,7 @@ function mergeRegenerationDiagnostics(a: RegenerationDiagnostics | undefined, b:
 // Synthèse lisible (une phrase), détails laissés à failureReasons/searchStats.
 export function describeRegenerationDiagnostics(d: RegenerationDiagnostics): string {
   const sharedPart = d.sharedAttempted
-    ? `corridor partagé : ${d.sharedCombinations} combinaison(s) examinée(s), ${Object.values(d.sharedRefused).reduce((s, n) => s + n, 0)} écartée(s) avant construction, ${d.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue, ${d.sharedFinalizeRejected} rejetée(s) à la finalisation`
+    ? `corridor partagé : ${d.sharedCombinations} combinaison(s) examinée(s), ${Object.values(d.sharedRefused).reduce((s, n) => s + n, 0)} écartée(s) avant construction, ${d.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue, ${d.sharedFinalizeRejected} rejetée(s) à la finalisation${d.sharedOrdersCapped ? `, ordres plafonnés ${d.sharedOrdersCapped} fois` : ""}`
     : `corridor partagé non tenté (${d.sharedNotAttemptedReason ?? "condition non remplie"})`;
   return (
     `${d.orderedAttempts} essai(s) à ordre fixe (${d.orderedPlacementFailures} sans place, ${d.orderedFinalizeRejected} rejeté(s) à la finalisation) ; ` +
@@ -3381,6 +3385,10 @@ export function packNeedsIntoFreeSpace(
 // et le signale explicitement (outcome.budgetHit), jamais en silence.
 const BACKTRACK_MAX_NODES = 400;
 const BACKTRACK_MAX_MILLIS = 150;
+// Régénération « corridor partagé » : nombre maximal d'ordres de pièces de
+// jonction essayés par répartition entre segments (B3, Salon 1). Borne
+// fixe, jamais relevée automatiquement ; un plafond atteint est compté.
+const MAX_JOIN_ORDERS = 6;
 // Au-delà de quelques dispositions complètes déjà trouvées, continuer à en
 // chercher d'autres n'apporte plus grand-chose face au coût : compareLayoutQuality
 // les classera de toute façon, jamais besoin d'en garder des dizaines.
@@ -4792,6 +4800,43 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       }
       return [...best.values()].map((v) => v.buckets);
     }
+    // Ordres DISTINCTS des pièces d'un segment (B3, Salon 1 verrouillé) :
+    // jusqu'ici l'ordre de la jonction suivait l'ordre des types
+    // (ex. cuisine puis sanitaires), si bien qu'une rangée de jonction
+    // réordonnée n'était jamais construite. Permutations de MULTI-ENSEMBLE :
+    // des pièces identiques (même type et mêmes dimensions) sont
+    // interchangeables et gardent leur ordre relatif — jamais un simple
+    // échange d'identifiants. Le premier ordre produit est l'ordre reçu.
+    function distinctOrders(bk: FreeSpaceNeed[], limit: number): { orders: FreeSpaceNeed[][]; capped: boolean } {
+      const same = (p: FreeSpaceNeed, q: FreeSpaceNeed) => p.type === q.type && Math.abs(p.width - q.width) < 1e-9 && Math.abs(p.depth - q.depth) < 1e-9;
+      const classes: FreeSpaceNeed[][] = [];
+      for (const n of bk) {
+        const c = classes.find((cl) => same(cl[0], n));
+        if (c) c.push(n);
+        else classes.push([n]);
+      }
+      const orders: FreeSpaceNeed[][] = [];
+      let capped = false;
+      const used = classes.map(() => 0);
+      const seq: number[] = [];
+      const walk = () => {
+        if (capped) return;
+        if (seq.length === bk.length) {
+          if (orders.length >= limit) { capped = true; return; }
+          const taken = classes.map(() => 0);
+          orders.push(seq.map((ci) => classes[ci][taken[ci]++]));
+          return;
+        }
+        for (let ci = 0; ci < classes.length; ci++) {
+          if (used[ci] >= classes[ci].length) continue;
+          used[ci]++; seq.push(ci);
+          walk();
+          seq.pop(); used[ci]--;
+        }
+      };
+      walk();
+      return { orders, capped };
+    }
     function exploreTwoSided(opts: {
       label: string;
       segs: { start: number; width: number }[];
@@ -4817,48 +4862,67 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
         i = j;
       }
       if (reversed.some((n, i) => n !== opts.freshNeeds[i])) freshOrders.push(reversed);
-      for (const buckets of assignments) {
-        for (let o = 0; o < freshOrders.length; o++) {
-          // Déjà couvert, à l'identique, par la boucle historique : toutes
-          // les pièces de jonction dans le segment qui commence au bord droit
-          // du verrou, rangée fraîche dans son ordre d'origine.
-          const legacy = o === 0 && buckets.every((bk, s) => bk.length === 0 || Math.abs(opts.segs[s].start - opts.legacyJoinStart) < 1e-6);
-          if (legacy) continue;
-          diag.sharedCombinations += 1;
-          const joinPlacements: FreeSpacePlacement[] = [];
-          const joinFillers: Rect[] = [];
-          let fits = true;
-          buckets.forEach((bk, s) => {
-            if (!fits || bk.length === 0) return;
-            if (!fitExact(bk.map((n) => n.width), opts.segs[s].width)) {
-              fits = false;
-              return;
+      for (const assigned of assignments) {
+        // Produit des ordres distincts de chaque segment, borné à
+        // MAX_JOIN_ORDERS par répartition : le plafond est compté
+        // (sharedOrdersCapped) et affiché, jamais relevé en silence. L'ordre
+        // reçu vient toujours en premier (ordres lexicographiques), si bien
+        // qu'une troncature ne retire jamais les combinaisons historiques.
+        const perSeg = assigned.map((bk) => distinctOrders(bk, MAX_JOIN_ORDERS));
+        let capped = perSeg.some((p) => p.capped);
+        let orderedVariants: FreeSpaceNeed[][][] = [[]];
+        for (const p of perSeg) {
+          const next: FreeSpaceNeed[][][] = [];
+          for (const prefix of orderedVariants) for (const ord of p.orders) next.push([...prefix, ord]);
+          if (next.length > MAX_JOIN_ORDERS) capped = true;
+          orderedVariants = next.slice(0, MAX_JOIN_ORDERS);
+        }
+        if (capped) diag.sharedOrdersCapped += 1;
+        for (let v = 0; v < orderedVariants.length; v++) {
+          const buckets = orderedVariants[v];
+          for (let o = 0; o < freshOrders.length; o++) {
+            // Déjà couvert, à l'identique, par la boucle historique : toutes
+            // les pièces de jonction dans le segment qui commence au bord droit
+            // du verrou, rangée fraîche dans son ordre d'origine.
+            const asReceived = buckets.every((bk, s) => bk.every((n, i) => n === assigned[s][i]));
+            const legacy = asReceived && o === 0 && buckets.every((bk, s) => bk.length === 0 || Math.abs(opts.segs[s].start - opts.legacyJoinStart) < 1e-6);
+            if (legacy) continue;
+            diag.sharedCombinations += 1;
+            const joinPlacements: FreeSpacePlacement[] = [];
+            const joinFillers: Rect[] = [];
+            let fits = true;
+            buckets.forEach((bk, s) => {
+              if (!fits || bk.length === 0) return;
+              if (!fitExact(bk.map((n) => n.width), opts.segs[s].width)) {
+                fits = false;
+                return;
+              }
+              let cx = opts.segs[s].start;
+              for (const n of bk) {
+                const { p, filler } = opts.placeJoin(n, cx);
+                joinPlacements.push(p);
+                if (filler) joinFillers.push(filler);
+                cx += n.width + WALL_INT;
+              }
+            });
+            if (!fits) {
+              refuse("répartition des deux côtés : pièces trop larges pour un segment libre");
+              continue;
             }
-            let cx = opts.segs[s].start;
-            for (const n of bk) {
-              const { p, filler } = opts.placeJoin(n, cx);
-              joinPlacements.push(p);
-              if (filler) joinFillers.push(filler);
-              cx += n.width + WALL_INT;
+            const fresh = opts.placeFresh(freshOrders[o]);
+            if (!fresh) {
+              refuse("rangée fraîche trop large ou trop profonde");
+              continue;
             }
-          });
-          if (!fits) {
-            refuse("répartition des deux côtés : pièces trop larges pour un segment libre");
-            continue;
+            const all = [...joinPlacements, ...fresh.placements];
+            const key = typedKeyOf([...all.map((p) => ({ type: p.need.type, x: p.x, y: p.y, w: p.w, d: p.d })), ...lockedRooms.map((r) => ({ type: r.type, x: r.x, y: r.y, w: r.w, d: r.d }))]);
+            if (sharedSeenTyped.has(key)) {
+              diag.sharedEquivalentSkipped += 1;
+              continue;
+            }
+            sharedSeenTyped.add(key);
+            tryShared(`${opts.label}, jonction des deux côtés${asReceived ? "" : ", jonction réordonnée"}${o === 1 ? ", rangée fraîche en miroir" : ""}`, all, opts.corridorRect, [...joinFillers, ...fresh.fillers]);
           }
-          const fresh = opts.placeFresh(freshOrders[o]);
-          if (!fresh) {
-            refuse("rangée fraîche trop large ou trop profonde");
-            continue;
-          }
-          const all = [...joinPlacements, ...fresh.placements];
-          const key = typedKeyOf([...all.map((p) => ({ type: p.need.type, x: p.x, y: p.y, w: p.w, d: p.d })), ...lockedRooms.map((r) => ({ type: r.type, x: r.x, y: r.y, w: r.w, d: r.d }))]);
-          if (sharedSeenTyped.has(key)) {
-            diag.sharedEquivalentSkipped += 1;
-            continue;
-          }
-          sharedSeenTyped.add(key);
-          tryShared(`${opts.label}, jonction des deux côtés${o === 1 ? ", rangée fraîche en miroir" : ""}`, all, opts.corridorRect, [...joinFillers, ...fresh.fillers]);
         }
       }
     }
@@ -5166,7 +5230,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   diag.newProposals = deduped.filter((c) => roomsKey(c.layout) !== baselineKey).length;
   if (diag.sharedAttempted) {
     const refusals = Object.entries(diag.sharedRefused).map(([m, n]) => `${n} × ${m}`).join(", ");
-    searchStats.push(`Corridor partagé : ${diag.sharedCombinations} combinaison(s) examinée(s)${refusals ? ` — écartées avant construction : ${refusals}` : ""} ; ${diag.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue ; ${diag.sharedFinalizeRejected} rejetée(s) à la finalisation.`);
+    searchStats.push(`Corridor partagé : ${diag.sharedCombinations} combinaison(s) examinée(s)${refusals ? ` — écartées avant construction : ${refusals}` : ""} ; ${diag.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue ; ${diag.sharedFinalizeRejected} rejetée(s) à la finalisation${diag.sharedOrdersCapped ? ` ; ordres de jonction plafonnés à ${MAX_JOIN_ORDERS} pour ${diag.sharedOrdersCapped} répartition(s)` : ""}.`);
   } else if (diag.sharedNotAttemptedReason) {
     searchStats.push(`Corridor partagé non tenté : ${diag.sharedNotAttemptedReason}.`);
   }
