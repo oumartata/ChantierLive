@@ -9,16 +9,22 @@ import {
   flipDoorSwing,
   independentVerify,
   lockRoom,
+  MIN_WINDOW_WIDTH,
   parkRoom,
   placeDoor,
+  placeWindow,
   placeParkedRoom,
   regenerateUnlocked,
   removeDoor,
+  removeWindow,
   resizeRoom,
   resizeRoomDimension,
   tryMoveRoom,
   unlockRoom,
   wallAdjacency,
+  windowOffsetOnWall,
+  windowsOf,
+  windowWallFrame,
   type Door,
   type Layout,
   type PlacedRoom,
@@ -49,7 +55,7 @@ const MARGIN = 40;
 const GRID_STEP = 0.1; // m — accrochage grille
 const ALIGN_THRESHOLD = 0.12; // m — accrochage aux bords d'autres pièces
 
-type Tool = "select" | "move" | "resize" | "add-door" | "remove-door";
+type Tool = "select" | "move" | "resize" | "add-door" | "remove-door" | "window";
 type Corner = "nw" | "ne" | "sw" | "se";
 type ResizeSource = "w" | "d" | "handles";
 const fmtDim = (v: number) => v.toFixed(2).replace(".", ",");
@@ -106,6 +112,12 @@ export function PlanEditor({
   // dimension RÉELLEMENT appliquée (sinon defaultValue garde la saisie
   // refusée, la clé dérivée de room.w/room.d ne changeant pas).
   const [resizeFieldNonce, setResizeFieldNonce] = useState(0);
+  // Outil « Fenêtre » (F1) : aperçu de la saisie (jamais appliqué), avis
+  // persistant du dernier essai, et compteur qui remet le formulaire aux
+  // valeurs réellement appliquées après un refus.
+  const [windowPreview, setWindowPreview] = useState<{ roomIndex: number; wall: WallSide; offset: number; width: number; valid: boolean } | null>(null);
+  const [windowNotice, setWindowNotice] = useState<{ roomIndex: number; kind: "applied" | "refused"; text: string } | null>(null);
+  const [windowToolNonce, setWindowToolNonce] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [dragRoomIndex, setDragRoomIndex] = useState<number | null>(null);
   const [resizingRoomIndex, setResizingRoomIndex] = useState<number | null>(null);
@@ -642,6 +654,34 @@ export function PlanEditor({
     commit(room.locked ? unlockRoom(current, selected) : lockRoom(current, selected), "");
   }
 
+  // Fenêtre (F1) : placeWindow/removeWindow jugent tout (exposition,
+  // obstruction, mur, plan entier). Accepté : UNE entrée d'historique.
+  // Refusé : aucune entrée, plan intact, formulaire remis aux valeurs
+  // appliquées, motif persistant.
+  function handleApplyWindow(d: { wall: WallSide; offset: number; width: number }) {
+    if (selected === null) return;
+    const res = placeWindow(current, selected, d.wall, d.offset, d.width);
+    if (!res.ok) {
+      setWindowNotice({ roomIndex: selected, kind: "refused", text: res.reason });
+      setWindowToolNonce((n) => n + 1);
+      return;
+    }
+    commit(res.layout, "");
+    setWindowNotice({ roomIndex: selected, kind: "applied", text: `Fenêtre : mur ${WINDOW_WALL_TEXT[d.wall]}, à ${fmtDim(d.offset)} m, largeur ${fmtDim(d.width)} m.` });
+  }
+
+  function handleRemoveWindow() {
+    if (selected === null) return;
+    const res = removeWindow(current, selected);
+    if (!res.ok) {
+      setWindowNotice({ roomIndex: selected, kind: "refused", text: res.reason });
+      setWindowToolNonce((n) => n + 1);
+      return;
+    }
+    commit(res.layout, "");
+    setWindowNotice({ roomIndex: selected, kind: "applied", text: "Fenêtre retirée." });
+  }
+
   // Lance la régénération des pièces non verrouillées — le brouillon en
   // cours d'édition (history/current) N'EST PAS modifié tant qu'un résultat
   // n'a pas été explicitement choisi : `regen` ne stocke qu'une proposition
@@ -794,13 +834,13 @@ export function PlanEditor({
       {importError ? <p className="rounded bg-red-50 p-2 text-xs text-red-700">{importError}</p> : null}
 
       <div className="flex flex-wrap items-center gap-2">
-        {(["select", "move", "resize", "add-door", "remove-door"] as Tool[]).map((t) => (
+        {(["select", "move", "resize", "add-door", "remove-door", "window"] as Tool[]).map((t) => (
           <button
             key={t}
             onClick={() => setTool(t)}
             className={`rounded border px-3 py-1 text-sm ${tool === t ? "border-slate-900 bg-slate-900 text-white" : "border-slate-300"}`}
           >
-            {{ select: "Sélectionner", move: "Déplacer", resize: "Redimensionner", "add-door": "Ajouter/déplacer une porte", "remove-door": "Supprimer une porte" }[t]}
+            {{ select: "Sélectionner", move: "Déplacer", resize: "Redimensionner", "add-door": "Ajouter/déplacer une porte", "remove-door": "Supprimer une porte", window: "Fenêtre" }[t]}
           </button>
         ))}
         <span className="mx-2 h-5 w-px bg-slate-300" />
@@ -823,6 +863,7 @@ export function PlanEditor({
         {tool === "resize" && "Sélectionnez une pièce, puis glissez un coin pour la redimensionner, ou utilisez les champs largeur/profondeur ci-dessous."}
         {tool === "add-door" && "Sélectionnez une pièce, puis cliquez un de ses murs en pointillés : vert = entrée extérieure, violet = porte intérieure vers un espace réel, gris = aucun espace de ce côté."}
         {tool === "remove-door" && "Sélectionnez une pièce, puis cliquez un mur en rouge (porte présente) pour la retirer."}
+        {tool === "window" && "Sélectionnez une pièce non verrouillée, puis choisissez le mur, la position et la largeur de sa fenêtre ; « Appliquer » enregistre la modification."}
         {selected !== null
           ? ` Sélection : ${current.rooms[selected].label} ${current.rooms[selected].number} — ${fmtDim(current.rooms[selected].w)} × ${fmtDim(current.rooms[selected].d)} m (${(current.rooms[selected].w * current.rooms[selected].d).toFixed(1).replace(".", ",")} m²).`
           : " Aucune sélection."}
@@ -893,6 +934,37 @@ export function PlanEditor({
             );
           })
         : null}
+      {tool === "window" && selected !== null && !current.rooms[selected].parked ? (
+        current.rooms[selected].locked ? (
+          <p data-testid="window-locked" className="rounded bg-amber-50 p-2 text-xs text-amber-900">
+            « {current.rooms[selected].label} {current.rooms[selected].number} » est verrouillée : sa fenêtre n&apos;est pas modifiable.
+            Déverrouillez-la d&apos;abord.
+          </p>
+        ) : (
+          <WindowTool
+            key={`${selected}-${JSON.stringify(windowsOf(current, selected))}-${windowToolNonce}`}
+            layout={current}
+            roomIndex={selected}
+            onApply={handleApplyWindow}
+            onRemove={handleRemoveWindow}
+            onPreview={setWindowPreview}
+          />
+        )
+      ) : null}
+      {tool === "window" && windowNotice && windowNotice.roomIndex === selected ? (
+        <div
+          role={windowNotice.kind === "refused" ? "alert" : "status"}
+          data-testid="window-notice"
+          className={`flex items-start justify-between gap-2 rounded p-2 text-xs ${windowNotice.kind === "refused" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-800"}`}
+        >
+          <span>
+            <strong>Fenêtre — {windowNotice.kind === "refused" ? "refusé, plan inchangé" : "appliqué"} :</strong> {windowNotice.text}
+          </span>
+          <button type="button" aria-label="Fermer cet avis" className="shrink-0 px-1" onClick={() => setWindowNotice(null)}>
+            ×
+          </button>
+        </div>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         {selected !== null
           ? doorsOf(current, selected).map((d) => (
@@ -923,9 +995,8 @@ export function PlanEditor({
         <p className="rounded bg-amber-50 p-2 text-xs text-amber-800">
           Ce que verrouille ce bouton : la POSITION (x, y) et les DIMENSIONS (largeur, profondeur) de cette pièce — une
           régénération ne les modifiera jamais, quelle que soit la disposition proposée. Les OUVERTURES (portes,
-          fenêtres) actuelles de cette pièce ne sont ni touchées ni supprimées par une régénération non plus — mais le
-          verrou ne les fige PAS pour vous : vous pouvez encore en ajouter, déplacer ou retirer manuellement ici tant que
-          la pièce reste sélectionnée. Déplacement (glisser-déposer), redimensionnement et mise de côté sont bloqués tant
+          fenêtres) actuelles de cette pièce ne sont ni touchées ni supprimées par une régénération non plus. Ses PORTES
+          restent modifiables à la main ici ; sa FENÊTRE, elle, ne l&apos;est pas tant que la pièce reste verrouillée. Déplacement (glisser-déposer), redimensionnement et mise de côté sont bloqués tant
           qu&apos;elle reste verrouillée.
         </p>
       ) : null}
@@ -1057,6 +1128,25 @@ export function PlanEditor({
                 {roomDoors.map((d) => (
                   <DoorGlyph key={d.wall} door={d} X={X} Y={Y} />
                 ))}
+                {/* Fenêtres : même trait bleu que l'export ; celle de la pièce
+                    sélectionnée est accentuée avec l'outil Fenêtre, et
+                    l'aperçu de la saisie est en pointillés (vert = acceptable,
+                    rouge = refusé), jamais appliqué sans « Appliquer ». */}
+                {windowsOf(current, i).map((wn, k) => (
+                  <WindowGlyph key={`w${k}`} win={wn} X={X} Y={Y} emphasis={tool === "window" && isSelected ? "selected" : "normal"} />
+                ))}
+                {tool === "window" && isSelected && windowPreview && windowPreview.roomIndex === i
+                  ? (() => {
+                      const f = windowWallFrame(r, windowPreview.wall);
+                      const along = f.start + windowPreview.offset + windowPreview.width / 2;
+                      const win = { wall: windowPreview.wall, cx: f.vertical ? f.fixed : along, cy: f.vertical ? along : f.fixed, width: Math.max(0, windowPreview.width) };
+                      return (
+                        <g data-testid="window-preview">
+                          <WindowGlyph win={win} X={X} Y={Y} emphasis={windowPreview.valid ? "preview-ok" : "preview-bad"} />
+                        </g>
+                      );
+                    })()
+                  : null}
               </g>
             );
           })}
@@ -1632,6 +1722,146 @@ function ResizeHandles({
         );
       })}
     </>
+  );
+}
+
+// Outil « Fenêtre » (F1) : saisie explicite du mur, de la position et de la
+// largeur, en mètres, avec aperçu ; rien n'est appliqué avant « Appliquer ».
+// Les contrôles sont ceux de placeWindow/removeWindow (geometry.ts) : ce
+// composant ne juge rien lui-même, il affiche leur verdict. Remonté (clé)
+// après chaque modification acceptée ou refusée : ses champs reprennent
+// alors les valeurs RÉELLEMENT appliquées.
+type WindowDraft = { wall: WallSide; offset: number; width: number };
+// « le mur droit » (même libellé que les motifs du moteur).
+const WINDOW_WALL_TEXT: Record<WallSide, string> = { left: "gauche", right: "droit", top: "haut", bottom: "bas" };
+
+function initialWindowDraft(layout: Layout, roomIndex: number): WindowDraft {
+  const room = layout.rooms[roomIndex];
+  const w = windowsOf(layout, roomIndex)[0];
+  if (w) return { wall: w.wall, offset: Number(windowOffsetOnWall(room, w).toFixed(2)), width: Number(w.width.toFixed(2)) };
+  // Pas de fenêtre : proposition de départ centrée sur le mur extérieur
+  // connu de la pièce (sinon le mur haut), largeur minimale du prototype —
+  // simple valeur de départ du formulaire, jamais appliquée sans clic.
+  const wall: WallSide = room.exteriorWall ?? "top";
+  const len = windowWallFrame(room, wall).length;
+  const width = MIN_WINDOW_WIDTH;
+  return { wall, offset: Number(Math.max(0, (len - width) / 2).toFixed(2)), width };
+}
+
+function WindowTool({
+  layout,
+  roomIndex,
+  onApply,
+  onRemove,
+  onPreview,
+}: {
+  layout: Layout;
+  roomIndex: number;
+  onApply: (d: WindowDraft) => void;
+  onRemove: () => void;
+  onPreview: (p: { roomIndex: number; wall: WallSide; offset: number; width: number; valid: boolean } | null) => void;
+}) {
+  const room = layout.rooms[roomIndex];
+  const current = windowsOf(layout, roomIndex)[0] ?? null;
+  const [draft, setDraft] = useState<WindowDraft>(() => initialWindowDraft(layout, roomIndex));
+  const frame = windowWallFrame(room, draft.wall);
+  const check = useMemo(() => placeWindow(layout, roomIndex, draft.wall, draft.offset, draft.width), [layout, roomIndex, draft]);
+  const unchanged = !check.ok && check.reason.startsWith("Aucune modification");
+  const removal = useMemo(() => (current ? removeWindow(layout, roomIndex) : null), [layout, roomIndex, current]);
+  useEffect(() => {
+    // Saisie identique à la fenêtre appliquée : pas d'aperçu superposé.
+    onPreview(unchanged ? null : { roomIndex, ...draft, valid: check.ok });
+    return () => onPreview(null);
+  }, [roomIndex, draft, check, unchanged, onPreview]);
+  const origin = frame.vertical ? "l'angle haut" : "l'angle gauche";
+  const num = (v: number) => v.toFixed(2).replace(".", ",");
+  return (
+    <div data-testid="window-tool" className="flex flex-col gap-2 rounded border border-sky-300 bg-sky-50 p-2 text-sm">
+      <p className="text-xs text-sky-900">
+        Fenêtre actuelle de « {room.label} {room.number} » :{" "}
+        {current ? (
+          <strong>
+            mur {WINDOW_WALL_TEXT[current.wall]}, à {num(windowOffsetOnWall(room, current))} m de{" "}
+            {current.wall === "left" || current.wall === "right" ? "l'angle haut" : "l'angle gauche"}, largeur {num(current.width)} m
+          </strong>
+        ) : (
+          <strong>aucune</strong>
+        )}{" "}
+        (trait bleu épais sur le plan ; l&apos;aperçu de la saisie est en pointillés).
+      </p>
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col text-xs">
+          Mur
+          <select
+            value={draft.wall}
+            onChange={(e) => setDraft((d) => ({ ...d, wall: e.target.value as WallSide }))}
+            className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
+          >
+            {(["top", "bottom", "left", "right"] as WallSide[]).map((w) => (
+              <option key={w} value={w}>
+                {WINDOW_WALL_TEXT[w]} ({num(windowWallFrame(room, w).length)} m)
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col text-xs">
+          Position depuis {origin} (m)
+          <input
+            type="number"
+            step={0.05}
+            value={draft.offset}
+            onChange={(e) => setDraft((d) => ({ ...d, offset: Number(e.target.value) }))}
+            className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+          />
+        </label>
+        <label className="flex flex-col text-xs">
+          Largeur (m)
+          <input
+            type="number"
+            step={0.05}
+            min={MIN_WINDOW_WIDTH}
+            value={draft.width}
+            onChange={(e) => setDraft((d) => ({ ...d, width: Number(e.target.value) }))}
+            className="w-24 rounded border border-slate-300 px-2 py-1 text-sm"
+          />
+        </label>
+      </div>
+      <p className="text-xs text-slate-700">
+        Mur {WINDOW_WALL_TEXT[draft.wall]} : {num(frame.length)} m, mesuré depuis {origin}. La fenêtre occuperait de {num(draft.offset)} à{" "}
+        {num(draft.offset + draft.width)} m. Largeur minimale retenue par ce prototype : {num(MIN_WINDOW_WIDTH)} m (hypothèse, pas une norme).
+      </p>
+      <p data-testid="window-check" className={`text-xs ${check.ok ? "text-emerald-800" : unchanged ? "text-slate-600" : "text-red-700"}`}>
+        Aperçu : {check.ok ? "placement acceptable — rien n'est appliqué avant « Appliquer »." : check.reason}
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button onClick={() => onApply(draft)} disabled={unchanged} className="rounded bg-sky-800 px-3 py-1 text-sm font-semibold text-white disabled:opacity-40">
+          {current ? "Appliquer la fenêtre" : "Ajouter la fenêtre"}
+        </button>
+        <button onClick={() => setDraft(initialWindowDraft(layout, roomIndex))} className="rounded border border-slate-400 bg-white px-3 py-1 text-sm">
+          Revenir aux valeurs actuelles
+        </button>
+        {removal?.ok ? (
+          <button onClick={onRemove} className="rounded border border-red-400 bg-white px-3 py-1 text-sm text-red-800">
+            Retirer la fenêtre
+          </button>
+        ) : null}
+      </div>
+      {current && removal && !removal.ok ? <p className="text-xs text-slate-600">Retrait non proposé : {removal.reason}</p> : null}
+    </div>
+  );
+}
+
+function WindowGlyph({ win, X, Y, emphasis }: { win: { wall: WallSide; cx: number; cy: number; width: number }; X: (m: number) => number; Y: (m: number) => number; emphasis: "normal" | "selected" | "preview-ok" | "preview-bad" }) {
+  const half = (win.width * SCALE) / 2;
+  const cx = X(win.cx), cy = Y(win.cy);
+  const vertical = win.wall === "left" || win.wall === "right";
+  const stroke = emphasis === "preview-bad" ? "#dc2626" : emphasis === "preview-ok" ? "#16a34a" : emphasis === "selected" ? "#075985" : "#0284c7";
+  const width = emphasis === "normal" ? 4 : 6;
+  const dash = emphasis.startsWith("preview") ? "4 3" : undefined;
+  return vertical ? (
+    <line x1={cx} y1={cy - half} x2={cx} y2={cy + half} stroke={stroke} strokeWidth={width} strokeDasharray={dash} style={{ pointerEvents: "none" }} />
+  ) : (
+    <line x1={cx - half} y1={cy} x2={cx + half} y2={cy} stroke={stroke} strokeWidth={width} strokeDasharray={dash} style={{ pointerEvents: "none" }} />
   );
 }
 

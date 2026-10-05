@@ -11,10 +11,11 @@
     "test:sw": "node scripts/sw.test.mjs",
     "test:plans": "node scripts/test-plans-geometry.mjs",
     "test:plans:battery": "node scripts/test-plans-battery.mjs",
-    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view",
+    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view && npm run test:plans:windows",
     "verify": "node scripts/quality-gate.mjs",
     "test:plans:exterior": "node scripts/test-plans-exterior-exposure.mjs",
-    "test:plans:view": "node scripts/test-plans-regeneration-view.mjs"
+    "test:plans:view": "node scripts/test-plans-regeneration-view.mjs",
+    "test:plans:windows": "node scripts/test-plans-windows.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

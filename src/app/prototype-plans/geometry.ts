@@ -12,7 +12,7 @@
 // Preuve d'exposition des fenêtres (lot « façades extérieures ») : import
 // circulaire volontaire, sans risque — exteriorExposure.ts ne lit les
 // constantes de ce fichier qu'au moment de l'appel, jamais au chargement.
-import { windowProvenExterior } from "./exteriorExposure";
+import { classifyWallExposure, windowProvenExterior } from "./exteriorExposure";
 
 export interface RoomNeed {
   type: string;
@@ -5427,6 +5427,147 @@ export function placeDoor(layout: Layout, roomIndex: number, wall: WallSide, alo
   next.doors = next.doors.filter((d) => !(d.roomIndex === roomIndex && d.wall === wall));
   next.doors.push(candidateDoor);
   return next;
+}
+
+// ---- F1 (2026-10-05) : édition de LA fenêtre d'une pièce (mur, position,
+// largeur), ajout si la pièce n'en a pas, retrait seulement s'il reste
+// admissible. Même modèle (`Window`, une par pièce), aucun format nouveau.
+// Contrôles RÉUTILISÉS, jamais un second vérificateur :
+// - exposition : exactement la condition de independentVerify (mur qui
+//   touche le contour bâti — wallTouchesExterior — OU exposition prouvée de
+//   CETTE baie — windowProvenExterior) ; motif de refus lu dans
+//   classifyWallExposure ;
+// - obstruction : même sonde et mêmes éléments bâtis que chooseExteriorWindow
+//   (doorOutsideProbe contre pièces, circulations, trajets extérieurs) ;
+// - plan entier : independentVerify avant/après, toute anomalie NOUVELLE
+//   refuse la modification.
+// Jamais de recalage : une saisie qui ne tient pas est REFUSÉE telle quelle
+// (aucun déplacement ni rétrécissement pour la faire accepter). Une pièce
+// verrouillée n'est jamais modifiée. Les portes, dimensions et autres pièces
+// ne sont pas touchées (seul `windows` change).
+export type WindowEditResult = { ok: true; layout: Layout } | { ok: false; reason: string };
+
+// Repère le long d'un mur : origine à l'angle GAUCHE pour les murs haut/bas,
+// à l'angle HAUT pour les murs gauche/droit (vu en plan).
+export function windowWallFrame(room: PlacedRoom, wall: WallSide): { vertical: boolean; start: number; length: number; fixed: number } {
+  const vertical = wall === "left" || wall === "right";
+  return {
+    vertical,
+    start: vertical ? room.y : room.x,
+    length: vertical ? room.d : room.w,
+    fixed: wall === "left" ? room.x : wall === "right" ? room.x + room.w : wall === "top" ? room.y : room.y + room.d,
+  };
+}
+
+// Distance (m) du bord de départ de la fenêtre à l'origine de son mur.
+export function windowOffsetOnWall(room: PlacedRoom, w: Window): number {
+  const f = windowWallFrame(room, w.wall);
+  return (f.vertical ? w.cy : w.cx) - w.width / 2 - f.start;
+}
+
+function lockedOrMissing(layout: Layout, roomIndex: number): string | null {
+  const room = layout.rooms[roomIndex];
+  if (!room) return "Pièce introuvable.";
+  if (room.parked) return `« ${room.label} ${room.number} » est mise de côté : replacez-la avant de modifier sa fenêtre.`;
+  if (room.locked) return `« ${room.label} ${room.number} » est verrouillée : déverrouillez-la avant de modifier sa fenêtre.`;
+  if (windowsOf(layout, roomIndex).length > 1) return `« ${room.label} ${room.number} » porte plusieurs fenêtres : cas non pris en charge par cet outil (une fenêtre par pièce).`;
+  return null;
+}
+
+function newIssues(before: Layout, after: Layout): string[] {
+  const seen = new Map<string, number>();
+  for (const i of independentVerify(before)) seen.set(i.message, (seen.get(i.message) ?? 0) + 1);
+  const added: string[] = [];
+  for (const i of independentVerify(after)) {
+    const n = seen.get(i.message) ?? 0;
+    if (n > 0) seen.set(i.message, n - 1);
+    else added.push(i.message);
+  }
+  return added;
+}
+
+export function placeWindow(layout: Layout, roomIndex: number, wall: WallSide, offset: number, width: number): WindowEditResult {
+  const blocked = lockedOrMissing(layout, roomIndex);
+  if (blocked) return { ok: false, reason: blocked };
+  const room = layout.rooms[roomIndex];
+  const name = `« ${room.label} ${room.number} »`;
+  if (!Number.isFinite(offset) || !Number.isFinite(width)) return { ok: false, reason: "Position ou largeur non numérique." };
+  if (width < MIN_WINDOW_WIDTH - 1e-9) {
+    return { ok: false, reason: `Largeur ${fmtM(width)} inférieure au minimum de ${fmtM(MIN_WINDOW_WIDTH)} retenu par ce prototype (hypothèse de conception, pas une norme).` };
+  }
+  const f = windowWallFrame(room, wall);
+  if (offset < -1e-9 || offset + width > f.length + 1e-9) {
+    return {
+      ok: false,
+      reason: `La fenêtre sortirait du mur ${EDGE_LABEL[wall]} de ${name} : mur de ${fmtM(f.length)}, fenêtre de ${fmtM(width)} placée de ${fmtM(offset)} à ${fmtM(offset + width)}. Elle doit tenir entre 0 et ${fmtM(f.length)}.`,
+    };
+  }
+  const centerAlong = f.start + offset + width / 2;
+  const candidate: Window = { roomIndex, wall, cx: f.vertical ? f.fixed : centerAlong, cy: f.vertical ? centerAlong : f.fixed, width };
+  const existing = windowsOf(layout, roomIndex)[0];
+  if (existing && existing.wall === wall && Math.abs(existing.cx - candidate.cx) < 1e-9 && Math.abs(existing.cy - candidate.cy) < 1e-9 && Math.abs(existing.width - width) < 1e-9) {
+    return { ok: false, reason: "Aucune modification : la fenêtre est déjà ainsi." };
+  }
+  // Une porte de la pièce vers l'extérieur sur ce même mur : l'export
+  // (render.ts) ne dessine alors pas la fenêtre — refusé plutôt qu'enregistré
+  // invisible dans le fichier exporté.
+  if (layout.doors.some((d) => d.roomIndex === roomIndex && d.wall === wall && d.to.kind === "exterior")) {
+    return { ok: false, reason: `Le mur ${EDGE_LABEL[wall]} de ${name} porte déjà sa porte extérieure : une fenêtre n'y est pas prise en charge (l'export ne la représenterait pas).` };
+  }
+  // Baie qui recouvrirait une porte (de cette pièce ou d'un espace voisin,
+  // entrée comprise) percée dans la même ligne de mur.
+  const along = (o: { cx: number; cy: number }) => (f.vertical ? o.cy : o.cx);
+  const across = (o: { cx: number; cy: number }) => (f.vertical ? o.cx : o.cy);
+  const isVertical = (w: WallSide) => w === "left" || w === "right";
+  const doorsOnLine = [...layout.doors, ...(layout.entryDoor ? [layout.entryDoor] : []), ...(layout.streetDoor ? [layout.streetDoor] : [])].filter(
+    (d) => isVertical(d.wall) === f.vertical && Math.abs(across(d) - f.fixed) < 1e-6
+  );
+  const lo = centerAlong - width / 2, hi = centerAlong + width / 2;
+  if (doorsOnLine.some((d) => along(d) + d.width / 2 > lo + 1e-6 && along(d) - d.width / 2 < hi - 1e-6)) {
+    return { ok: false, reason: `La fenêtre recouvrirait une porte percée dans le mur ${EDGE_LABEL[wall]} de ${name}.` };
+  }
+  // Exposition : même condition que independentVerify.
+  const touches = !!layout.footprint && wallTouchesExterior(roomRect(room), layout.footprint, wall);
+  if (!touches && !windowProvenExterior(layout, candidate)) {
+    const why = classifyWallExposure(layout, roomIndex, wall, { alongMin: lo, alongMax: hi });
+    return { ok: false, reason: `Le mur ${EDGE_LABEL[wall]} de ${name} ne donne pas sur l'extérieur selon les contrôles du moteur : ${why.reason}` };
+  }
+  // Obstruction : même sonde et mêmes éléments que chooseExteriorWindow.
+  const probe = doorOutsideProbe(candidate);
+  const blockers: { name: string; rect: Rect }[] = [
+    ...(layout.corridor ? [{ name: "le corridor", rect: layout.corridor }] : []),
+    ...layout.corridorFillers.map((rect) => ({ name: "une circulation", rect })),
+    ...(layout.circulations ?? []).map((rect) => ({ name: "une circulation", rect })),
+    ...(layout.exteriorPaths ?? []).map((rect) => ({ name: "un cheminement extérieur", rect })),
+    ...layout.rooms.flatMap((r, i) => (i !== roomIndex && !r.parked ? [{ name: `« ${r.label} ${r.number} »`, rect: roomRect(r) }] : [])),
+  ];
+  const hit = blockers.find((b) => rectsOverlap(probe, b.rect));
+  if (hit) return { ok: false, reason: `Le dégagement devant la fenêtre est obstrué par ${hit.name}.` };
+
+  const next = cloneLayout(layout);
+  next.windows = [...next.windows.filter((w) => w.roomIndex !== roomIndex), candidate];
+  const added = newIssues(layout, next);
+  if (added.length > 0) return { ok: false, reason: `Modification refusée : elle créerait ${added.length} anomalie(s) — ${added.join(" ")}` };
+  return { ok: true, layout: next };
+}
+
+export function removeWindow(layout: Layout, roomIndex: number): WindowEditResult {
+  const blocked = lockedOrMissing(layout, roomIndex);
+  if (blocked) return { ok: false, reason: blocked };
+  const room = layout.rooms[roomIndex];
+  const name = `« ${room.label} ${room.number} »`;
+  if (windowsOf(layout, roomIndex).length === 0) return { ok: false, reason: `${name} n'a pas de fenêtre.` };
+  // Règle existante du prototype (génération et régénération rejettent une
+  // chambre ou un salon sans ouverture extérieure) — hypothèse de conception,
+  // pas une norme réglementaire. Jamais assouplie pour permettre le retrait.
+  if (REQUIRE_EXTERIOR_TYPES.has(room.type)) {
+    return { ok: false, reason: `Retrait impossible : règle de ce prototype — ${name} (chambre ou salon) doit garder une ouverture extérieure représentée (hypothèse de conception, pas une norme).` };
+  }
+  const next = cloneLayout(layout);
+  next.windows = next.windows.filter((w) => w.roomIndex !== roomIndex);
+  const added = newIssues(layout, next);
+  if (added.length > 0) return { ok: false, reason: `Retrait refusé : il créerait ${added.length} anomalie(s) — ${added.join(" ")}` };
+  return { ok: true, layout: next };
 }
 
 export interface GenerationResult {

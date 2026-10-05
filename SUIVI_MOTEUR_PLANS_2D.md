@@ -1136,6 +1136,81 @@ Seuil d'égalité : 0,05.
 - La note d'origine du moteur parle de « circulation totale » pour la
   seule circulation intérieure ; l'interface le précise.
 
+### F1 — édition des fenêtres (réalisé le 2026-10-05)
+
+Point de départ : HEAD `883fc01`. **Modèle inchangé** : `Window`, une
+fenêtre par pièce, aucun changement du format de projet.
+
+**Moteur** (`geometry.ts`) : `placeWindow`, `removeWindow`,
+`windowWallFrame`, `windowOffsetOnWall`. Aucun second vérificateur :
+les contrôles existants sont réutilisés.
+- **Exposition** : même condition que `independentVerify` (mur qui
+  touche le contour bâti, ou exposition prouvée de cette baie par
+  `windowProvenExterior`). Le motif d'un refus vient de
+  `classifyWallExposure`.
+- **Obstruction** : même sonde (`doorOutsideProbe`) et mêmes éléments
+  bâtis que `chooseExteriorWindow`.
+- **Plan entier** : `independentVerify` est appelé avant et après ;
+  toute anomalie nouvelle fait refuser la modification.
+- **Garde-fous propres à l'édition** :
+  - fenêtre entièrement contenue dans le mur (refus, jamais de recalage) ;
+  - largeur au moins égale à `MIN_WINDOW_WIDTH` (hypothèse du moteur,
+    pas une norme) ;
+  - pas de recouvrement d'une porte de la même ligne de mur ;
+  - pas de fenêtre sur un mur qui porte la porte extérieure de la pièce,
+    car l'export ne la représenterait pas (`render.ts`) ;
+  - pièce verrouillée ou mise de côté : refus ;
+  - saisie identique à l'existant : « aucune modification ».
+- **Retrait** : refusé pour une chambre ou un salon (règle existante
+  `REQUIRE_EXTERIOR_TYPES`, hypothèse de conception) ; possible ailleurs
+  s'il ne crée aucune anomalie.
+- **Ajout** : possible pour une pièce sans fenêtre, par la même fonction.
+
+**Éditeur** :
+- un outil « Fenêtre » avec la fenêtre actuelle décrite et accentuée sur
+  le plan ;
+- des champs Mur, Position (en mètres, depuis l'angle gauche pour les
+  murs haut et bas, depuis l'angle haut pour les murs gauche et droit) et
+  Largeur ;
+- un aperçu en pointillés (vert : acceptable, rouge : refusé) avec le
+  verdict de `placeWindow` ;
+- application explicite par « Appliquer » / « Ajouter » ; « Retirer »
+  n'apparaît que si le retrait est admissible.
+- Une modification acceptée crée une seule entrée Annuler. Un refus n'en
+  crée aucune, laisse le plan intact, remet les champs aux valeurs
+  appliquées et affiche son motif de façon persistante.
+- Les fenêtres sont désormais dessinées dans l'éditeur (même trait que
+  l'export).
+
+**Vérifications** :
+- `scripts/test-plans-windows.mjs` (branché dans `npm test`) : 20/20 ;
+- instantané du moteur : régénération (70 cas) et redimensionnement
+  (168 cas) 0 différence ; génération (80 cas) 0 différence structurelle
+  (compteurs d'échecs ±1, bruit du budget temporel) ;
+- navigateur (profil isolé, ordinateur et mobile 390 px, aucun débordement
+  horizontal de la page) :
+  - modification valide ; refus « trop large » et « mur mitoyen » ;
+  - un seul Annuler revient à l'origine, Rétablir réapplique ;
+  - pièce verrouillée sans formulaire ;
+  - sanitaire : retrait puis ajout ;
+  - rechargement et reprise ;
+  - fichier de projet exporté puis réimporté après une autre
+    modification : fenêtre restaurée ;
+  - SVG et PNG exportés : trait à la position exacte.
+  - Le brouillon préexistant du profil a été restauré à l'identique.
+
+**Limites** :
+- une seule fenêtre par pièce ;
+- pas de déplacement à la souris ;
+- `exteriorWall` de la pièce n'est pas modifié quand la fenêtre change
+  de mur : c'est le mur extérieur de placement, utilisé par la
+  régénération ;
+- les limites documentées restent : fenêtres sur cour (un mur qui touche
+  le contour reste accepté par la règle historique), contour toujours
+  rectangulaire, terrain au-delà non représenté ;
+- l'éditeur garde son défilement horizontal du plan sur mobile
+  (préexistant).
+
 ---
 
 ## 3. Journal des lots
