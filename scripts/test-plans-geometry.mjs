@@ -2110,6 +2110,47 @@ try {
         g.describeRegenerationDiagnostics(ds)
       );
     }
+
+    // 28) B3 sous-lot B — corridor partagé : jonction des deux côtés du verrou
+    // et rangée fraîche en miroir (2026-10-05). Aucune règle propre à un
+    // terrain ou à une pièce ; dimensions exactes ; mêmes contrôles.
+    {
+      const b3 = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-b3-regeneration-reproduction.json"), "utf8"));
+      const idxB3 = (L, label, number) => L.rooms.findIndex((r) => r.label === label && r.number === number);
+      const typed = (L) => L.rooms.filter((r) => !r.parked).map((r) => `${r.type}@${r.x.toFixed(2)},${r.y.toFixed(2)},${r.w.toFixed(2)},${r.d.toFixed(2)}`).sort().join(";");
+      const openings = (L, i) => JSON.stringify({ d: L.doors.filter((d) => d.roomIndex === i).map((d) => [d.wall, d.cx, d.cy, d.width, d.to]), w: L.windows.filter((w) => w.roomIndex === i).map((w) => [w.wall, w.cx, w.cy, w.width]) });
+      const li = idxB3(b3.layout, "Chambre", 2);
+      const locked = g.lockRoom(b3.layout, li);
+      const res = g.regenerateUnlocked(locked);
+      const fresh = res.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)");
+      record("28. Fixture Chambre 2 verrouillée : au moins une disposition réellement nouvelle proposée", fresh.length >= 1, res.variants.map((v) => v.variantLabel).join(", "));
+      const lr = locked.rooms[li];
+      const lockOk = fresh.every((v) => {
+        const vi = idxB3(v, "Chambre", 2);
+        const r = v.rooms[vi];
+        return r.x === lr.x && r.y === lr.y && r.w === lr.w && r.d === lr.d && r.locked === true && openings(v, vi) === openings(locked, li);
+      });
+      record("28. Verrou strictement identique (position, dimensions, porte, fenêtre) dans chaque proposition nouvelle", fresh.length > 0 && lockOk);
+      record(
+        "28. Propositions nouvelles complètes, admissibles et non réductibles à une permutation de pièces identiques",
+        fresh.length > 0 && fresh.every((v) => v.rooms.length === locked.rooms.length && g.independentVerify(v).length === 0 && !v.rejected && typed(v) !== typed(locked))
+      );
+      const sameDims = fresh.every((v) => v.rooms.every((r, i) => r.w === locked.rooms[i].w && r.d === locked.rooms[i].d));
+      record("28. Aucune dimension modifiée (chaque pièce garde sa largeur et sa profondeur exactes)", fresh.length > 0 && sameDims);
+      const v5 = g.generateVariants(b3.generationInput).variants.find((v) => v.variantLabel === "Variante 5");
+      record("28. La proposition retrouve la géométrie de « Variante 5 » (preuve constructive du diagnostic)", !!v5 && fresh.some((v) => typed(v) === typed(v5)));
+      record(
+        "28. Pièces identiques non échangées sans raison (Chambre 1 et Chambre 3 gardent leur place)",
+        fresh.every((v) => ["Chambre 1", "Chambre 3"].every((lab) => { const [a, n] = lab.split(" "); const i = idxB3(v, a, Number(n)); return v.rooms[i].x === locked.rooms[i].x && v.rooms[i].y === locked.rooms[i].y; }))
+      );
+      record("28. Comptes toujours cohérents ; budget jamais atteint", res.diagnostics.newProposals === fresh.length && res.diagnostics.backtrackBudgetHit === 0 && res.diagnostics.backtrackFinalizeRejected === 24);
+      const sal = g.regenerateUnlocked(g.lockRoom(b3.layout, idxB3(b3.layout, "Salon", 1)));
+      record(
+        "28. Salon 1 (hors périmètre) : aucune proposition nouvelle, la disposition actuelle reste la seule (rangée de jonction non réordonnée)",
+        sal.diagnostics.newProposals === 0 && sal.variants.length === 1 && sal.diagnostics.currentAdmissible,
+        g.describeRegenerationDiagnostics(sal.diagnostics)
+      );
+    }
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);

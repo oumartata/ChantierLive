@@ -3105,6 +3105,10 @@ export interface RegenerationDiagnostics {
   sharedCombinations: number;
   sharedRefused: Record<string, number>;
   sharedFinalizeRejected: number;
+  // Combinaisons des deux côtés équivalentes (géométrie typée identique) à la
+  // disposition actuelle ou à une combinaison déjà construite — permutation
+  // de pièces identiques comprise — écartées AVANT construction.
+  sharedEquivalentSkipped: number;
   candidates: number;
   controlRejected: number;
   admitted: number;
@@ -3118,7 +3122,7 @@ function emptyRegenerationDiagnostics(): RegenerationDiagnostics {
   return {
     orderedAttempts: 0, orderedPlacementFailures: 0, orderedFinalizeRejected: 0,
     backtrackSearches: 0, backtrackBudgetHit: 0, backtrackComplete: 0, backtrackFinalizeRejected: 0,
-    sharedAttempted: false, sharedNotAttemptedReason: null, sharedCombinations: 0, sharedRefused: {}, sharedFinalizeRejected: 0,
+    sharedAttempted: false, sharedNotAttemptedReason: null, sharedCombinations: 0, sharedRefused: {}, sharedFinalizeRejected: 0, sharedEquivalentSkipped: 0,
     candidates: 0, controlRejected: 0, admitted: 0, duplicatesOfCurrent: 0, duplicatesAmongNew: 0, newProposals: 0, currentAdmissible: false,
   };
 }
@@ -3142,6 +3146,7 @@ function mergeRegenerationDiagnostics(a: RegenerationDiagnostics | undefined, b:
     sharedCombinations: a.sharedCombinations + b.sharedCombinations,
     sharedRefused: refused,
     sharedFinalizeRejected: a.sharedFinalizeRejected + b.sharedFinalizeRejected,
+    sharedEquivalentSkipped: a.sharedEquivalentSkipped + b.sharedEquivalentSkipped,
     candidates: a.candidates + b.candidates,
     controlRejected: a.controlRejected + b.controlRejected,
     admitted: a.admitted + b.admitted,
@@ -3155,7 +3160,7 @@ function mergeRegenerationDiagnostics(a: RegenerationDiagnostics | undefined, b:
 // Synthèse lisible (une phrase), détails laissés à failureReasons/searchStats.
 export function describeRegenerationDiagnostics(d: RegenerationDiagnostics): string {
   const sharedPart = d.sharedAttempted
-    ? `corridor partagé : ${d.sharedCombinations} combinaison(s) examinée(s), ${Object.values(d.sharedRefused).reduce((s, n) => s + n, 0)} écartée(s) avant construction, ${d.sharedFinalizeRejected} rejetée(s) à la finalisation`
+    ? `corridor partagé : ${d.sharedCombinations} combinaison(s) examinée(s), ${Object.values(d.sharedRefused).reduce((s, n) => s + n, 0)} écartée(s) avant construction, ${d.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue, ${d.sharedFinalizeRejected} rejetée(s) à la finalisation`
     : `corridor partagé non tenté (${d.sharedNotAttemptedReason ?? "condition non remplie"})`;
   return (
     `${d.orderedAttempts} essai(s) à ordre fixe (${d.orderedPlacementFailures} sans place, ${d.orderedFinalizeRejected} rejeté(s) à la finalisation) ; ` +
@@ -4715,6 +4720,149 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       diag.sharedRefused[motif] = (diag.sharedRefused[motif] ?? 0) + 1;
     };
 
+    // ---- Extension B3 (2026-10-05) : jonction DES DEUX CÔTÉS du verrou.
+    // La boucle historique ci-dessous (cas A/B) ne place les pièces qui
+    // rejoignent la rangée verrouillée qu'à DROITE du verrou, par type
+    // entier, et la rangée fraîche dans un seul ordre. exploreTwoSided
+    // S'AJOUTE à elle sans la modifier : chaque segment libre de la rangée
+    // verrouillée (à gauche, entre deux verrous, à droite ; une bande de
+    // foyer de la largeur du corridor étant réservée autour de la porte
+    // d'entrée RÉELLE quand elle est sur cette façade) peut recevoir une
+    // partie des pièces de jonction, dimensions EXACTES (fitExact), et la
+    // rangée fraîche est essayée dans son ordre et EN MIROIR (même principe
+    // de reflet que la génération initiale). Mêmes contrôles (tryShared →
+    // finalizeCandidate → admitIfValid). Une combinaison de géométrie typée
+    // identique à la disposition actuelle ou à une combinaison déjà
+    // construite (permutation de pièces identiques comprise) est écartée et
+    // comptée, jamais présentée comme nouvelle.
+    const typedKeyOf = (items: { type: string; x: number; y: number; w: number; d: number }[]) =>
+      items.map((r) => `${r.type}@${r.x.toFixed(2)},${r.y.toFixed(2)},${r.w.toFixed(2)},${r.d.toFixed(2)}`).sort().join(";");
+    const baselineTypedKey = typedKeyOf(layout.rooms.filter((r) => !r.parked));
+    const sharedSeenTyped = new Set<string>([baselineTypedKey]);
+    function rowSegments(rowLocked: PlacedRoom[], facade: WallSide): { start: number; width: number }[] {
+      const rowStart = emprise.x + WALL_EXT;
+      const rowEnd = emprise.x + emprise.w - WALL_EXT;
+      const blocks = rowLocked.map((r) => ({ a: r.x, b: r.x + r.w }));
+      if (layout.entryDoor && layout.entryDoor.wall === facade) {
+        const c = layout.entryDoor.cx;
+        blocks.push({ a: Math.max(rowStart, c - CORRIDOR_WIDTH / 2), b: Math.min(rowEnd, c + CORRIDOR_WIDTH / 2) });
+      }
+      blocks.sort((p, q) => p.a - q.a);
+      const segs: { start: number; width: number }[] = [];
+      let cursor = rowStart;
+      for (const blk of blocks) {
+        const end = blk.a - WALL_INT;
+        if (end - cursor > 1e-6) segs.push({ start: cursor, width: end - cursor });
+        cursor = Math.max(cursor, blk.b + WALL_INT);
+      }
+      if (rowEnd - cursor > 1e-6) segs.push({ start: cursor, width: rowEnd - cursor });
+      return segs;
+    }
+    // Répartitions canoniques (pièces identiques interchangeables comptées
+    // une fois) des pièces de jonction dans les segments, ordre conservé
+    // dans chaque segment. Entre répartitions équivalentes, celle qui
+    // DÉPLACE LE MOINS les pièces (distance à leur position actuelle) est
+    // retenue : deux chambres identiques ne s'échangent jamais sans raison.
+    function joinAssignments(joinNeeds: FreeSpaceNeed[], segs: { start: number; width: number }[]): FreeSpaceNeed[][][] {
+      const best = new Map<string, { cost: number; buckets: FreeSpaceNeed[][] }>();
+      const displacement = (buckets: FreeSpaceNeed[][]) =>
+        buckets.reduce((sum, bk, s) => {
+          let cx = segs[s].start;
+          for (const n of bk) {
+            const r = layout.rooms[n.idx];
+            sum += Math.abs(cx - r.x) + Math.abs(frontY - r.y);
+            cx += n.width + WALL_INT;
+          }
+          return sum;
+        }, 0);
+      const choice = new Array<number>(joinNeeds.length).fill(0);
+      const total = Math.pow(segs.length, joinNeeds.length);
+      for (let code = 0; code < total; code++) {
+        let c = code;
+        for (let i = 0; i < joinNeeds.length; i++) {
+          choice[i] = c % segs.length;
+          c = Math.floor(c / segs.length);
+        }
+        const buckets: FreeSpaceNeed[][] = segs.map(() => []);
+        joinNeeds.forEach((n, i) => buckets[choice[i]].push(n));
+        const sig = buckets.map((bk) => bk.map((n) => `${n.type}:${n.width.toFixed(3)}x${n.depth.toFixed(3)}`).sort().join(",")).join("|");
+        const cost = displacement(buckets);
+        const prev = best.get(sig);
+        if (!prev || cost < prev.cost - 1e-9) best.set(sig, { cost, buckets });
+      }
+      return [...best.values()].map((v) => v.buckets);
+    }
+    function exploreTwoSided(opts: {
+      label: string;
+      segs: { start: number; width: number }[];
+      legacyJoinStart: number;
+      joinNeeds: FreeSpaceNeed[];
+      freshNeeds: FreeSpaceNeed[];
+      placeJoin: (n: FreeSpaceNeed, x: number) => { p: FreeSpacePlacement; filler: Rect | null };
+      placeFresh: (ordered: FreeSpaceNeed[]) => { placements: FreeSpacePlacement[]; fillers: Rect[] } | null;
+      corridorRect: Rect;
+    }): void {
+      const assignments = opts.joinNeeds.length > 0 ? joinAssignments(opts.joinNeeds, opts.segs) : [opts.segs.map(() => [] as FreeSpaceNeed[])];
+      const freshOrders = [opts.freshNeeds];
+      // Miroir de la rangée fraîche ; des pièces IDENTIQUES consécutives y
+      // gardent leur ordre d'origine (aucun échange d'identifiants sans
+      // effet géométrique, ex. « Sanitaire 1 » / « Sanitaire 2 »).
+      const reversed = [...opts.freshNeeds].reverse();
+      const same = (p: FreeSpaceNeed, q: FreeSpaceNeed) => p.type === q.type && Math.abs(p.width - q.width) < 1e-9 && Math.abs(p.depth - q.depth) < 1e-9;
+      for (let i = 0; i < reversed.length; ) {
+        let j = i + 1;
+        while (j < reversed.length && same(reversed[j], reversed[i])) j++;
+        const run = reversed.slice(i, j).sort((p, q) => p.idx - q.idx);
+        reversed.splice(i, run.length, ...run);
+        i = j;
+      }
+      if (reversed.some((n, i) => n !== opts.freshNeeds[i])) freshOrders.push(reversed);
+      for (const buckets of assignments) {
+        for (let o = 0; o < freshOrders.length; o++) {
+          // Déjà couvert, à l'identique, par la boucle historique : toutes
+          // les pièces de jonction dans le segment qui commence au bord droit
+          // du verrou, rangée fraîche dans son ordre d'origine.
+          const legacy = o === 0 && buckets.every((bk, s) => bk.length === 0 || Math.abs(opts.segs[s].start - opts.legacyJoinStart) < 1e-6);
+          if (legacy) continue;
+          diag.sharedCombinations += 1;
+          const joinPlacements: FreeSpacePlacement[] = [];
+          const joinFillers: Rect[] = [];
+          let fits = true;
+          buckets.forEach((bk, s) => {
+            if (!fits || bk.length === 0) return;
+            if (!fitExact(bk.map((n) => n.width), opts.segs[s].width)) {
+              fits = false;
+              return;
+            }
+            let cx = opts.segs[s].start;
+            for (const n of bk) {
+              const { p, filler } = opts.placeJoin(n, cx);
+              joinPlacements.push(p);
+              if (filler) joinFillers.push(filler);
+              cx += n.width + WALL_INT;
+            }
+          });
+          if (!fits) {
+            refuse("répartition des deux côtés : pièces trop larges pour un segment libre");
+            continue;
+          }
+          const fresh = opts.placeFresh(freshOrders[o]);
+          if (!fresh) {
+            refuse("rangée fraîche trop large ou trop profonde");
+            continue;
+          }
+          const all = [...joinPlacements, ...fresh.placements];
+          const key = typedKeyOf([...all.map((p) => ({ type: p.need.type, x: p.x, y: p.y, w: p.w, d: p.d })), ...lockedRooms.map((r) => ({ type: r.type, x: r.x, y: r.y, w: r.w, d: r.d }))]);
+          if (sharedSeenTyped.has(key)) {
+            diag.sharedEquivalentSkipped += 1;
+            continue;
+          }
+          sharedSeenTyped.add(key);
+          tryShared(`${opts.label}, jonction des deux côtés${o === 1 ? ", rangée fraîche en miroir" : ""}`, all, opts.corridorRect, [...joinFillers, ...fresh.fillers]);
+        }
+      }
+    }
+
     // Regroupe les besoins non verrouillés par TYPE — permet, ci-dessous,
     // d'essayer de laisser certains types REJOINDRE la rangée verrouillée
     // (partageant sa largeur restante) plutôt que de tous les reconstruire
@@ -4819,6 +4967,44 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
             [...joinFillers, ...backFillers]
           );
         }
+        const segsA = rowSegments(lockedRooms, "top");
+        for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          const joinNeeds: FreeSpaceNeed[] = [];
+          const backNeeds: FreeSpaceNeed[] = [];
+          for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : backNeeds).push(...typeGroups.get(typeKeys[i])!);
+          if (backNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthFrontFixed + 1e-6)) continue; // déjà compté par la boucle historique
+          if (foyerOnBackRow && backRowWidth <= 0) continue;
+          exploreTwoSided({
+            label: `corridor partagé entre deux rangées (rangée avant verrouillée réutilisée)${foyerOnBackRow ? ", accès arrière" : ""}`,
+            segs: segsA,
+            legacyJoinStart: joinStartX,
+            joinNeeds,
+            freshNeeds: backNeeds,
+            placeJoin: (n, x) => {
+              const depthGap = corridorY - (frontY + n.depth);
+              return {
+                p: { need: n, x, y: frontY, w: n.width, d: n.depth, exteriorWall: "top", doorWall: "bottom" },
+                filler: depthGap > 1e-6 ? { x, y: frontY + n.depth, w: n.width, d: depthGap } : null,
+              };
+            },
+            placeFresh: (ordered) => {
+              const depth = Math.max(...ordered.map((n) => n.depth));
+              if (depth > availableBackDepth + 1e-6 || !fitExact(ordered.map((n) => n.width), backRowWidth)) return null;
+              const placements: FreeSpacePlacement[] = [];
+              const fillers: Rect[] = [];
+              let cursorX = backRowStartX;
+              for (const n of ordered) {
+                const y = backY + (depth - n.depth);
+                const gap = y - (corridorY + CORRIDOR_WIDTH);
+                if (gap > 1e-6) fillers.push({ x: cursorX, y: corridorY + CORRIDOR_WIDTH, w: n.width, d: gap });
+                placements.push({ need: n, x: cursorX, y, w: n.width, d: n.depth, exteriorWall: "bottom", doorWall: "top" });
+                cursorX += n.width + WALL_INT;
+              }
+              return { placements, fillers };
+            },
+            corridorRect: { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+          });
+        }
       }
     }
 
@@ -4917,6 +5103,43 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
             [...joinFillers, ...frontFillers]
           );
         }
+        const segsB = rowSegments(lockedRooms, "bottom");
+        for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          const joinNeeds: FreeSpaceNeed[] = [];
+          const frontNeeds: FreeSpaceNeed[] = [];
+          for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : frontNeeds).push(...typeGroups.get(typeKeys[i])!);
+          if (frontNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthBackFixed + 1e-6)) continue; // déjà compté par la boucle historique
+          exploreTwoSided({
+            label: `corridor partagé entre deux rangées (rangée arrière verrouillée réutilisée)${foyerOnFrontRow ? "" : ", accès arrière"}`,
+            segs: segsB,
+            legacyJoinStart: joinStartX,
+            joinNeeds,
+            freshNeeds: frontNeeds,
+            placeJoin: (n, x) => {
+              const y = empriseBottomEdge - n.depth;
+              const depthGap = y - (corridorY + CORRIDOR_WIDTH);
+              return {
+                p: { need: n, x, y, w: n.width, d: n.depth, exteriorWall: "bottom", doorWall: "top" },
+                filler: depthGap > 1e-6 ? { x, y: corridorY + CORRIDOR_WIDTH, w: n.width, d: depthGap } : null,
+              };
+            },
+            placeFresh: (ordered) => {
+              const depth = Math.max(...ordered.map((n) => n.depth));
+              if (depth > availableFrontDepth + 1e-6 || !fitExact(ordered.map((n) => n.width), usableFrontWidth)) return null;
+              const placements: FreeSpacePlacement[] = [];
+              const fillers: Rect[] = [];
+              let cursorX = frontRowStartX;
+              for (const n of ordered) {
+                const gap = corridorY - (frontY + n.depth);
+                if (gap > 1e-6) fillers.push({ x: cursorX, y: frontY + n.depth, w: n.width, d: gap });
+                placements.push({ need: n, x: cursorX, y: frontY, w: n.width, d: n.depth, exteriorWall: "top", doorWall: "bottom" });
+                cursorX += n.width + WALL_INT;
+              }
+              return { placements, fillers };
+            },
+            corridorRect: { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+          });
+        }
       }
     }
   }
@@ -4943,7 +5166,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   diag.newProposals = deduped.filter((c) => roomsKey(c.layout) !== baselineKey).length;
   if (diag.sharedAttempted) {
     const refusals = Object.entries(diag.sharedRefused).map(([m, n]) => `${n} × ${m}`).join(", ");
-    searchStats.push(`Corridor partagé : ${diag.sharedCombinations} combinaison(s) examinée(s)${refusals ? ` — écartées avant construction : ${refusals}` : ""} ; ${diag.sharedFinalizeRejected} rejetée(s) à la finalisation.`);
+    searchStats.push(`Corridor partagé : ${diag.sharedCombinations} combinaison(s) examinée(s)${refusals ? ` — écartées avant construction : ${refusals}` : ""} ; ${diag.sharedEquivalentSkipped} équivalente(s) à une disposition déjà connue ; ${diag.sharedFinalizeRejected} rejetée(s) à la finalisation.`);
   } else if (diag.sharedNotAttemptedReason) {
     searchStats.push(`Corridor partagé non tenté : ${diag.sharedNotAttemptedReason}.`);
   }
