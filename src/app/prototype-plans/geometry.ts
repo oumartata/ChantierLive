@@ -3079,6 +3079,91 @@ export interface RegenerationResult {
   // ou non — jamais mêlé à failureReasons (qui ne décrit que des rejets).
   // Vide si la recherche par retour arrière n'a pas été tentée.
   searchStats: string[];
+  // Synthèse comptable de la recherche (B3, 2026-10-05) — chaque événement
+  // compté UNE seule fois, voir RegenerationDiagnostics. Absente pour les
+  // refus préalables (aucune pièce à régénérer, garage, base incomplète).
+  diagnostics?: RegenerationDiagnostics;
+}
+
+// Comptes de la régénération, sans double comptage :
+//   essai à ordre fixe        → échec de placement | rejet à la finalisation | candidat
+//   recherche retour arrière  → plans complets → rejet à la finalisation | candidat
+//   combinaison corridor partagé → refus (motif) | rejet à la finalisation | candidat
+//   candidat (y compris la disposition actuelle) → rejet du contrôle final | admis
+//   admis → doublon de l'actuelle | doublon d'une autre proposition | conservé
+// « propositions nouvelles » = conservés différents de la disposition actuelle.
+export interface RegenerationDiagnostics {
+  orderedAttempts: number;
+  orderedPlacementFailures: number;
+  orderedFinalizeRejected: number;
+  backtrackSearches: number;
+  backtrackBudgetHit: number;
+  backtrackComplete: number;
+  backtrackFinalizeRejected: number;
+  sharedAttempted: boolean;
+  sharedNotAttemptedReason: string | null;
+  sharedCombinations: number;
+  sharedRefused: Record<string, number>;
+  sharedFinalizeRejected: number;
+  candidates: number;
+  controlRejected: number;
+  admitted: number;
+  duplicatesOfCurrent: number;
+  duplicatesAmongNew: number;
+  newProposals: number;
+  currentAdmissible: boolean;
+}
+
+function emptyRegenerationDiagnostics(): RegenerationDiagnostics {
+  return {
+    orderedAttempts: 0, orderedPlacementFailures: 0, orderedFinalizeRejected: 0,
+    backtrackSearches: 0, backtrackBudgetHit: 0, backtrackComplete: 0, backtrackFinalizeRejected: 0,
+    sharedAttempted: false, sharedNotAttemptedReason: null, sharedCombinations: 0, sharedRefused: {}, sharedFinalizeRejected: 0,
+    candidates: 0, controlRejected: 0, admitted: 0, duplicatesOfCurrent: 0, duplicatesAmongNew: 0, newProposals: 0, currentAdmissible: false,
+  };
+}
+
+// Fusion (repère réel + repère transposé, accès gauche/droite) : sommes.
+function mergeRegenerationDiagnostics(a: RegenerationDiagnostics | undefined, b: RegenerationDiagnostics | undefined): RegenerationDiagnostics | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  const refused: Record<string, number> = { ...a.sharedRefused };
+  for (const [k, v] of Object.entries(b.sharedRefused)) refused[k] = (refused[k] ?? 0) + v;
+  return {
+    orderedAttempts: a.orderedAttempts + b.orderedAttempts,
+    orderedPlacementFailures: a.orderedPlacementFailures + b.orderedPlacementFailures,
+    orderedFinalizeRejected: a.orderedFinalizeRejected + b.orderedFinalizeRejected,
+    backtrackSearches: a.backtrackSearches + b.backtrackSearches,
+    backtrackBudgetHit: a.backtrackBudgetHit + b.backtrackBudgetHit,
+    backtrackComplete: a.backtrackComplete + b.backtrackComplete,
+    backtrackFinalizeRejected: a.backtrackFinalizeRejected + b.backtrackFinalizeRejected,
+    sharedAttempted: a.sharedAttempted || b.sharedAttempted,
+    sharedNotAttemptedReason: a.sharedAttempted || b.sharedAttempted ? null : a.sharedNotAttemptedReason ?? b.sharedNotAttemptedReason,
+    sharedCombinations: a.sharedCombinations + b.sharedCombinations,
+    sharedRefused: refused,
+    sharedFinalizeRejected: a.sharedFinalizeRejected + b.sharedFinalizeRejected,
+    candidates: a.candidates + b.candidates,
+    controlRejected: a.controlRejected + b.controlRejected,
+    admitted: a.admitted + b.admitted,
+    duplicatesOfCurrent: a.duplicatesOfCurrent + b.duplicatesOfCurrent,
+    duplicatesAmongNew: a.duplicatesAmongNew + b.duplicatesAmongNew,
+    newProposals: a.newProposals + b.newProposals,
+    currentAdmissible: a.currentAdmissible || b.currentAdmissible,
+  };
+}
+
+// Synthèse lisible (une phrase), détails laissés à failureReasons/searchStats.
+export function describeRegenerationDiagnostics(d: RegenerationDiagnostics): string {
+  const sharedPart = d.sharedAttempted
+    ? `corridor partagé : ${d.sharedCombinations} combinaison(s) examinée(s), ${Object.values(d.sharedRefused).reduce((s, n) => s + n, 0)} écartée(s) avant construction, ${d.sharedFinalizeRejected} rejetée(s) à la finalisation`
+    : `corridor partagé non tenté (${d.sharedNotAttemptedReason ?? "condition non remplie"})`;
+  return (
+    `${d.orderedAttempts} essai(s) à ordre fixe (${d.orderedPlacementFailures} sans place, ${d.orderedFinalizeRejected} rejeté(s) à la finalisation) ; ` +
+    `retour arrière : ${d.backtrackSearches} recherche(s), ${d.backtrackComplete} plan(s) complet(s) dont ${d.backtrackFinalizeRejected} rejeté(s) à la finalisation, budget atteint ${d.backtrackBudgetHit} fois ; ` +
+    `${sharedPart} ; ` +
+    `${d.candidates} candidat(s) contrôlé(s) (${d.controlRejected} rejeté(s)), ${d.duplicatesOfCurrent} doublon(s) de la disposition actuelle, ${d.duplicatesAmongNew} doublon(s) entre propositions, ` +
+    `${d.newProposals} proposition(s) nouvelle(s).`
+  );
 }
 
 // ---- Recherche générale par espace libre — obstacles à position quelconque ----
@@ -3924,6 +4009,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
     preferenceNotes,
     failureReasons: [...nativeResult.failureReasons, ...virtualResult.failureReasons],
     searchStats: [...nativeResult.searchStats, ...virtualResult.searchStats],
+    diagnostics: mergeRegenerationDiagnostics(nativeResult.diagnostics, virtualResult.diagnostics),
   };
 }
 
@@ -3949,9 +4035,12 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
 // connexion). Le résultat de chacune est ensuite élagué (voir
 // pruneUnneededCirculation) avant classement par qualité.
 //
-// Recherche BORNÉE et NON EXHAUSTIVE (voir FillOrder : 5 ordres de
-// remplissage × jusqu'à 2 modes d'obstacles, remplissage glouton en un seul
-// passage par tentative, aucun retour-arrière) — un échec signifie seulement
+// Recherche BORNÉE et NON EXHAUSTIVE (5 ordres de remplissage × modes
+// d'obstacles × emprises, plus une recherche avec retour arrière par mode et
+// par emprise ; chaque passage de packInto pose UNE rangée avec SON PROPRE
+// couloir neuf, la part non consommée étant réinjectée pour d'autres rangées
+// depuis 36a0a7f — aucune rangée ne partage le couloir d'une autre, d'où la
+// stratégie dédiée « corridor partagé » plus bas) — un échec signifie seulement
 // que CETTE recherche n'a rien trouvé, jamais qu'une organisation est
 // impossible. Une pièce à accès
 // véhicule obligatoire (garage) n'est pas prise en charge par ce moteur
@@ -4426,9 +4515,18 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
     const label = `Retour arrière, ${mode.name}${searchLabel}`;
     const outcome = backtrackPackNeedsIntoFreeSpace(searchEmprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
     const results: { layout: Layout; note: string }[] = [];
+    diag.backtrackSearches += 1;
+    diag.backtrackComplete += outcome.complete.length;
+    if (outcome.budgetHit) diag.backtrackBudgetHit += 1;
     for (const c of outcome.complete) {
       const built = finalizeCandidate(label, mode, c.placements, c.corridors, c.corridorFillers, c.groups);
       if (!("error" in built)) results.push(built);
+      else {
+        // Jusqu'ici jeté en silence : un plan COMPLET trouvé puis refusé
+        // à la finalisation doit rester visible, avec son motif.
+        diag.backtrackFinalizeRejected += 1;
+        failureReasons.push(`Plan complet (retour arrière) rejeté à la finalisation — ${built.error}`);
+      }
     }
     const summary =
       `${label} : ${outcome.nodesExplored} placement(s) de groupe exploré(s) en ${outcome.elapsedMillis} ms, ` +
@@ -4440,6 +4538,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   const FILL_ORDERS: FillOrder[] = ["aire décroissante", "aire croissante", "largeur décroissante", "profondeur décroissante", "regroupé par type"];
   const candidates: { layout: Layout; note: string }[] = [];
   const searchStats: string[] = [];
+  const diag = emptyRegenerationDiagnostics();
   // Même règle que generateVariants (consider()) pour CHAQUE candidat testé
   // (ordre fixe ou retour arrière) : indépendantVerify ne la signale qu'en
   // avertissement (une pièce peut légitimement rester posée sans fenêtre
@@ -4450,6 +4549,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   // présentation. Centralisé ici pour ne jamais diverger entre les deux
   // recherches.
   function admitIfValid(label: string, built: { layout: Layout; note: string }): void {
+    diag.candidates += 1;
     const issues = independentVerify(built.layout);
     const errors = issues.filter((i) => i.severity === "error");
     const realWindowFailures = built.layout.rooms.filter(
@@ -4461,8 +4561,10 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
         ...realWindowFailures.map((r) => `« ${r.label} ${r.number} » (${r.type}) : règle du prototype — ouverture extérieure requise pour une chambre ou un salon, absente ici.`),
       ];
       failureReasons.push(`${label} : candidat invalide — ${reasons.join(" ")}`);
+      diag.controlRejected += 1;
       return;
     }
+    diag.admitted += 1;
     candidates.push(built);
   }
 
@@ -4497,7 +4599,10 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
     for (const mode of modesForThisEmprise) {
       for (const order of FILL_ORDERS) {
         const built = attempt(order, mode, empriseAttempt.rect, empriseAttempt.label);
+        diag.orderedAttempts += 1;
         if ("error" in built) {
+          if (built.error.includes("n'a pas trouvé de place")) diag.orderedPlacementFailures += 1;
+          else diag.orderedFinalizeRejected += 1;
           failureReasons.push(built.error);
           continue;
         }
@@ -4585,6 +4690,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   // jamais par cette logique directement en coordonnées réelles) — non
   // traités ici faute de temps, limite documentée plutôt que forcée.
   const entryWallForRegen = layout.accessSide === "front" ? "top" : layout.accessSide === "back" ? "bottom" : null;
+  if (!entryWallForRegen) diag.sharedNotAttemptedReason = "accès latéral : traité dans le repère transposé";
   if (entryWallForRegen && lockedRooms.length > 0 && needs.length > 0) {
     const empriseBottom = emprise.y + emprise.d;
     const usableRowWidth = emprise.w - 2 * WALL_EXT;
@@ -4600,9 +4706,14 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
         keepCirculations: extraCirculations,
       };
       const built = finalizeCandidate(label, mode, placements, [corridorRect, ...extraCirculations], corridorFillers, [group]);
-      if ("error" in built) failureReasons.push(built.error);
-      else admitIfValid(label, built);
+      if ("error" in built) {
+        diag.sharedFinalizeRejected += 1;
+        failureReasons.push(built.error);
+      } else admitIfValid(label, built);
     }
+    const refuse = (motif: string) => {
+      diag.sharedRefused[motif] = (diag.sharedRefused[motif] ?? 0) + 1;
+    };
 
     // Regroupe les besoins non verrouillés par TYPE — permet, ci-dessous,
     // d'essayer de laisser certains types REJOINDRE la rangée verrouillée
@@ -4636,7 +4747,9 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
     // posé à la main, voir le commentaire du Cas B).
     const frontY = emprise.y + WALL_EXT;
     const foyerOnBackRow = entryWallForRegen === "bottom";
-    if (lockedRooms.every((r) => r.exteriorWall === "top" && Math.abs(r.y - frontY) < 1e-2) && k > 0) {
+    const caseA = lockedRooms.every((r) => r.exteriorWall === "top" && Math.abs(r.y - frontY) < 1e-2) && k > 0;
+    if (caseA) {
+      diag.sharedAttempted = true;
       const depthFrontFixed = Math.max(...lockedRooms.map((r) => r.d));
       const corridorY = frontY + depthFrontFixed + WALL_INT;
       const backY = corridorY + CORRIDOR_WIDTH + WALL_INT;
@@ -4646,18 +4759,21 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
       const backRowWidth = foyerOnBackRow ? usableRowWidth - (CORRIDOR_WIDTH + WALL_INT) : usableRowWidth;
       const backRowStartX = foyerOnBackRow ? emprise.x + WALL_EXT + CORRIDOR_WIDTH + WALL_INT : emprise.x + WALL_EXT;
+      if (!(availableBackDepth > 1e-6)) refuse("aucune profondeur pour la rangée fraîche (branche entière)");
       if (availableBackDepth > 1e-6) {
         for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          diag.sharedCombinations += 1;
           const joinNeeds: FreeSpaceNeed[] = [];
           const backNeeds: FreeSpaceNeed[] = [];
           for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : backNeeds).push(...typeGroups.get(typeKeys[i])!);
-          if (backNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthFrontFixed + 1e-6)) continue;
+          if (backNeeds.length === 0) { refuse("aucune pièce pour la rangée fraîche"); continue; }
+          if (joinNeeds.some((n) => n.depth > depthFrontFixed + 1e-6)) { refuse("pièce plus profonde que la rangée verrouillée"); continue; }
           let joinPlacements: FreeSpacePlacement[] = [];
           const joinFillers: Rect[] = [];
           if (joinNeeds.length > 0) {
-            if (joinAvailableWidth <= 0) continue;
+            if (joinAvailableWidth <= 0) { refuse("aucune largeur libre à côté du verrou"); continue; }
             const jWidths = fitExact(joinNeeds.map((n) => n.width), joinAvailableWidth);
-            if (!jWidths) continue;
+            if (!jWidths) { refuse("pièces de la rangée verrouillée trop larges pour la place libre"); continue; }
             let cx = joinStartX;
             joinPlacements = joinNeeds.map((n, i) => {
               const w = jWidths[i];
@@ -4674,11 +4790,11 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
               return p;
             });
           }
-          if (foyerOnBackRow && backRowWidth <= 0) continue;
+          if (foyerOnBackRow && backRowWidth <= 0) { refuse("aucune largeur pour la rangée fraîche"); continue; }
           const bTargetDepth = Math.max(...backNeeds.map((n) => n.depth));
-          if (bTargetDepth > availableBackDepth + 1e-6) continue;
+          if (bTargetDepth > availableBackDepth + 1e-6) { refuse("rangée fraîche trop profonde"); continue; }
           const bWidths = fitExact(backNeeds.map((n) => n.width), backRowWidth);
-          if (!bWidths) continue;
+          if (!bWidths) { refuse("rangée fraîche trop large"); continue; }
           const rowDepth = bTargetDepth;
           const backFillers: Rect[] = [];
           let cursorX = backRowStartX;
@@ -4721,7 +4837,10 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
     // rangée avant fraîche.
     const empriseBottomEdge = empriseBottom - WALL_EXT;
     const foyerOnFrontRow = entryWallForRegen === "top";
-    if (lockedRooms.every((r) => r.exteriorWall === "bottom" && Math.abs(r.y + r.d - empriseBottomEdge) < 1e-2) && k > 0) {
+    const caseB = lockedRooms.every((r) => r.exteriorWall === "bottom" && Math.abs(r.y + r.d - empriseBottomEdge) < 1e-2) && k > 0;
+    if (!caseA && !caseB) diag.sharedNotAttemptedReason = "les pièces verrouillées ne forment pas, à elles seules, une rangée contre la façade avant ou arrière";
+    if (caseB) {
+      diag.sharedAttempted = true;
       const depthBackFixed = Math.max(...lockedRooms.map((r) => r.d));
       const corridorBottom = empriseBottomEdge - depthBackFixed - WALL_INT;
       const corridorY = corridorBottom - CORRIDOR_WIDTH;
@@ -4732,18 +4851,21 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       const lockedRightEdge = Math.max(...lockedRooms.map((r) => r.x + r.w));
       const joinStartX = lockedRightEdge + WALL_INT;
       const joinAvailableWidth = emprise.x + emprise.w - WALL_EXT - joinStartX;
+      if (!(availableFrontDepth > 1e-6 && usableFrontWidth > 0)) refuse("aucune place pour la rangée fraîche (branche entière)");
       if (availableFrontDepth > 1e-6 && usableFrontWidth > 0) {
         for (let mask = 0; mask < (1 << k) - 1; mask++) {
+          diag.sharedCombinations += 1;
           const joinNeeds: FreeSpaceNeed[] = [];
           const frontNeeds: FreeSpaceNeed[] = [];
           for (let i = 0; i < k; i++) (mask & (1 << i) ? joinNeeds : frontNeeds).push(...typeGroups.get(typeKeys[i])!);
-          if (frontNeeds.length === 0 || joinNeeds.some((n) => n.depth > depthBackFixed + 1e-6)) continue;
+          if (frontNeeds.length === 0) { refuse("aucune pièce pour la rangée fraîche"); continue; }
+          if (joinNeeds.some((n) => n.depth > depthBackFixed + 1e-6)) { refuse("pièce plus profonde que la rangée verrouillée"); continue; }
           let joinPlacements: FreeSpacePlacement[] = [];
           const joinFillers: Rect[] = [];
           if (joinNeeds.length > 0) {
-            if (joinAvailableWidth <= 0) continue;
+            if (joinAvailableWidth <= 0) { refuse("aucune largeur libre à côté du verrou"); continue; }
             const jWidths = fitExact(joinNeeds.map((n) => n.width), joinAvailableWidth);
-            if (!jWidths) continue;
+            if (!jWidths) { refuse("pièces de la rangée verrouillée trop larges pour la place libre"); continue; }
             let cx = joinStartX;
             joinPlacements = joinNeeds.map((n, i) => {
               const w = jWidths[i];
@@ -4759,9 +4881,9 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
             });
           }
           const fTargetDepth = Math.max(...frontNeeds.map((n) => n.depth));
-          if (fTargetDepth > availableFrontDepth + 1e-6) continue;
+          if (fTargetDepth > availableFrontDepth + 1e-6) { refuse("rangée fraîche trop profonde"); continue; }
           const fWidths = fitExact(frontNeeds.map((n) => n.width), usableFrontWidth);
-          if (!fWidths) continue;
+          if (!fWidths) { refuse("rangée fraîche trop large"); continue; }
           const frontFillers: Rect[] = [];
           let cursorX = frontRowStartX;
           const frontPlacements: FreeSpacePlacement[] = frontNeeds.map((n, i) => {
@@ -4809,9 +4931,21 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
   const deduped: typeof candidates = [];
   for (const c of candidates) {
     const key = roomsKey(c.layout);
-    if (seen.has(key)) continue;
+    if (seen.has(key)) {
+      if (key === baselineKey) diag.duplicatesOfCurrent += 1;
+      else diag.duplicatesAmongNew += 1;
+      continue;
+    }
     seen.add(key);
     deduped.push(c);
+  }
+  diag.currentAdmissible = deduped.some((c) => roomsKey(c.layout) === baselineKey);
+  diag.newProposals = deduped.filter((c) => roomsKey(c.layout) !== baselineKey).length;
+  if (diag.sharedAttempted) {
+    const refusals = Object.entries(diag.sharedRefused).map(([m, n]) => `${n} × ${m}`).join(", ");
+    searchStats.push(`Corridor partagé : ${diag.sharedCombinations} combinaison(s) examinée(s)${refusals ? ` — écartées avant construction : ${refusals}` : ""} ; ${diag.sharedFinalizeRejected} rejetée(s) à la finalisation.`);
+  } else if (diag.sharedNotAttemptedReason) {
+    searchStats.push(`Corridor partagé non tenté : ${diag.sharedNotAttemptedReason}.`);
   }
   // Classement qualité, UNIQUEMENT entre propositions déjà admissibles
   // (contraintes obligatoires déjà satisfaites par le filtrage ci-dessus) :
@@ -4847,7 +4981,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       "Disposition actuelle conservée — cette recherche n'a trouvé aucune disposition NOUVELLE et admissible (voir le détail des tentatives écartées ci-dessous), mais le brouillon actuel reste lui-même admissible, inchangé.";
   }
 
-  return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons, searchStats };
+  return { variants: deduped.map((c) => c.layout), preferenceNotes: deduped.map((c) => c.note), failureReasons, searchStats, diagnostics: diag };
 }
 
 // Replace une pièce mise de côté à la position donnée — exactement les

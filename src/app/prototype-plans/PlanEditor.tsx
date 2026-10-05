@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent,
 import {
   checkRoomResize,
   cloneLayout,
+  describeRegenerationDiagnostics,
   doorsOf,
   flipDoorSwing,
   independentVerify,
@@ -1350,6 +1351,12 @@ function RegenerationPanel({
         disposition » ; « Fermer sans appliquer » vous y ramène exactement tel quel. Les pièces verrouillées restent
         identiques (position, dimensions, portes, fenêtres existantes) dans chaque proposition ci-dessous.
       </p>
+      {result.diagnostics ? (
+        <p data-testid="regen-summary" className="rounded bg-white/70 p-2 text-xs text-indigo-950">
+          <strong>Bilan de la recherche :</strong> {describeRegenerationDiagnostics(result.diagnostics)} Le détail de chaque
+          tentative écartée et les statistiques sont dépliables ci-dessous.
+        </p>
+      ) : null}
       {result.variants.length === 0 ? (
         <div className="rounded bg-red-50 p-3 text-sm text-red-900">
           <p className="font-semibold">Aucune disposition trouvée respectant toutes les contraintes obligatoires.</p>
@@ -1403,7 +1410,7 @@ function RegenerationPanel({
           ) : null}
           {result.searchStats.length > 0 ? (
             <details className="text-xs text-slate-600">
-              <summary className="cursor-pointer">Recherche avec retour arrière — statistiques</summary>
+              <summary className="cursor-pointer">Statistiques de recherche (retour arrière, corridor partagé)</summary>
               <ul className="mt-1 list-disc pl-5">
                 {result.searchStats.map((s, i) => (
                   <li key={i}>{s}</li>

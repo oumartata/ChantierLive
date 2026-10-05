@@ -2066,6 +2066,50 @@ try {
       }
     }
 
+
+    // 27) B3 — régénération après verrouillage : rejets rendus visibles
+    // (sous-lot A, 2026-10-05). Fixture figée (reproduction, voir
+    // scripts/fixtures/plans-b3-regeneration-reproduction.json). Chaque
+    // événement est compté UNE seule fois (RegenerationDiagnostics).
+    {
+      const b3 = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-b3-regeneration-reproduction.json"), "utf8"));
+      const idxB3 = (L, label, number) => L.rooms.findIndex((r) => r.label === label && r.number === number);
+      const accounting = (res) => {
+        const d = res.diagnostics;
+        const fromOrdered = d.orderedAttempts - d.orderedPlacementFailures - d.orderedFinalizeRejected;
+        const fromBacktrack = d.backtrackComplete - d.backtrackFinalizeRejected;
+        return (
+          d.admitted + d.controlRejected === d.candidates &&
+          d.admitted === res.variants.length + d.duplicatesOfCurrent + d.duplicatesAmongNew &&
+          d.newProposals === res.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)").length &&
+          fromOrdered >= 0 && fromBacktrack >= 0 && d.candidates >= 1 + fromOrdered + fromBacktrack &&
+          res.failureReasons.length === d.orderedPlacementFailures + d.orderedFinalizeRejected + d.backtrackFinalizeRejected + d.sharedFinalizeRejected + d.controlRejected
+        );
+      };
+      const ch2 = g.regenerateUnlocked(g.lockRoom(b3.layout, idxB3(b3.layout, "Chambre", 2)));
+      const d2 = ch2.diagnostics;
+      const rejected = ch2.failureReasons.filter((f) => f.startsWith("Plan complet (retour arrière) rejeté à la finalisation"));
+      record(
+        "27. B3 Chambre 2 : les 24 plans complets du retour arrière rejetés à la finalisation sont consignés avec leur motif",
+        d2.backtrackComplete === 24 && d2.backtrackFinalizeRejected === 24 && rejected.length === 24 &&
+          rejected.some((f) => f.includes("coupé du reste")) && rejected.some((f) => f.includes("trajet extérieur")) && rejected.some((f) => f.includes("ouverture extérieure")),
+        `${d2.backtrackComplete} complets, ${rejected.length} consignés`
+      );
+      record("27. B3 Chambre 2 : comptes sans double comptage (identités vérifiées)", accounting(ch2), g.describeRegenerationDiagnostics(d2));
+      record(
+        "27. B3 Chambre 2 : budget de recherche jamais atteint, combinaisons « corridor partagé » écartées avec motif",
+        d2.backtrackBudgetHit === 0 && d2.sharedAttempted && Object.values(d2.sharedRefused).reduce((s, n) => s + n, 0) > 0 &&
+          ch2.searchStats.some((s) => s.startsWith("Corridor partagé :")),
+        JSON.stringify(d2.sharedRefused)
+      );
+      const sal = g.regenerateUnlocked(g.lockRoom(b3.layout, idxB3(b3.layout, "Salon", 1)));
+      const ds = sal.diagnostics;
+      record(
+        "27. B3 Salon 1 : la branche « corridor partagé » reconstruit la disposition actuelle — doublon compté, aucune proposition nouvelle",
+        ds.duplicatesOfCurrent === 1 && ds.newProposals === 0 && ds.currentAdmissible && accounting(sal),
+        g.describeRegenerationDiagnostics(ds)
+      );
+    }
     const total = results.length;
     const passed = results.filter((r) => r.pass).length;
     console.log(`\n${passed}/${total} tests réussis.`);
