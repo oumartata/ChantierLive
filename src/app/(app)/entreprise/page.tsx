@@ -59,11 +59,16 @@ export default async function EntrepriseTableauDeBordPage() {
                   <p className="text-label font-semibold text-ink">{project.name}</p>
                   <StatusChip variant={status.variant} label={status.label} />
                 </div>
-                <Link href={`/chantiers/${project.id}`}>
-                  <Button variant="secondary" size="compact">
-                    Ouvrir le chantier
-                  </Button>
-                </Link>
+                <div className="flex flex-wrap gap-2">
+                  <Link href={`/entreprise/chantiers/${project.id}`}>
+                    <Button size="compact">Avancement et versements</Button>
+                  </Link>
+                  <Link href={`/chantiers/${project.id}`}>
+                    <Button variant="secondary" size="compact">
+                      Ouvrir le chantier
+                    </Button>
+                  </Link>
+                </div>
               </Card>
             );
           })}

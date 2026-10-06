@@ -194,6 +194,34 @@ données déjà existantes, aucune nouvelle table nécessaire pour les
 compteurs eux-mêmes). **Dépend de la décision §3.2** (liens filtrés vs
 routes dédiées).
 
+**Avancement du 2026-10-06 (sans migration, option « liens filtrés »)** :
+nouvelle page `/entreprise/chantiers/[id]` (chantier sélectionné).
+- **Accès** : adhésion CONTRACTOR **active** sur ce chantier, vérifiée
+  côté serveur avant toute lecture. Un chantier non autorisé affiche
+  « Chantier non accessible », sans son nom ; l'appartenance à une
+  organisation n'ouvre rien.
+- **Sélecteur** : liste des chantiers autorisés, affichée dès qu'il y en
+  a plusieurs.
+- **Contenu, en lecture seule, par les fonctions existantes** :
+  - avancement déclaré (M033) ;
+  - récapitulatif du prix convenu, des montants reconnus et en attente, du
+    reste dû (M028), **pour ce seul chantier** ;
+  - versements avec leur statut (M014).
+- **Actions** : uniquement par des liens vers les pages existantes
+  (avancement, versements, photos et vidéos, plans, fiche du chantier).
+- **États distingués** : lecture impossible, information absente (plan
+  des étapes non publié, prix non établi) et zéro.
+- **Tableau de bord** : lien « Avancement et versements » ajouté, le lien
+  existant est conservé.
+
+**Reste à faire** :
+- compteurs et activité récente du tableau de bord ;
+- migration des pages « Équipe » et « Photos » vers le sélecteur unique.
+
+Les maquettes fondateur du 2026-10-03 ne sont pas dans le dépôt : la
+fidélité visuelle n'est pas vérifiée. Seule `CHANTIERLIVE_MAQUETTES_4C`
+(« Accueil entrepreneur ») est présente ; le style existant est conservé.
+
 ### Lot ESPACES-4 — dépenses internes (fonctionnalité neuve, hors chiffrage de ce tour)
 
 Construit l'écran « Dépenses internes » (§3.3). Migrations et permissions
@@ -208,6 +236,23 @@ Réutilise intégralement `list_advance_payments`/`advance_events`/
 clients ». Aucune migration. Peut être livré indépendamment des autres
 lots, y compris avant ESPACES-3 (en restant temporairement sous
 `chantiers/[id]/acomptes`, avec une présentation entreprise dédiée).
+
+**Avancement du 2026-10-06** : `/entreprise/chantiers/[id]` présente, en
+lecture seule, les versements du client et leurs statuts, ainsi que le
+récapitulatif financier **du chantier sélectionné**. Aucun total entre
+chantiers. Déclarer, confirmer, contester et joindre un justificatif
+restent sur `chantiers/[id]/acomptes` (lien) : aucun second circuit.
+
+Preuves :
+- `scripts/test-entreprise-chantier-summary.mjs` : 13/13, dans
+  `npm test` ;
+- parcours navigateur sur ordinateur et à 390 px.
+
+Limite de la démonstration : le chantier de démonstration n'a aucun
+versement. Une déclaration exige un devis accepté par un propriétaire, et
+aucun compte propriétaire supplémentaire n'a été créé. Le navigateur montre
+donc l'état « aucun versement » et le prix « non établi ». Les statuts
+sont couverts par le test unitaire.
 
 ## 5. Permissions concernées
 

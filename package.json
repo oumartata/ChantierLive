@@ -11,7 +11,7 @@
     "test:sw": "node scripts/sw.test.mjs",
     "test:plans": "node scripts/test-plans-geometry.mjs",
     "test:plans:battery": "node scripts/test-plans-battery.mjs",
-    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view && npm run test:plans:windows && npm run test:plans:obstruction && npm run test:plans:f2 && npm run test:plans:f2:allowances && npm run test:plans:catalogue && npm run test:plans:catalogue-copy",
+    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view && npm run test:plans:windows && npm run test:plans:obstruction && npm run test:plans:f2 && npm run test:plans:f2:allowances && npm run test:plans:catalogue && npm run test:plans:catalogue-copy && npm run test:entreprise",
     "verify": "node scripts/quality-gate.mjs",
     "test:plans:exterior": "node scripts/test-plans-exterior-exposure.mjs",
     "test:plans:view": "node scripts/test-plans-regeneration-view.mjs",
@@ -21,7 +21,8 @@
     "test:plans:f2": "node scripts/test-plans-f2-adapted.mjs",
     "test:plans:f2:allowances": "node scripts/test-plans-f2-allowances.mjs",
     "test:plans:catalogue": "node scripts/test-plans-catalogue-f2.mjs",
-    "test:plans:catalogue-copy": "node scripts/test-plans-catalogue-copy.mjs"
+    "test:plans:catalogue-copy": "node scripts/test-plans-catalogue-copy.mjs",
+    "test:entreprise": "node scripts/test-entreprise-chantier-summary.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
