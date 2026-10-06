@@ -39,6 +39,14 @@ function mapCopyError(code: string | undefined, fallback: string): string {
       return "Un enregistrement différent est déjà en cours pour cette opération. Rechargez la page puis réessayez.";
     case "layout_too_large":
       return "Le plan est trop volumineux pour être enregistré.";
+    case "catalog_version_not_published":
+      return "Une autre version de ce modèle a été publiée entre-temps. Rechargez la page pour vérifier la copie avec la version publiée actuelle.";
+    case "catalog_organization_mismatch":
+      return "Ce chantier n'est pas rattaché à l'organisation de ce modèle.";
+    case "catalog_item_not_editable":
+      return "Cette version du modèle ne contient pas de fichier structuré : elle ne peut pas être copiée pour édition.";
+    case "catalog_copy_operation_conflict":
+      return "Une copie différente a déjà été lancée avec cette opération. Rechargez la page puis recommencez.";
     default:
       return fallback;
   }
@@ -64,12 +72,14 @@ export async function previewCatalogueCopyAction(formData: FormData): Promise<Ac
   if (!guard.ok) return { ok: false, message: guard.message };
   const organizationId = formData.get("organization_id");
   const catalogItemId = formData.get("catalog_item_id");
+  const versionId = formData.get("version_id");
   const projectId = formData.get("project_id");
-  if (!isUuid(organizationId) || !isUuid(catalogItemId) || !isUuid(projectId)) return { ok: false, message: "Choisissez un chantier destinataire." };
+  if (!isUuid(organizationId) || !isUuid(catalogItemId) || !isUuid(versionId) || !isUuid(projectId)) return { ok: false, message: "Choisissez un chantier destinataire." };
   const supabase = await createClient();
   const prepared = await prepareCatalogueCopyFor(supabase, guard.user.id, {
     organizationId,
     catalogItemId,
+    versionId,
     projectId,
     params: readParams(formData.get("params")),
   });
@@ -79,16 +89,16 @@ export async function previewCatalogueCopyAction(formData: FormData): Promise<Ac
 
 export async function createCatalogueCopyAction(
   formData: FormData
-): Promise<{ ok: true; value: { requestId: string; variantId: string; projectId: string } } | { ok: false; message: string; requestId?: string; report?: CatalogueCopyReport }> {
+): Promise<{ ok: true; value: { requestId: string; variantId: string; projectId: string } } | { ok: false; message: string; report?: CatalogueCopyReport }> {
   const guard = await requireVerifiedAccount();
   if (!guard.ok) return { ok: false, message: guard.message };
   const organizationId = formData.get("organization_id");
   const catalogItemId = formData.get("catalog_item_id");
+  const versionId = formData.get("version_id");
   const projectId = formData.get("project_id");
   const operationUuid = formData.get("operation_uuid");
-  const requestIdRaw = formData.get("request_id");
   const savedAt = formData.get("saved_at");
-  if (!isUuid(organizationId) || !isUuid(catalogItemId) || !isUuid(projectId) || !isUuid(operationUuid)) {
+  if (!isUuid(organizationId) || !isUuid(catalogItemId) || !isUuid(versionId) || !isUuid(projectId) || !isUuid(operationUuid)) {
     return { ok: false, message: "Requête invalide." };
   }
   const savedAtMs = typeof savedAt === "string" ? Date.parse(savedAt) : NaN;
@@ -99,14 +109,14 @@ export async function createCatalogueCopyAction(
   const created = await createCatalogueCopy(await createClient(), createServiceClient(), guard.user.id, {
     organizationId,
     catalogItemId,
+    versionId,
     projectId,
     params: readParams(formData.get("params")),
     savedAt,
     operationUuid,
-    requestId: isUuid(requestIdRaw) ? requestIdRaw : null,
   });
   if (!created.ok) {
-    return { ok: false, message: mapCopyError(created.code, created.message), requestId: created.requestId, report: created.report };
+    return { ok: false, message: mapCopyError(created.code, created.message), report: created.report };
   }
   revalidatePath(`/chantiers/${projectId}/plans`);
   return { ok: true, value: { requestId: created.requestId, variantId: created.variantId, projectId } };

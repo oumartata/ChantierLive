@@ -1,7 +1,8 @@
 // Test d'intégration LOCAL uniquement (aucune connexion cloud) : copie d'un
-// modèle de catalogue vers un chantier, premier sous-lot SANS migration
-// (src/lib/plans/catalogueCopySource.ts, compilé depuis le dépôt et appelé
-// avec de VRAIES sessions). Données jetables créées par ce script.
+// modèle de catalogue vers un chantier (src/lib/plans/catalogueCopySource.ts,
+// compilé depuis le dépôt et appelé avec de VRAIES sessions) et traçabilité
+// de son origine (M035 : create_plan_request_from_catalog_item,
+// list_plan_request_origins). Données jetables créées par ce script.
 //
 // Usage : node --env-file=.env.local scripts/test-catalogue-copy-source.mjs
 
@@ -54,7 +55,13 @@ async function createTestUser(label) {
   const client = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
   const { error: signInError } = await client.auth.signInWithPassword({ email, password });
   if (signInError) throw new Error(`signIn(${label}): ${signInError.message}`);
-  return { id: data.user.id, email, client };
+  const secondSession = async () => {
+    const other = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
+    const { error: e } = await other.auth.signInWithPassword({ email, password });
+    if (e) throw new Error(`signIn(${label}): ${e.message}`);
+    return other;
+  };
+  return { id: data.user.id, email, client, secondSession };
 }
 async function createOrganization(ownerId, label) {
   const { data, error } = await service.from("organizations").insert({ name: `Copie — ${label}`, owner_profile_id: ownerId }).select("id").single();
@@ -157,7 +164,11 @@ try {
   const { data: itemDraft } = await owner.client.rpc("create_catalog_item", { p_organization_id: orgA, p_label: "Modèle structuré non publié" });
   const { data: itemFlat } = await owner.client.rpc("create_catalog_item", { p_organization_id: orgA, p_label: "Modèle plat publié" });
   const vPublished = await depositVersion(owner.client, orgA, itemPublished.id, model);
-  await depositVersion(owner.client, orgA, itemDraft.id, model);
+  const vDraft = await depositVersion(owner.client, orgA, itemDraft.id, model);
+  // Modèle d'une AUTRE organisation (propriétaire différent).
+  const orgC = await createOrganization(contractorB.id, "organisation C");
+  const { data: itemForeign } = await contractorB.client.rpc("create_catalog_item", { p_organization_id: orgC, p_label: "Modèle d'une autre organisation" });
+  const vForeign = await depositVersion(contractorB.client, orgC, itemForeign.id, model);
   const vFlat = await depositVersion(owner.client, orgA, itemFlat.id, null);
   await publish(owner, engineer, designation.id, vPublished.id);
   await publish(owner, engineer, designation.id, vFlat.id);
@@ -190,33 +201,27 @@ try {
   record("Copropriétaire du chantier : rôle insuffisant, refusé", !dX2.ok && /rôle/.test(dX2.message), dX2.message);
 
   // --- 3. Vérification sans écriture -----------------------------------------
+  const base = { organizationId: orgA, catalogItemId: itemPublished.id, versionId: vPublished.id, projectId: projectA };
   const requestsBefore = await count("project_plan_requests", "project_id", projectA);
-  const bad = await src.prepareCatalogueCopyFor(owner.client, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: { ...destParams, accessSide: "left" },
-  });
+  const bad = await src.prepareCatalogueCopyFor(owner.client, owner.id, { ...base, params: { ...destParams, accessSide: "left" } });
   record("Incompatibilité (façade) : expliquée, aucune copie préparée", bad.ok && bad.copy === null && bad.report.blocking.some((b) => /Façade d'accès différente/.test(b)));
-  const preview = await src.prepareCatalogueCopyFor(owner.client, owner.id, { organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams });
+  const preview = await src.prepareCatalogueCopyFor(owner.client, owner.id, { ...base, params: destParams });
   record("Vérification : copie possible, aucun blocage", preview.ok && preview.copy !== null && preview.report.blocking.length === 0, preview.ok ? preview.report.blocking.join(" | ") : preview.message);
   record("Vérification : aucune demande créée", (await count("project_plan_requests", "project_id", projectA)) === requestsBefore);
 
   // --- 4. Création ----------------------------------------------------------
   const op = randomUUID();
   const savedAt = new Date().toISOString();
-  const refused = await src.createCatalogueCopy(contractorB.client, service, contractorB.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: randomUUID(), requestId: null,
-  });
+  const refused = await src.createCatalogueCopy(contractorB.client, service, contractorB.id, { ...base, params: destParams, savedAt, operationUuid: randomUUID() });
   record("Création refusée sans accès au modèle, rien d'écrit", !refused.ok && (await count("project_plan_requests", "project_id", projectA)) === requestsBefore, refused.message);
-  const blocked = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: { ...destParams, needs: program.slice(1) }, savedAt, operationUuid: randomUUID(), requestId: null,
-  });
+  const blocked = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: { ...destParams, needs: program.slice(1) }, savedAt, operationUuid: randomUUID() });
   record("Création refusée si la copie est incompatible (programme), rien d'écrit", !blocked.ok && blocked.report?.blocking.length > 0 && (await count("project_plan_requests", "project_id", projectA)) === requestsBefore, blocked.message);
 
-  const created = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: op, requestId: null,
-  });
+  const created = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op });
   record("Copie créée : demande + variante 1", created.ok, created.message);
   const { data: request } = await service.from("project_plan_requests").select("*").eq("id", created.requestId).single();
   record("Demande : paramètres du CHANTIER enregistrés, jamais ceux du modèle", same(request.generation_params, preview.params) && request.generation_params.terrainWidth === 22 && request.status === "OPEN");
+  record("Origine : version EXACTE du modèle (pas le modèle seul), opération enregistrée", request.source_catalog_item_version_id === vPublished.id && request.catalog_copy_operation_uuid === op);
   const { data: variants } = await service.from("project_plan_request_variants").select("*").eq("request_id", created.requestId);
   const v1 = variants[0];
   record("Variante 1 = la copie, posée sur le terrain du chantier (22 × 16)", variants.length === 1 && v1.variant_number === 1 && v1.layout.layout.terrain.w === 22 && v1.layout.layout.terrain.d === 16 && v1.layout.orientation === "E");
@@ -228,42 +233,128 @@ try {
   record("Modèle et version d'origine strictement inchangés", same(versionAfter, versionBefore));
   record("Aucun verdict hérité : aucune version de chantier, aucune validation de chantier", (await count("project_plan_versions", "project_id", projectA)) === 0 && (await count("plan_validations", "project_id", projectA)) === 0);
   record("Validations du catalogue inchangées", (await count("plan_catalog_item_validations", "catalog_item_version_id", vPublished.id)) === validationsBefore);
-  record("Demande sans lien vers le catalogue (aucune colonne source sans migration)", !Object.keys(request).some((k) => /catalog/.test(k)));
 
-  // --- 5. Reprises ----------------------------------------------------------
-  const retry = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: op, requestId: created.requestId,
-  });
-  record("Reprise (même opération, demande connue) : même variante, aucun doublon", retry.ok && retry.variantId === created.variantId && (await count("project_plan_request_variants", "request_id", created.requestId)) === 1);
-  const lost = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: op, requestId: null,
-  });
+  // --- 5. Reprises et concurrence ------------------------------------------
+  const retry = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op });
   record(
-    "Reprise après réponse perdue (demande inconnue du navigateur) : même demande, même variante",
-    lost.ok && lost.requestId === created.requestId && lost.variantId === created.variantId && (await count("project_plan_requests", "project_id", projectA)) === requestsBefore + 1,
-    lost.message
+    "Reprise après réponse perdue (même opération) : même demande, même variante",
+    retry.ok && retry.requestId === created.requestId && retry.variantId === created.variantId &&
+      (await count("project_plan_requests", "project_id", projectA)) === requestsBefore + 1 && (await count("project_plan_request_variants", "request_id", created.requestId)) === 1,
+    retry.message
+  );
+  // Échec réel entre A (demande) et B/C (variante) : la reprise termine.
+  const op2 = randomUUID();
+  const { data: orphan, error: orphanErr } = await owner.client.rpc("create_plan_request_from_catalog_item", {
+    p_project_id: projectA, p_catalog_item_version_id: vPublished.id, p_generation_params: preview.params, p_operation_uuid: op2,
+  });
+  record("Échec réel simulé : demande créée sans variante", !orphanErr && (await count("project_plan_request_variants", "request_id", orphan?.id)) === 0, orphanErr?.message);
+  const resumed = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op2 });
+  record("Reprise après échec réel : même demande, une seule variante", resumed.ok && resumed.requestId === orphan.id && (await count("project_plan_request_variants", "request_id", orphan.id)) === 1, resumed.message);
+  const conflict = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: { ...destParams, orientation: "S" }, savedAt, operationUuid: op2 });
+  record("Même opération, paramètres différents : refusé", !conflict.ok && conflict.code === "catalog_copy_operation_conflict", conflict.code);
+  // Concurrence : deux créations simultanées de la même opération.
+  const op3 = randomUUID();
+  const tab2 = await owner.secondSession();
+  const [c1, c2] = await Promise.all([
+    src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op3 }),
+    src.createCatalogueCopy(tab2, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op3 }),
+  ]);
+  const { data: op3Requests } = await service.from("project_plan_requests").select("id").eq("catalog_copy_operation_uuid", op3);
+  record(
+    "Deux créations simultanées (même opération) : une demande, une variante",
+    c1.ok && c2.ok && c1.requestId === c2.requestId && c1.variantId === c2.variantId && op3Requests.length === 1 && (await count("project_plan_request_variants", "request_id", c1.requestId)) === 1,
+    c1.message ?? c2.message
   );
 
-  // Échec réel entre la création de la demande et l'enregistrement : la
-  // reprise réutilise la demande ouverte, une seule variante.
-  const op2 = randomUUID();
-  const { data: orphan } = await owner.client.rpc("create_plan_request", { p_project_id: projectA, p_generation_params: preview.params });
-  const resumed = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: op2, requestId: orphan.id,
+  // --- 6. Appels directs non autorisés et origines falsifiées ---------------
+  const direct = (client, projectId, versionId, opUuid = randomUUID(), params = preview.params) =>
+    client.rpc("create_plan_request_from_catalog_item", { p_project_id: projectId, p_catalog_item_version_id: versionId, p_generation_params: params, p_operation_uuid: opUuid });
+  const requestsNow = async () => (await service.from("project_plan_requests").select("id", { count: "exact", head: true }).not("source_catalog_item_version_id", "is", null)).count;
+  const sourcedBefore = await requestsNow();
+  const anon = createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } });
+  const cases = [
+    ["sans session", anon, projectA, vPublished.id, (e) => e?.code === "42501"],
+    ["membre du chantier sans propriété de l'organisation", contractorB.client, projectA, vPublished.id, (e) => e?.message === "not_authorized"],
+    ["chantier d'une autre organisation", owner.client, projectB, vPublished.id, (e) => e?.message === "catalog_organization_mismatch"],
+    ["chantier sans adhésion habilitée (copropriétaire)", owner.client, projectX, vPublished.id, (e) => e?.message === "not_authorized"],
+    ["version non publiée", owner.client, projectA, vDraft.id, (e) => e?.message === "catalog_version_not_published"],
+    ["version publiée plate (sans fichier structuré)", owner.client, projectA, vFlat.id, (e) => e?.message === "catalog_item_not_editable"],
+    ["version d'un modèle d'une autre organisation", owner.client, projectA, vForeign.id, (e) => e?.message === "not_authorized"],
+    ["version inexistante", owner.client, projectA, randomUUID(), (e) => e?.message === "not_authorized"],
+  ];
+  for (const [name, client, projectId, versionId, check] of cases) {
+    const { error } = await direct(client, projectId, versionId);
+    record(`Appel direct refusé — ${name}`, check(error), `${error?.code ?? ""} ${error?.message ?? "accepté"}`);
+  }
+  const { error: oldSigErr } = await owner.client.rpc("create_plan_request", { p_project_id: projectA, p_generation_params: preview.params, p_source_catalog_item_version_id: vPublished.id });
+  record("Ancienne fonction : aucune origine attribuable (paramètre inconnu)", oldSigErr?.code === "PGRST202", oldSigErr?.code);
+  const { error: insertErr } = await owner.client.from("project_plan_requests").insert({
+    project_id: projectA, created_by_profile_id: owner.id, created_as_role: "CONTRACTOR", generation_params: {}, source_catalog_item_version_id: vPublished.id, catalog_copy_operation_uuid: randomUUID(),
   });
-  record("Reprise après échec réel : demande ouverte réutilisée, une variante", resumed.ok && resumed.requestId === orphan.id && (await count("project_plan_request_variants", "request_id", orphan.id)) === 1, resumed.message);
+  record("Insertion directe d'une demande avec origine refusée", insertErr?.code === "42501", insertErr?.message);
+  const { error: setSourceErr } = await service.from("project_plan_requests").update({ source_catalog_item_version_id: vFlat.id }).eq("id", created.requestId);
+  record("Origine immuable (même pour le service_role)", setSourceErr?.message === "project_plan_request_immutable", setSourceErr?.message);
+  const { error: clearSourceErr } = await service.from("project_plan_requests").update({ source_catalog_item_version_id: null, catalog_copy_operation_uuid: null }).eq("id", created.requestId);
+  record("Origine non effaçable", clearSourceErr?.message === "project_plan_request_immutable", clearSourceErr?.message);
+  const { data: legacy } = await owner.client.rpc("create_plan_request", { p_project_id: projectA, p_generation_params: preview.params });
+  const { error: addSourceErr } = await service.from("project_plan_requests").update({ source_catalog_item_version_id: vPublished.id, catalog_copy_operation_uuid: randomUUID() }).eq("id", legacy.id);
+  record("Aucune origine ajoutable après coup à une demande existante", addSourceErr?.message === "project_plan_request_immutable", addSourceErr?.message);
+  record("Aucune demande créée par ces appels refusés", (await requestsNow()) === sourcedBefore);
 
-  const other = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: { ...destParams, orientation: "S" }, savedAt, operationUuid: randomUUID(), requestId: orphan.id,
-  });
-  record("Paramètres différents : demande précédente jamais réutilisée", other.ok && other.requestId !== orphan.id);
+  // --- 7. Publication ultérieure --------------------------------------------
+  const op4 = randomUUID();
+  const { data: beforePublish } = await direct(owner.client, projectA, vPublished.id, op4);
+  const { data: variant1Before } = await service.from("project_plan_request_variants").select("layout").eq("id", created.variantId).single();
+  const modelV2 = JSON.parse(JSON.stringify(model));
+  modelV2.layout.rooms[0].x += 0.5;
+  const vSecond = await depositVersion(owner.client, orgA, itemPublished.id, modelV2);
+  await publish(owner, engineer, designation.id, vSecond.id);
+  const { data: requestAfterPublish } = await service.from("project_plan_requests").select("source_catalog_item_version_id").eq("id", created.requestId).single();
+  const { data: variant1After } = await service.from("project_plan_request_variants").select("layout").eq("id", created.variantId).single();
+  record("Publication d'une nouvelle version : origine inchangée (version 1 exacte)", requestAfterPublish.source_catalog_item_version_id === vPublished.id);
+  record("Publication d'une nouvelle version : copie inchangée", same(variant1After.layout, variant1Before.layout));
+  const stale = await src.prepareCatalogueCopyFor(owner.client, owner.id, { ...base, params: destParams });
+  record("Vérification avec l'ancienne version affichée : refus explicite, rechargement demandé", !stale.ok && /Une autre version de ce modèle a été publiée/.test(stale.message), stale.message);
+  const { error: staleDirect } = await direct(owner.client, projectA, vPublished.id);
+  record("Création directe depuis une version qui n'est plus publiée : refusée", staleDirect?.message === "catalog_version_not_published", staleDirect?.message);
+  const resumedAfterPublish = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, params: destParams, savedAt, operationUuid: op4 });
+  const { data: v1AfterResume } = resumedAfterPublish.ok
+    ? await service.from("project_plan_request_variants").select("layout").eq("id", resumedAfterPublish.variantId).single()
+    : { data: null };
+  record(
+    "Reprise d'une opération lancée avant la publication : terminée avec la version d'origine",
+    resumedAfterPublish.ok && resumedAfterPublish.requestId === beforePublish.id && v1AfterResume && same(geom(v1AfterResume.layout.layout), geom(model.layout)),
+    resumedAfterPublish.message
+  );
+  const newCopy = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, versionId: vSecond.id, params: destParams, savedAt, operationUuid: randomUUID() });
+  const { data: newRequest } = newCopy.ok ? await service.from("project_plan_requests").select("source_catalog_item_version_id").eq("id", newCopy.requestId).single() : { data: null };
+  record("Nouvelle copie après publication : origine = nouvelle version, l'ancienne demande inchangée", newCopy.ok && newRequest.source_catalog_item_version_id === vSecond.id, newCopy.message);
 
-  // Accès retiré entre la vérification et la création.
+  // --- 8. Affichage de l'origine selon les permissions existantes -----------
+  const { data: originsOwner, error: originsOwnerErr } = await owner.client.rpc("list_plan_request_origins", { p_project_id: projectA });
+  const mine = originsOwner?.find((o) => o.request_id === created.requestId);
+  const legacyOrigin = originsOwner?.find((o) => o.request_id === legacy.id);
+  record("Origine visible par le propriétaire du catalogue : libellé et version 1", !originsOwnerErr && mine?.has_catalog_source && mine.source_details_visible && mine.catalog_item_label === "Modèle structuré publié" && mine.catalog_version_number === 1);
+  record("Demande sans origine : « non renseignée » (aucune déduction)", legacyOrigin && legacyOrigin.has_catalog_source === false && legacyOrigin.catalog_item_label === null);
+  const { data: originsB } = await contractorB.client.rpc("list_plan_request_origins", { p_project_id: projectA });
+  const seenByB = originsB?.find((o) => o.request_id === created.requestId);
+  record("Lecteur de la demande sans accès au catalogue : origine signalée, détails masqués", seenByB?.has_catalog_source === true && seenByB.source_details_visible === false && seenByB.catalog_item_label === null && seenByB.catalog_version_number === null);
+  record("Aucun identifiant de modèle, de version ni de fichier exposé", Object.keys(mine ?? {}).every((k) => !/(_id$|layout|storage|file)/.test(k) || k === "request_id"));
+  const { error: srcByB } = await contractorB.client.rpc("get_catalog_item_version_file", { p_version_id: vPublished.id });
+  record("La provenance n'ouvre pas le fichier du modèle", srcByB?.message === "not_authorized", srcByB?.message);
+  const { error: originsOutsiderErr } = await outsider.client.rpc("list_plan_request_origins", { p_project_id: projectA });
+  record("Origines refusées hors chantier", originsOutsiderErr?.message === "not_authorized", originsOutsiderErr?.message);
+
+  // --- 9. Ancien parcours et droits revérifiés à l'écriture -----------------
+  record("Ancien parcours : create_plan_request fonctionne, sans origine", !!legacy?.id && legacy.source_catalog_item_version_id === null);
+  const op5 = randomUUID();
   await service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", projectA).eq("profile_id", owner.id);
-  const revoked = await src.createCatalogueCopy(owner.client, service, owner.id, {
-    organizationId: orgA, catalogItemId: itemPublished.id, projectId: projectA, params: destParams, savedAt, operationUuid: randomUUID(), requestId: null,
-  });
+  const revoked = await src.createCatalogueCopy(owner.client, service, owner.id, { ...base, versionId: vSecond.id, params: destParams, savedAt, operationUuid: op5 });
   record("Accès au chantier retiré : création refusée", !revoked.ok, revoked.message);
+  const { error: revokedDirect } = await direct(owner.client, projectA, vSecond.id, op5);
+  record("Accès au chantier retiré : appel direct refusé en base", revokedDirect?.message === "not_authorized", revokedDirect?.message);
+  const { error: revokedReplay } = await direct(owner.client, projectA, vPublished.id, op);
+  record("Accès retiré : même la reprise d'une opération réussie est refusée", revokedReplay?.message === "not_authorized", revokedReplay?.message);
 } catch (err) {
   console.error("ERREUR:", err.message);
   results.push(false);

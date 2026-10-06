@@ -2173,6 +2173,34 @@ Détail et proposition de migration pour la suite :
   - consultation du catalogue par le propriétaire de chantier (décision
     §8.1).
 
+### Catalogue → chantier : traçabilité de l'origine, M035 (2026-10-06, Supabase local)
+
+Détail : `PREPARATION_CATALOGUE_MODIFIABLE.md` §10.
+
+- **Migration** : `20261006150000_m035_plan_request_catalog_source.sql`,
+  appliquée **en local uniquement**, après une sauvegarde vérifiée.
+  Données existantes non réécrites : les 40 demandes antérieures sont
+  « origine non renseignée ».
+- **Origine** : la demande référence la **version exacte** du modèle, figée
+  par le déclencheur d'immuabilité. Elle est posée uniquement par
+  `create_plan_request_from_catalog_item`, qui refait en base les
+  contrôles existants : adhésion et rôle sur le chantier, propriétaire de
+  l'organisation, rattachement, version publiée et structurée. Création
+  idempotente par opération.
+- **Inchangé** :
+  - variante 1 enregistrée par le circuit M034 ;
+  - moteur ;
+  - permissions ;
+  - ancien parcours de demande.
+- **Affichage** : origine visible sur la page Plans du chantier. Détails
+  du modèle réservés à qui lit déjà le catalogue ; aucun accès au modèle
+  ni à son fichier ouvert.
+- **Preuves** :
+  - `test-catalogue-copy-source.mjs` : 59/59 ;
+  - non-régression : `test-plan-requests.mjs` 30/30 et
+    `test-plan-request-variant-attestation.mjs` 39/39 ;
+  - parcours navigateur sur les données de démonstration.
+
 ---
 
 ## 3. Journal des lots

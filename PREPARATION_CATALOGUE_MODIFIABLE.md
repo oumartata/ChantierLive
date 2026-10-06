@@ -1,8 +1,9 @@
 # Préparation — catalogue modifiable (prochain chantier)
 
 > **Mise à jour du 2026-10-06** : premier sous-lot du Lot B réalisé sans
-> migration, et proposition de migration pour la suite : voir §9. Les
-> sections 1 à 8 sont conservées telles quelles (historique).
+> migration, et proposition de migration pour la suite : voir §9. La
+> traçabilité de l'origine (M035, Supabase local) est réalisée : voir §10.
+> Les sections 1 à 9 sont conservées telles quelles (historique).
 
 Document d'analyse et de plan uniquement. **Aucun code, aucune migration
 créée ou appliquée.** Complète `PREPARATION_INTEGRATION_METIER.md` (Lots
@@ -635,3 +636,125 @@ Aucun droit nouveau, aucun accès du propriétaire de chantier au catalogue
   du chantier, 15 × 20 m, accès avant) et sa variante 1, la copie. Ni
   déposée, ni validée.
 - **Données jetables** créées par les scripts de test.
+
+## 10. Traçabilité de l'origine — M035 (2026-10-06, Supabase local)
+
+**Migration** : `20261006150000_m035_plan_request_catalog_source.sql`,
+appliquée **en local uniquement**, après une sauvegarde vérifiée (schéma +
+données complètes, `.local_backups/pre_m035_*_20261006_050921`). Aucune
+réinitialisation, aucune purge. Les 40 demandes existantes gardent une
+origine nulle : aucune n'est réécrite, aucune origine n'est déduite.
+
+### 10.1 Ce qui est enregistré
+
+- `project_plan_requests.source_catalog_item_version_id` : clé étrangère
+  vers la **version exacte** (`on delete restrict`), jamais vers le modèle
+  ni vers « sa version publiée actuelle ». Les versions de catalogue sont
+  déjà immuables : publier une version suivante ne change ni l'origine ni
+  la copie.
+- `project_plan_requests.catalog_copy_operation_uuid` : opération de
+  création, unique.
+- Les deux colonnes sont posées ensemble ou pas du tout (contrainte), puis
+  figées par le déclencheur d'immuabilité des demandes, y compris pour
+  `service_role`. Aucune origine ne peut être ajoutée, changée ou effacée
+  après coup.
+
+### 10.2 Seule voie : `create_plan_request_from_catalog_item`
+
+Elle applique en base les règles déjà en place :
+- adhésion active CONTRACTOR ou OWNER/PRIMARY sur le chantier, compte non
+  provisoire (comme `create_plan_request`) ;
+- lecture de la source réservée au propriétaire de l'organisation (comme
+  `get_catalog_item_version_file`) ;
+- chantier rattaché à l'organisation de la version
+  (`catalog_organization_mismatch`, D107) ;
+- à la création : modèle et organisation non archivés, version **publiée
+  au moment de l'écriture** (`catalog_version_not_published`) et
+  structurée (`catalog_item_not_editable`).
+
+Elle est idempotente par opération : même opération, même auteur,
+chantier, version et paramètres renvoient la même demande, sans rien
+écrire. Toute autre combinaison est refusée
+(`catalog_copy_operation_conflict`). Les droits sur le chantier et sur la
+source sont revérifiés à chaque appel, y compris en reprise.
+
+`create_plan_request` est inchangée et ne peut poser aucune origine. La
+table reste fermée à `authenticated` et `anon`.
+
+### 10.3 Écritures atomiques et reprise
+
+| Étape | Transaction | Reprise |
+|---|---|---|
+| A. `create_plan_request_from_catalog_item` | une : contrôles + insertion de la demande **avec** son origine | idempotente par opération |
+| B. `attest_plan_request_variant_layout` (M034) | une : attestation du fichier validé | idempotente pour le même fichier |
+| C. `save_plan_request_variant` (M034) | une : contrôles + consommation de l'attestation + insertion de la variante 1 | idempotente par opération |
+
+A, B et C sont trois appels distincts, jamais une transaction commune. Une
+même opération porte la même date de préparation, donc le même fichier.
+La rejouer reprend après l'étape déjà faite, sans doublon :
+- après une réponse perdue ;
+- après un échec entre A et C ;
+- lors d'appels simultanés.
+
+Si une autre version a été publiée entre-temps, la reprise reste possible
+et termine avec la version d'origine. Une **nouvelle** opération exige, en
+revanche, la version publiée actuelle.
+
+Limite : si l'utilisateur abandonne la page après A, sans jamais rejouer
+la même opération, la demande reste ouverte avec son origine et sans
+variante. Elle reste reprenable depuis la page Plans comme toute demande,
+mais sans la copie : il suffit de relancer la copie, qui crée alors une
+nouvelle opération.
+
+### 10.4 Affichage
+
+`list_plan_request_origins(p_project_id)` a les mêmes lecteurs que
+`list_plan_requests`.
+- **Propriétaire de l'organisation** (seul à lire déjà le catalogue) : il
+  reçoit le libellé du modèle et le numéro de version.
+- **Autres lecteurs** : ils apprennent seulement que l'origine est un
+  modèle du catalogue.
+- **Rien d'autre n'est exposé** : ni identifiant de modèle ou de version,
+  ni fichier, ni plan.
+
+La page Plans du chantier affiche, pour chaque demande :
+- « Origine : modèle « … », version n (catalogue) » ;
+- « Origine : un modèle du catalogue de l'entreprise » ;
+- ou « Origine non renseignée ».
+
+La page de copie copie la version **affichée**. Si une autre version a été
+publiée depuis, elle refuse et demande de recharger.
+
+### 10.5 Preuves
+
+- `scripts/test-catalogue-copy-source.mjs` : **59/59**, local, vraies
+  sessions. Il couvre :
+  - version exacte enregistrée ;
+  - publication ultérieure sans effet sur l'origine ni sur la copie ;
+  - copie depuis une version qui n'est plus publiée refusée ;
+  - reprise après publication terminée avec la version d'origine ;
+  - 8 appels directs refusés : sans session, sans propriété de
+    l'organisation, autre organisation, copropriétaire, version non
+    publiée, version plate, modèle d'une autre organisation, version
+    inexistante ;
+  - origine non attribuable par l'ancienne fonction ni par insertion
+    directe ;
+  - origine immuable, non effaçable, non ajoutable après coup ;
+  - reprise après réponse perdue, après échec réel, et appels simultanés :
+    une demande, une variante ;
+  - même opération avec d'autres paramètres refusée ;
+  - affichage selon les permissions ;
+  - droits revérifiés après retrait d'accès, y compris en reprise.
+- Non-régression : `test-plan-requests.mjs` 30/30,
+  `test-plan-request-variant-attestation.mjs` 39/39.
+- Navigateur : voir §10.6.
+
+### 10.6 Données de démonstration ajoutées
+
+Sur le « Chantier démo F2 v5 », une demande `db1bbf33…` créée depuis la
+version 1 du « Modèle démo F2 v5 (2026-10-06) », avec sa variante 1 (la
+copie), ni déposée ni validée.
+
+La page Plans affiche son origine. Les demandes antérieures, dont la copie
+`41b42a13…` du lot précédent, affichent « Origine non renseignée ».
+

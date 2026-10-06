@@ -85,12 +85,18 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 export function CopyToProjectForm({
   organizationId,
   catalogItemId,
+  versionId,
+  versionNumber,
   modelLabel,
   reference,
   destinations,
 }: {
   organizationId: string;
   catalogItemId: string;
+  // Version EXACTE affichée : c'est elle qui sera copiée et enregistrée
+  // comme origine (refus explicite si une autre a été publiée depuis).
+  versionId: string;
+  versionNumber: number | null;
   modelLabel: string;
   reference: ModelReference;
   destinations: { id: string; name: string }[];
@@ -103,9 +109,10 @@ export function CopyToProjectForm({
   const [busy, setBusy] = useState<"prefill" | "preview" | "create" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ key: string; report: CatalogueCopyReport; canCreate: boolean } | null>(null);
-  // Reprise sans doublon : même opération, même date de préparation et
-  // même demande tant que le chantier et les paramètres sont identiques.
-  const operationRef = useRef<{ key: string; uuid: string; savedAt: string; requestId: string | null } | null>(null);
+  // Reprise sans doublon : même opération et même date de préparation tant
+  // que le chantier et les paramètres sont identiques (la base retrouve la
+  // demande déjà créée par cette opération).
+  const operationRef = useRef<{ key: string; uuid: string; savedAt: string } | null>(null);
 
   const paramsJson = JSON.stringify(toParams(form));
   const key = `${projectId}|${paramsJson}`;
@@ -150,6 +157,7 @@ export function CopyToProjectForm({
     const fd = new FormData();
     fd.set("organization_id", organizationId);
     fd.set("catalog_item_id", catalogItemId);
+    fd.set("version_id", versionId);
     fd.set("project_id", projectId);
     fd.set("params", paramsJson);
     return fd;
@@ -176,19 +184,17 @@ export function CopyToProjectForm({
   async function handleCreate() {
     if (!previewIsCurrent || !preview?.canCreate) return;
     if (operationRef.current?.key !== key) {
-      operationRef.current = { key, uuid: crypto.randomUUID(), savedAt: new Date().toISOString(), requestId: null };
+      operationRef.current = { key, uuid: crypto.randomUUID(), savedAt: new Date().toISOString() };
     }
     const op = operationRef.current;
     const fd = baseFormData();
     fd.set("operation_uuid", op.uuid);
     fd.set("saved_at", op.savedAt);
-    if (op.requestId) fd.set("request_id", op.requestId);
     setBusy("create");
     setError(null);
     try {
       const result = await createCatalogueCopyAction(fd);
       if (!result.ok) {
-        if (result.requestId) op.requestId = result.requestId;
         setError(result.message);
         if (result.report) setPreview({ key, report: result.report, canCreate: false });
         return;
@@ -309,7 +315,7 @@ export function CopyToProjectForm({
           </Card>
 
           <Card className="flex flex-col gap-2">
-            <h2 className="text-h2 font-semibold text-ink">Référence : paramètres du modèle</h2>
+            <h2 className="text-h2 font-semibold text-ink">Référence : paramètres du modèle (v{versionNumber ?? "?"})</h2>
             <p className="text-caption text-muted">
               Lecture seule — ces valeurs décrivent le terrain pour lequel « {modelLabel} » a été conçu. Elles ne sont
               jamais reprises comme paramètres du chantier.

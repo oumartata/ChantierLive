@@ -28,6 +28,14 @@ interface PlanCandidate {
   is_retained: boolean;
 }
 
+interface PlanRequestOrigin {
+  request_id: string;
+  has_catalog_source: boolean;
+  source_details_visible: boolean;
+  catalog_item_label: string | null;
+  catalog_version_number: number | null;
+}
+
 interface CatalogItemRow {
   id: string;
   label: string;
@@ -185,6 +193,13 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
     p_project_id: id,
   });
   const planRequests: PlanRequestRow[] = Array.isArray(planRequestsData) ? planRequestsData : [];
+  // Origine des demandes (M035) : mêmes lecteurs que list_plan_requests ;
+  // libellé et version du modèle seulement pour qui lit déjà le catalogue.
+  // Jamais d'accès au modèle ni à son fichier par ce chemin.
+  const { data: originsData } = await supabase.rpc("list_plan_request_origins", { p_project_id: id });
+  const origins = new Map<string, PlanRequestOrigin>(
+    (Array.isArray(originsData) ? (originsData as PlanRequestOrigin[]) : []).map((o) => [o.request_id, o])
+  );
 
   // Accès au catalogue (D107) : propriétaire de l'organisation du chantier
   // uniquement. Affichage indicatif, attach_catalog_plan_to_project revérifie.
@@ -317,6 +332,16 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
                   <span>{new Date(r.created_at_server).toLocaleString("fr-FR")}</span>
                   <span className="text-muted">
                     {r.variant_count} variante{r.variant_count > 1 ? "s" : ""}
+                  </span>
+                  <span className="text-muted" data-testid="origine-demande">
+                    {(() => {
+                      const o = origins.get(r.id);
+                      if (!o || !o.has_catalog_source) return "Origine non renseignée";
+                      if (o.source_details_visible && o.catalog_item_label) {
+                        return `Origine : modèle « ${o.catalog_item_label} », version ${o.catalog_version_number ?? "?"} (catalogue)`;
+                      }
+                      return "Origine : un modèle du catalogue de l'entreprise";
+                    })()}
                   </span>
                   {r.status === "OPEN" ? (
                     <Link href={`/prototype-plans?retour=${project.id}&demande=${r.id}`} className="font-semibold text-primary">

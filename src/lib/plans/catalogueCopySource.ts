@@ -16,12 +16,22 @@ import { attestAndSaveVariant } from "./variantAttestation";
 //   ET son rattachement à l'organisation du modèle (double condition D107,
 //   identique à attach_catalog_plan_to_project) : posséder l'organisation
 //   ne donne accès à aucun de ses chantiers ;
-// - la demande et la variante 1 sont créées par create_plan_request et le
-//   circuit M034 (attestation service_role + save_plan_request_variant),
-//   qui revérifient eux-mêmes les droits sur le chantier.
-// Limite connue, sans migration : la demande créée ne conserve PAS la
-// version source du modèle (colonne source_catalog_item_version_id du Lot B,
-// non créée).
+// - la demande est créée par create_plan_request_from_catalog_item (M035),
+//   qui refait en base l'ensemble de ces contrôles et enregistre la VERSION
+//   EXACTE du modèle à l'origine de la demande ; la variante 1 (la copie)
+//   est enregistrée par le circuit M034 (attestation service_role +
+//   save_plan_request_variant), qui revérifie les droits sur le chantier.
+//
+// Écritures et reprise (une même opération = un même identifiant) :
+// - A. create_plan_request_from_catalog_item : UNE transaction (contrôles +
+//   insertion de la demande avec son origine), idempotente par opération ;
+// - B. attest_plan_request_variant_layout : UNE transaction, idempotente
+//   pour le même fichier ;
+// - C. save_plan_request_variant : UNE transaction (contrôles + consommation
+//   de l'attestation + insertion de la variante), idempotente par opération.
+// A, B et C sont des appels distincts, jamais une transaction commune :
+// rejouer la même opération (même date de préparation, donc même fichier)
+// reprend là où l'essai précédent s'est arrêté, sans doublon.
 
 export type CopyFailure = { ok: false; message: string };
 
@@ -47,19 +57,31 @@ interface CatalogItemListRow {
   archived_at: string | null;
 }
 
+// `versionId` : version EXACTE vue par l'utilisateur. Elle doit être la
+// version publiée — sauf reprise d'une opération dont la demande existe
+// déjà avec cette origine (`allowUnpublished`) : une publication survenue
+// entre-temps ne change ni l'origine ni la copie.
 export async function loadCatalogueCopySource(
   supabase: SupabaseClient,
   organizationId: string,
-  catalogItemId: string
+  catalogItemId: string,
+  options: { versionId?: string; allowUnpublished?: boolean } = {}
 ): Promise<{ ok: true; value: CopySource } | CopyFailure | { ok: false; flat: true; message: string; label: string }> {
   const { data: items, error } = await supabase.rpc("list_organization_catalog_items", { p_organization_id: organizationId });
   if (error) return { ok: false, message: "Ce catalogue n'est accessible qu'au propriétaire de l'organisation." };
   const item = ((items ?? []) as CatalogItemListRow[]).find((i) => i.id === catalogItemId);
   if (!item || item.archived_at) return { ok: false, message: "Modèle introuvable dans ce catalogue." };
-  if (!item.published_version_id) {
+  if (!item.published_version_id && !options.allowUnpublished) {
     return { ok: false, message: "Ce modèle n'a pas de version publiée : seule une version publiée peut être copiée vers un chantier." };
   }
-  const { data: rows, error: fileErr } = await supabase.rpc("get_catalog_item_version_file", { p_version_id: item.published_version_id });
+  const versionId = options.versionId ?? (item.published_version_id as string);
+  if (versionId !== item.published_version_id && !options.allowUnpublished) {
+    return {
+      ok: false,
+      message: "Une autre version de ce modèle a été publiée depuis l'ouverture de cette page. Rechargez la page pour vérifier la copie avec la version publiée actuelle.",
+    };
+  }
+  const { data: rows, error: fileErr } = await supabase.rpc("get_catalog_item_version_file", { p_version_id: versionId });
   const row = Array.isArray(rows) ? rows[0] : rows;
   if (fileErr || !row) return { ok: false, message: "Le fichier de la version publiée n'est pas disponible." };
   if (row.layout === null || row.layout === undefined) {
@@ -78,8 +100,8 @@ export async function loadCatalogueCopySource(
       organizationId,
       catalogItemId,
       label: item.label,
-      versionId: item.published_version_id,
-      versionNumber: item.published_version_number,
+      versionId,
+      versionNumber: versionId === item.published_version_id ? item.published_version_number : null,
       file: validated.value,
     },
   };
@@ -150,9 +172,12 @@ export type PreparedCopy = { ok: true; source: CopySource; destination: CopyDest
 export async function prepareCatalogueCopyFor(
   supabase: SupabaseClient,
   profileId: string,
-  args: { organizationId: string; catalogItemId: string; projectId: string; params: unknown; savedAt?: string }
+  args: { organizationId: string; catalogItemId: string; versionId: string; projectId: string; params: unknown; savedAt?: string; allowUnpublished?: boolean }
 ): Promise<PreparedCopy | CopyFailure> {
-  const source = await loadCatalogueCopySource(supabase, args.organizationId, args.catalogItemId);
+  const source = await loadCatalogueCopySource(supabase, args.organizationId, args.catalogItemId, {
+    versionId: args.versionId,
+    allowUnpublished: args.allowUnpublished,
+  });
   if (!source.ok) return { ok: false, message: source.message };
   const destination = await checkCatalogueCopyDestination(supabase, profileId, args.organizationId, args.projectId);
   if (!destination.ok) return destination;
@@ -162,61 +187,47 @@ export async function prepareCatalogueCopyFor(
   return { ok: true, source: source.value, destination: destination.value, params: params.value, report, copy };
 }
 
-// Crée la demande (paramètres du CHANTIER, jamais ceux du modèle) puis la
-// variante 1 = la copie. Reprise : `requestId` d'un essai précédent est
-// réutilisé seulement s'il désigne une demande OUVERTE de ce chantier aux
-// mêmes paramètres ; même opération et même savedAt ⇒ même fichier ⇒ aucune
-// variante en double (M034).
+// Crée la demande (paramètres du CHANTIER, origine = version exacte) puis
+// la variante 1 = la copie. Voir en tête de fichier pour les écritures A/B/C
+// et la reprise par opération.
 export async function createCatalogueCopy(
   supabase: SupabaseClient,
   service: SupabaseClient,
   profileId: string,
-  args: { organizationId: string; catalogItemId: string; projectId: string; params: unknown; savedAt: string; operationUuid: string; requestId: string | null }
-): Promise<{ ok: true; requestId: string; variantId: string; report: CatalogueCopyReport } | (CopyFailure & { requestId?: string; report?: CatalogueCopyReport; code?: string })> {
-  const prepared = await prepareCatalogueCopyFor(supabase, profileId, args);
+  args: { organizationId: string; catalogItemId: string; versionId: string; projectId: string; params: unknown; savedAt: string; operationUuid: string }
+): Promise<{ ok: true; requestId: string; variantId: string; report: CatalogueCopyReport } | (CopyFailure & { report?: CatalogueCopyReport; code?: string })> {
+  // Reprise : demande déjà créée par CETTE opération, pour CE profil et
+  // CETTE version (lecture serveur ; la base revérifie tout en A).
+  const { data: prior } = await service
+    .from("project_plan_requests")
+    .select("id, created_by_profile_id, source_catalog_item_version_id")
+    .eq("catalog_copy_operation_uuid", args.operationUuid)
+    .maybeSingle();
+  const resuming = !!prior && prior.created_by_profile_id === profileId && prior.source_catalog_item_version_id === args.versionId;
+
+  const prepared = await prepareCatalogueCopyFor(supabase, profileId, { ...args, allowUnpublished: resuming });
   if (!prepared.ok) return prepared;
   if (!prepared.copy) {
     return { ok: false, message: "La copie n'est pas créée : des incompatibilités doivent d'abord être levées.", report: prepared.report };
   }
 
-  // Réponse perdue après un premier essai : l'opération a peut-être déjà été
-  // attestée pour une demande de CE profil — la reprendre plutôt que d'en
-  // créer une seconde (lecture serveur, service_role, jamais exposée).
-  let requestId = args.requestId;
-  const { data: priorAttestation } = await service
-    .from("project_plan_request_variant_attestations")
-    .select("request_id, profile_id")
-    .eq("operation_uuid", args.operationUuid)
-    .maybeSingle();
-  if (priorAttestation) {
-    if (priorAttestation.profile_id !== profileId) return { ok: false, message: "Opération invalide. Rechargez la page puis réessayez." };
-    requestId = priorAttestation.request_id as string;
-  }
-  if (requestId) {
-    const { data: requests } = await supabase.rpc("list_plan_requests", { p_project_id: args.projectId });
-    const existing = (Array.isArray(requests) ? requests : []).find((r) => r.id === requestId);
-    const sameParams = existing && JSON.stringify(canon(existing.generation_params)) === JSON.stringify(canon(prepared.params));
-    if (!existing || existing.status !== "OPEN" || !sameParams) requestId = null;
-  }
-  if (!requestId) {
-    const { data: created, error } = await supabase.rpc("create_plan_request", { p_project_id: args.projectId, p_generation_params: prepared.params });
-    if (error || !created) return { ok: false, message: "La demande de plan n'a pas pu être créée.", code: error?.message };
-    requestId = created.id as string;
-  }
+  // A — demande avec origine (idempotente par opération).
+  const { data: request, error } = await supabase.rpc("create_plan_request_from_catalog_item", {
+    p_project_id: args.projectId,
+    p_catalog_item_version_id: args.versionId,
+    p_generation_params: prepared.params,
+    p_operation_uuid: args.operationUuid,
+  });
+  if (error || !request) return { ok: false, message: "La demande de plan n'a pas pu être créée.", code: error?.message };
 
+  // B + C — variante 1 = la copie (M034).
   const saved = await attestAndSaveVariant(supabase, service, {
     profileId,
-    requestId,
+    requestId: request.id as string,
     parentVariantId: null,
     operationUuid: args.operationUuid,
     file: prepared.copy,
   });
-  if (!saved.ok) return { ok: false, message: "La copie n'a pas pu être enregistrée.", code: saved.code, requestId };
-  return { ok: true, requestId, variantId: saved.value.id, report: prepared.report };
-}
-
-function canon(v: unknown): unknown {
-  if (Array.isArray(v)) return v.map(canon);
-  if (v && typeof v === "object") return Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]));
-  return v;
+  if (!saved.ok) return { ok: false, message: "La copie n'a pas pu être enregistrée.", code: saved.code };
+  return { ok: true, requestId: request.id as string, variantId: saved.value.id, report: prepared.report };
 }

@@ -52,12 +52,15 @@ export default async function CopyCatalogItemPage({ params }: { params: Promise<
         </p>
         <p className="text-caption text-muted">
           Elle n&apos;est ni déposée, ni retenue, ni validée : elle s&apos;ouvre dans l&apos;éditeur pour être adaptée, puis suit le
-          circuit habituel du chantier (dépôt, validation technique, publication).
+          circuit habituel du chantier (dépôt, validation technique, publication). La demande créée conserve, comme
+          origine, cette version précise du modèle.
         </p>
       </Card>
       <CopyToProjectForm
         organizationId={organizationId}
         catalogItemId={itemId}
+        versionId={source.value.versionId}
+        versionNumber={source.value.versionNumber}
         modelLabel={source.value.label}
         reference={reference}
         destinations={destinations}
