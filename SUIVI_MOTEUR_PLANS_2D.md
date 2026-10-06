@@ -1295,6 +1295,69 @@ sur les cas examinés.
   2 720 retraits essayés). C'est une **limite de couverture** : aucun
   test artificiel n'a été ajouté.
 
+### Obstruction des fenêtres — divergence entre contrôles (diagnostic, 2026-10-06, aucun code applicatif modifié)
+
+Point de départ : HEAD `7627f95`.
+
+**Script reproductible** : `scripts/test-plans-window-obstruction.mjs`
+(`npm run test:plans:obstruction`, branché dans `npm test`), avec la
+fixture `scripts/fixtures/plans-window-obstruction-exterior-path.json`.
+
+**Méthode** : pour une fenêtre donnée, le script compare trois contrôles
+existants, en partant de plans admissibles :
+- le **vérificateur indépendant** : mur qui touche le contour englobant, OU
+  exposition prouvée de la baie ;
+- la **sonde d'obstruction** de l'outil Fenêtre et de la génération
+  (`doorOutsideProbe`, 0,32 m) ;
+- la **preuve d'exposition** (`classifyWallExposure`, profondeur 0,80 m).
+
+Le verdict complet de l'outil (`placeWindow`) est aussi relevé. Les autres
+anomalies nouvelles éventuelles sont listées, pour qu'aucune ne masque le
+résultat : il n'y en a aucune dans tous les cas.
+
+| Cas | Vérificateur | Sonde 0,32 m | Exposition | Outil |
+|---|---|---|---|---|
+| Pièce mitoyenne (Chambre 1, mur droit, Chambre 2 à 0,10 m) | refuse | obstruée | séparation | refuse |
+| Circulation intérieure (Chambre 1, mur bas, corridor à 0,10 m) | refuse | obstruée | séparation | refuse |
+| Pièce déplacée devant un mur extérieur (Sanitaire 2 à 0,10 m sous le salon) | refuse | obstruée | séparation | refuse |
+| Témoin, même pièce à 1,00 m | refuse | libre | obstruée (< 0,80 m) | refuse |
+| Témoin, même pièce à 2,00 m | accepte | libre | extérieur | accepte |
+| Cheminement extérieur **dans** le contour (fixture figée, Chambre 1 mur gauche, à 0,10 m) | **accepte** (exposition prouvée) | **obstruée** | extérieur | **refuse** |
+| Cheminement extérieur **hors** du contour (posé contre le mur bas du salon) | **accepte** (mur sur le contour) | **obstruée** | extérieur | **refuse** |
+
+**Conclusion** :
+- **Pas de défaut du vérificateur vis-à-vis du bâti.** Le contour englobant
+  inclut pièces et circulations intérieures (`recomputeDerivedGeometry`),
+  et la grille d'exposition les peint comme du bâti. Un élément bâti devant
+  la fenêtre rend donc son mur non extérieur, et les contrôles concordent.
+  C'est de la **géométrie**.
+- **La divergence porte uniquement sur le cheminement extérieur**, exclu du
+  contour englobant et de la grille d'exposition.
+  - Géométriquement, c'est de l'air libre : le vérificateur et la preuve
+    d'exposition acceptent.
+  - La sonde de l'outil et de la génération (`chooseExteriorWindow`) le
+    compte parmi les obstacles : c'est une **convention de dégagement**
+    devant un passage extérieur, et non une obstruction par du bâti.
+- **Impact mesuré côté outil** : 10 positions refusées pour ce seul motif,
+  sur 52 920 testées (630 variantes générées, dont 31 avec un cheminement
+  extérieur).
+- **Impact côté génération : non mesuré.** Il faudrait modifier le moteur,
+  ce qui suppose une décision préalable. La génération ne pose jamais de
+  fenêtre devant un cheminement extérieur.
+
+**Correctif** : aucun n'est nécessaire au sens d'un défaut. **Décision
+attendue** sur la convention :
+1. **la conserver** (recommandé à ce stade) : refuser une fenêtre
+   directement sur un passage extérieur, en la nommant comme règle de
+   conception (hypothèse, pas une norme) dans un seul endroit partagé ;
+2. **l'abandonner** : retirer les cheminements extérieurs des obstacles
+   de la sonde (`chooseExteriorWindow` et `placeWindow`). Les
+   acceptations augmenteraient, et l'impact sur la génération serait à
+   mesurer avant ;
+3. **la rendre obligatoire partout** : ajouter la sonde au vérificateur.
+   Ce n'est **pas recommandé sans décision** : des projets aujourd'hui
+   admissibles, édités ou importés, pourraient devenir invalides.
+
 ---
 
 ## 3. Journal des lots
