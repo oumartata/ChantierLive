@@ -156,7 +156,7 @@ try {
       `\nCONSTAT 3 — recherche actuelle avec les dimensions adaptées de l'exemple : ${adaptedNew.length} disposition(s) réellement nouvelle(s) sur ${adapted.variants.length} résultat(s). ${adapted.diagnostics ? g.describeRegenerationDiagnostics(adapted.diagnostics) : ""}`
     );
     console.log(
-      "  Lecture : l'exemple existe (preuve 2) mais la recherche ne le construit pas — dans le cas « rangée arrière verrouillée », les pièces rejoignent la rangée verrouillée par TYPE entier (les trois chambres ensemble ou aucune). Limite de recherche, jamais une impossibilité."
+      "  Lecture : l'exemple existe (preuve 2) mais la régénération ORDINAIRE ne le construit pas — causes confirmées par trace (2026-10-06) : jonction par TYPE entier et profondeur limitée à celle de la rangée verrouillée. Limite de recherche, jamais une impossibilité. Le mode adapté (regenerateWithAllowances, scripts/test-plans-f2-adapted.mjs) lève ces deux limites et retrouve automatiquement une disposition voisine."
     );
 
     const total = results.length;

@@ -1566,6 +1566,128 @@ rangée verrouillée.
   admissible pour le moteur ;
 - **F2 reste en « préparation »** : aucune fonction utilisable.
 
+### F2 — premier lot moteur : régénération avec adaptation volontaire des dimensions (2026-10-06, interface absente)
+
+Point de départ : HEAD `d875874`.
+
+**Décisions appliquées** :
+- la référence est la dimension de chaque pièce **au moment de
+  l'autorisation**, fournie et conservée par l'appelant ;
+- réductions seulement ;
+- **aucune réduction par défaut** : une borne confirmée est exigée pour
+  chaque dimension adaptable, sans jamais descendre sous les minima du
+  moteur ;
+- les pièces verrouillées ne sont jamais adaptables ni modifiées ;
+- aucun champ persistant, aucun changement de format.
+
+**A. Causes confirmées par trace** (copie instrumentée hors dépôt, fixture
+F2 nourrie des dimensions autorisées). Branche « rangée arrière
+verrouillée » : rangée de 3,00 m de profondeur (la cuisine), couloir placé
+à y = 8,30.
+- **Regroupement par type entier** : les chambres ne rejoignent la rangée
+  verrouillée qu'à trois. Aucune combinaison ne tente Chambre 3 seule.
+- **Limite de profondeur** : 5 combinaisons sur 7, celles qui contiennent
+  une chambre (3,50 m) ou le salon (4,50 m), sont refusées pour « pièce
+  plus profonde que la rangée verrouillée ». Les 2 autres échouent sur
+  « rangée fraîche trop large ».
+- **Conséquence** : la jonction pièce par pièce **seule ne suffit pas**,
+  puisque Chambre 3 seule est encore trop profonde. Les deux extensions
+  sont nécessaires.
+
+**B. Extension, mode adapté uniquement** (`geometry.ts`).
+- **Mode interne** `RegenerationMode`, absent pour la régénération
+  ordinaire : `regenerateUnlocked` appelle désormais
+  `regenerateWithMode(layout, undefined)`, avec un comportement
+  strictement identique. Avec le mode, dans les cas « rangée avant
+  verrouillée » et « rangée arrière verrouillée » du couloir partagé :
+  - jonction **par sous-ensemble de pièces** (un sous-ensemble par
+    multi-ensemble type et dimensions, pièces identiques
+    interchangeables) ;
+  - rangée de jonction **plus profonde que le verrou** : le couloir se
+    déplace d'autant et chaque pièce verrouillée le rejoint par un
+    raccord.
+- **Primitives et contrôles inchangés** : `rowSegments`, `exploreTwoSided`
+  (nouveau paramètre facultatif `extraFillers`), `tryShared`,
+  `finalizeCandidate`, `admitIfValid`, `independentVerify`. Aucun
+  placement propre à la fixture.
+- **API expérimentale** `regenerateWithAllowances(layout, { allowances,
+  maxDimensionSets?, budgetMillis? })` :
+  - **autorisations validées et refusées avec leur motif** : liste vide,
+    pièce inconnue, verrouillée ou mise de côté, doublon, référence
+    invalide ou périmée (pièce plus grande que sa référence), aucune
+    borne, borne supérieure à la référence, borne sous le minimum du
+    moteur, nombre de jeux ou budget invalides ;
+  - **jeux de dimensions** : chaque dimension autorisée est prise à sa
+    référence ou à sa borne, du plus réduit au moins réduit ;
+    **au plus 8 jeux** ; un plafond atteint est signalé ;
+  - **budget global** (6 000 ms par défaut), vérifié avant chaque jeu ;
+    un jeu commencé va à son terme, et le dépassement est mesuré ;
+  - **statistiques** : jeux possibles, prévus et essayés, budget, durée,
+    sous-ensembles adaptés examinés, candidats vus, réductions sur place
+    écartées, hors bornes, verrou modifié, doublons, détail par jeu ;
+  - **chaque proposition expose** :
+    - pour chaque pièce : référence, bornes, dimensions actuelles et
+      proposées, respect des bornes, déplacement, ouvertures modifiées ;
+    - circulation intérieure, cheminement extérieur et total, avant et
+      après ;
+    - contour englobant avant et après.
+  - **Disposition nouvelle** : une réduction sur place n'en est pas une.
+    Il faut qu'au moins une pièce non verrouillée s'éloigne de plus de
+    1 m de toute pièce de même type.
+
+**Résultat sur la fixture F2** (bornes de la fixture : Chambres 1 et 2
+en largeur ≥ 3,00 m, Sanitaires 1 et 2 en largeur ≥ 1,50 m, décision
+réservée à ce test) : **2 dispositions nouvelles admissibles**, retrouvées
+automatiquement.
+- **Jeux** : 8 essayés sur 15 possibles ; les deux propositions viennent
+  du premier jeu (les quatre largeurs à leur borne). Budget non atteint.
+- **Durée médiane de l'appel adapté** : 874 ms (717–1 231). La
+  régénération ordinaire de la même fixture prend 52 ms.
+- **Disposition** : Chambre 3 dans la rangée arrière, à droite de la
+  cuisine ; les sanitaires en façade avant, à droite (« Adaptée 2 ») ou à
+  gauche (« Adaptée 1 », rangée avant en miroir).
+- **Contrôles** : 0 anomalie, Cuisine 1 strictement identique, programme
+  inchangé, aucune profondeur réduite.
+- **Surfaces** : circulation intérieure 29,74 → 25,16 m², cheminement
+  extérieur 0 → 4,56 m², **total 29,74 → 29,72 m²**. Le cheminement
+  extérieur vient du recours d'entrée existant du cas « rangée arrière
+  verrouillée », comme pour Salon 1.
+- **Contour englobant** : 107,80 → 107,80 m². Les propositions trouvées
+  ne débordent pas, contrairement à l'exemple construit à la main
+  (125,4 m²). **Elles ne sont pas pour autant présentées comme plus
+  compactes.**
+
+**Garanties vérifiées** :
+- **Tests** : `scripts/test-plans-f2-adapted.mjs` (branché dans
+  `npm test`), 27/27 — tous des tests nouveaux.
+- **Régénération ordinaire inchangée** :
+  - sur la fixture : seule la disposition actuelle ;
+  - instantané de référence : régénération (70 cas) et redimensionnement
+    (168 cas) 0 différence ; génération (80 cas) 0 différence
+    structurelle (5 compteurs d'échecs ±1, bruit du budget) ;
+  - batterie de 11 cas identique, à un compteur d'échecs près (bruit).
+- **Cas B3 conservés** : suite géométrie 1059/1059.
+- **Aucun rétrécissement cumulatif** : une deuxième régénération adaptée,
+  lancée depuis un résultat adapté avec la même référence, ne descend
+  jamais sous la borne.
+- **Durées de la régénération ordinaire** (côte à côte avec `d875874`,
+  7 essais) : Chambre 2 449–609 contre 453–487 ms ; Salon 1 69–71 contre
+  70–74 ms. Pas de régression ; la machine est plus lente qu'aux mesures
+  précédentes.
+- `npm run verify` : vert.
+
+**Limites** :
+- **Recherche non exhaustive** : chaque dimension ne prend que sa
+  référence ou sa borne, sans valeur intermédiaire ; au plus 8 jeux sur
+  les 15 possibles de la fixture ; le budget peut être dépassé de la
+  durée d'un jeu.
+- **Portée de l'extension** : seulement les deux cas du couloir partagé.
+  Les stratégies d'empaquetage libre et de retour arrière ne sont pas
+  étendues.
+- **Un seul cas probant** : la fixture F2.
+- **Interface absente** ; aucune sauvegarde des autorisations. F2 reste
+  **« moteur expérimental, interface absente »**.
+
 ---
 
 ## 3. Journal des lots

@@ -4018,7 +4018,22 @@ function roomsKeyOf(l: Layout): string {
 // commentaire "recherche BORNÉE et NON EXHAUSTIVE") — d'où la fusion
 // plutôt qu'un remplacement.
 export function regenerateUnlocked(layout: Layout): RegenerationResult {
-  const nativeResult = regenerateUnlockedCore(layout);
+  return regenerateWithMode(layout, undefined);
+}
+
+// Mode interne de la régénération. ABSENT pour la régénération ordinaire
+// (comportement strictement inchangé) ; seul regenerateWithAllowances (F2,
+// adaptation VOLONTAIRE des dimensions) l'active. Voir son usage dans la
+// stratégie « corridor partagé ».
+interface RegenerationMode {
+  // Jonction PAR SOUS-ENSEMBLE DE PIÈCES (et non plus par type entier) et
+  // rangée de jonction plus profonde que la rangée verrouillée.
+  adaptedJoin: boolean;
+  stats: { subsets: number; refusedFreshTooDeep: number; refusedNoFreshRoom: number };
+}
+
+function regenerateWithMode(layout: Layout, mode: RegenerationMode | undefined): RegenerationResult {
+  const nativeResult = regenerateUnlockedCore(layout, mode);
   if (layout.accessSide !== "left" && layout.accessSide !== "right") {
     return nativeResult;
   }
@@ -4026,7 +4041,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
   const toVirtual = { terrainWidth: layout.terrain.d, terrainDepth: layout.terrain.w, accessSide: virtualAccessSide };
   const toPhysical = { terrainWidth: layout.terrain.w, terrainDepth: layout.terrain.d, accessSide: layout.accessSide };
   const virtualLayout = transposeDoubleLoadedResult(layout, toVirtual);
-  const virtualResult = regenerateUnlockedCore(virtualLayout);
+  const virtualResult = regenerateUnlockedCore(virtualLayout, mode);
 
   const seen = new Set(nativeResult.variants.map(roomsKeyOf));
   const variants = [...nativeResult.variants];
@@ -4091,7 +4106,7 @@ export function regenerateUnlocked(layout: Layout): RegenerationResult {
 // fonction inchangée. La stratégie dédiée corridor partagé ci-dessous (gardée
 // par `entryWallForRegen`) s'applique donc EXACTEMENT de la même façon pour
 // gauche/droite que pour avant/arrière, sans duplication de sa géométrie.
-function regenerateUnlockedCore(layout: Layout): RegenerationResult {
+function regenerateUnlockedCore(layout: Layout, mode?: RegenerationMode): RegenerationResult {
   const failureReasons: string[] = [];
   if (!layout.emprise || !layout.footprint) {
     return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."], searchStats: [] };
@@ -4862,6 +4877,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
       placeJoin: (n: FreeSpaceNeed, x: number) => { p: FreeSpacePlacement; filler: Rect | null };
       placeFresh: (ordered: FreeSpaceNeed[]) => { placements: FreeSpacePlacement[]; fillers: Rect[] } | null;
       corridorRect: Rect;
+      extraFillers?: Rect[];
     }): void {
       const assignments = opts.joinNeeds.length > 0 ? joinAssignments(opts.joinNeeds, opts.segs) : [opts.segs.map(() => [] as FreeSpaceNeed[])];
       const freshOrders = [opts.freshNeeds];
@@ -4937,7 +4953,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
               continue;
             }
             sharedSeenTyped.add(key);
-            tryShared(`${opts.label}, jonction des deux côtés${asReceived ? "" : ", jonction réordonnée"}${o === 1 ? ", rangée fraîche en miroir" : ""}`, all, opts.corridorRect, [...joinFillers, ...fresh.fillers]);
+            tryShared(`${opts.label}, jonction des deux côtés${asReceived ? "" : ", jonction réordonnée"}${o === 1 ? ", rangée fraîche en miroir" : ""}`, all, opts.corridorRect, [...joinFillers, ...fresh.fillers, ...(opts.extraFillers ?? [])]);
           }
         }
       }
@@ -4961,6 +4977,24 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
     }
     const typeKeys = [...typeGroups.keys()];
     const k = typeKeys.length;
+
+    // Mode adapté (F2) : sous-ensembles de PIÈCES qui rejoignent la rangée
+    // verrouillée — un sous-ensemble par multi-ensemble (type et dimensions)
+    // de pièces, les pièces identiques étant interchangeables (jamais un
+    // simple échange d'identifiants). La rangée fraîche n'est jamais vide.
+    function adaptedPieceSubsets(): FreeSpaceNeed[][] {
+      const out: FreeSpaceNeed[][] = [];
+      const seenSig = new Set<string>();
+      const n = needs.length;
+      for (let mask = 1; mask < (1 << n) - 1; mask++) {
+        const subset = needs.filter((_, i) => mask & (1 << i));
+        const sig = subset.map((p) => `${p.type}:${p.width.toFixed(3)}x${p.depth.toFixed(3)}`).sort().join(",");
+        if (seenSig.has(sig)) continue;
+        seenSig.add(sig);
+        out.push(subset);
+      }
+      return out;
+    }
 
     // Cas A : la rangée verrouillée est la rangée AVANT (mur "top"). Si
     // l'entrée est aussi sur "top" (accès avant), l'entrée touche déjà
@@ -5083,6 +5117,60 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
               return { placements, fillers };
             },
             corridorRect: { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+          });
+        }
+      }
+      // Mode adapté (F2) seulement : jonction par sous-ensemble de pièces, et
+      // rangée de jonction éventuellement PLUS PROFONDE que la rangée
+      // verrouillée — le couloir partagé descend alors d'autant, et chaque
+      // pièce verrouillée le rejoint par un raccord (même règle que les
+      // raccords des pièces de jonction). Mêmes primitives et mêmes contrôles
+      // (exploreTwoSided → tryShared → finalizeCandidate → admitIfValid).
+      if (mode?.adaptedJoin && !(foyerOnBackRow && backRowWidth <= 0)) {
+        const segsAdapted = rowSegments(lockedRooms, "top");
+        for (const joinNeeds of adaptedPieceSubsets()) {
+          mode.stats.subsets += 1;
+          const backNeeds = needs.filter((n) => !joinNeeds.includes(n));
+          if (backNeeds.length === 0) { mode.stats.refusedNoFreshRoom += 1; continue; }
+          const rowDepth = Math.max(depthFrontFixed, ...joinNeeds.map((n) => n.depth));
+          const cY = frontY + rowDepth + WALL_INT;
+          const bY = cY + CORRIDOR_WIDTH + WALL_INT;
+          const backDepth = empriseBottom - bY - WALL_EXT;
+          if (Math.max(...backNeeds.map((n) => n.depth)) > backDepth + 1e-6) { mode.stats.refusedFreshTooDeep += 1; continue; }
+          const lockedFillers: Rect[] = lockedRooms.flatMap((lr) => {
+            const gap = cY - (lr.y + lr.d);
+            return gap > 1e-6 ? [{ x: lr.x, y: lr.y + lr.d, w: lr.w, d: gap }] : [];
+          });
+          exploreTwoSided({
+            label: `corridor partagé entre deux rangées (rangée avant verrouillée réutilisée)${foyerOnBackRow ? ", accès arrière" : ""}, mode adapté${rowDepth > depthFrontFixed + 1e-6 ? ", rangée de jonction plus profonde que le verrou" : ""}`,
+            segs: segsAdapted,
+            legacyJoinStart: Number.NaN,
+            joinNeeds,
+            freshNeeds: backNeeds,
+            placeJoin: (n, x) => {
+              const depthGap = cY - (frontY + n.depth);
+              return {
+                p: { need: n, x, y: frontY, w: n.width, d: n.depth, exteriorWall: "top", doorWall: "bottom" },
+                filler: depthGap > 1e-6 ? { x, y: frontY + n.depth, w: n.width, d: depthGap } : null,
+              };
+            },
+            placeFresh: (ordered) => {
+              const depth = Math.max(...ordered.map((n) => n.depth));
+              if (depth > backDepth + 1e-6 || !fitExact(ordered.map((n) => n.width), backRowWidth)) return null;
+              const placements: FreeSpacePlacement[] = [];
+              const fillers: Rect[] = [];
+              let cursorX = backRowStartX;
+              for (const n of ordered) {
+                const y = bY + (depth - n.depth);
+                const gap = y - (cY + CORRIDOR_WIDTH);
+                if (gap > 1e-6) fillers.push({ x: cursorX, y: cY + CORRIDOR_WIDTH, w: n.width, d: gap });
+                placements.push({ need: n, x: cursorX, y, w: n.width, d: n.depth, exteriorWall: "bottom", doorWall: "top" });
+                cursorX += n.width + WALL_INT;
+              }
+              return { placements, fillers };
+            },
+            corridorRect: { x: emprise.x + WALL_EXT, y: cY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+            extraFillers: lockedFillers,
           });
         }
       }
@@ -5218,6 +5306,57 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
               return { placements, fillers };
             },
             corridorRect: { x: emprise.x + WALL_EXT, y: corridorY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+          });
+        }
+      }
+      // Mode adapté (F2) seulement : même extension que pour le Cas A, en
+      // miroir (le couloir partagé remonte quand la rangée de jonction est
+      // plus profonde que la rangée verrouillée).
+      if (mode?.adaptedJoin && usableFrontWidth > 0) {
+        const segsAdapted = rowSegments(lockedRooms, "bottom");
+        for (const joinNeeds of adaptedPieceSubsets()) {
+          mode.stats.subsets += 1;
+          const frontNeeds = needs.filter((n) => !joinNeeds.includes(n));
+          if (frontNeeds.length === 0) { mode.stats.refusedNoFreshRoom += 1; continue; }
+          const rowDepth = Math.max(depthBackFixed, ...joinNeeds.map((n) => n.depth));
+          const cBottom = empriseBottomEdge - rowDepth - WALL_INT;
+          const cY = cBottom - CORRIDOR_WIDTH;
+          const frontDepth = cY - WALL_INT - frontY;
+          if (Math.max(...frontNeeds.map((n) => n.depth)) > frontDepth + 1e-6) { mode.stats.refusedFreshTooDeep += 1; continue; }
+          const lockedFillers: Rect[] = lockedRooms.flatMap((lr) => {
+            const gap = lr.y - (cY + CORRIDOR_WIDTH);
+            return gap > 1e-6 ? [{ x: lr.x, y: cY + CORRIDOR_WIDTH, w: lr.w, d: gap }] : [];
+          });
+          exploreTwoSided({
+            label: `corridor partagé entre deux rangées (rangée arrière verrouillée réutilisée)${foyerOnFrontRow ? "" : ", accès arrière"}, mode adapté${rowDepth > depthBackFixed + 1e-6 ? ", rangée de jonction plus profonde que le verrou" : ""}`,
+            segs: segsAdapted,
+            legacyJoinStart: Number.NaN,
+            joinNeeds,
+            freshNeeds: frontNeeds,
+            placeJoin: (n, x) => {
+              const y = empriseBottomEdge - n.depth;
+              const depthGap = y - (cY + CORRIDOR_WIDTH);
+              return {
+                p: { need: n, x, y, w: n.width, d: n.depth, exteriorWall: "bottom", doorWall: "top" },
+                filler: depthGap > 1e-6 ? { x, y: cY + CORRIDOR_WIDTH, w: n.width, d: depthGap } : null,
+              };
+            },
+            placeFresh: (ordered) => {
+              const depth = Math.max(...ordered.map((n) => n.depth));
+              if (depth > frontDepth + 1e-6 || !fitExact(ordered.map((n) => n.width), usableFrontWidth)) return null;
+              const placements: FreeSpacePlacement[] = [];
+              const fillers: Rect[] = [];
+              let cursorX = frontRowStartX;
+              for (const n of ordered) {
+                const gap = cY - (frontY + n.depth);
+                if (gap > 1e-6) fillers.push({ x: cursorX, y: frontY + n.depth, w: n.width, d: gap });
+                placements.push({ need: n, x: cursorX, y: frontY, w: n.width, d: n.depth, exteriorWall: "top", doorWall: "bottom" });
+                cursorX += n.width + WALL_INT;
+              }
+              return { placements, fillers };
+            },
+            corridorRect: { x: emprise.x + WALL_EXT, y: cY, w: usableRowWidth, d: CORRIDOR_WIDTH },
+            extraFillers: lockedFillers,
           });
         }
       }
@@ -5582,6 +5721,233 @@ export function removeWindow(layout: Layout, roomIndex: number): WindowEditResul
   const added = newIssues(layout, next);
   if (added.length > 0) return { ok: false, reason: `Retrait refusé : il créerait ${added.length} anomalie(s) — ${added.join(" ")}` };
   return { ok: true, layout: next };
+}
+
+// ---- F2 (moteur expérimental, 2026-10-06) : régénération avec adaptation
+// VOLONTAIRE des dimensions. Aucune interface ; aucun champ persistant.
+// Contrat d'options explicite :
+// - AUCUNE réduction par défaut : seule une pièce listée dans `allowances`,
+//   et seulement pour la dimension dont la borne est fournie, peut être
+//   réduite. Toute autre dimension garde sa valeur actuelle.
+// - Référence = dimensions de la pièce AU MOMENT DE L'AUTORISATION
+//   (`referenceW/D`), fournies par l'appelant et conservées par lui : les
+//   bornes ne sont jamais recalculées depuis un résultat précédent (aucun
+//   rétrécissement cumulatif).
+// - Réductions seulement : borne ≤ référence. Une borne doit aussi respecter
+//   le minimum du moteur (`PlacedRoom.minW/minD`) — plancher technique, ni
+//   un accord de l'utilisateur ni une norme.
+// - Autorisation invalide : REFUSÉE avec son motif, jamais corrigée.
+// - Pièce verrouillée : jamais adaptable, jamais modifiée.
+// Recherche BORNÉE, jamais exhaustive : au plus ADAPTED_MAX_DIMENSION_SETS
+// jeux de dimensions (chaque dimension autorisée prise à sa référence ou à
+// sa borne, du plus réduit au moins réduit), budget global vérifié avant
+// chaque jeu (un jeu commencé va à son terme : le dépassement est mesuré et
+// rapporté). Chaque jeu réutilise la régénération existante, avec le mode
+// adapté (jonction par pièce, rangée de jonction plus profonde que le
+// verrou) ; mêmes contrôles géométriques.
+export const ADAPTED_MAX_DIMENSION_SETS = 8;
+export const ADAPTED_DEFAULT_BUDGET_MILLIS = 6000;
+
+export interface DimensionAllowance {
+  roomIndex: number;
+  referenceW: number;
+  referenceD: number;
+  // Bornes CONFIRMÉES (m). Absente = dimension non adaptable.
+  minW?: number;
+  minD?: number;
+}
+export interface AdaptedRegenerationOptions {
+  allowances: DimensionAllowance[];
+  maxDimensionSets?: number;
+  budgetMillis?: number;
+}
+export interface AdaptedRoomReport {
+  roomIndex: number;
+  name: string;
+  locked: boolean;
+  reference: { w: number; d: number } | null;
+  bounds: { minW: number | null; minD: number | null } | null;
+  current: { w: number; d: number };
+  proposed: { w: number; d: number };
+  withinBounds: boolean;
+  moved: boolean;
+  openingsChanged: boolean;
+}
+export interface AdaptedProposal {
+  layout: Layout;
+  dimensionSet: number;
+  rooms: AdaptedRoomReport[];
+  surfaces: { before: { circulation: number; cheminementExterieur: number; total: number }; after: { circulation: number; cheminementExterieur: number; total: number } };
+  footprint: { before: { w: number; d: number; area: number } | null; after: { w: number; d: number; area: number } | null };
+}
+export interface AdaptedRegenerationStats {
+  dimensionSetsPossible: number;
+  dimensionSetsPlanned: number;
+  dimensionSetsTried: number;
+  setsCapped: boolean;
+  budgetMillis: number;
+  elapsedMillis: number;
+  budgetReached: boolean;
+  adaptedSubsetsExamined: number;
+  candidatesSeen: number;
+  sameArrangementSkipped: number;
+  outOfBoundsRejected: number;
+  lockedChangedRejected: number;
+  duplicatesSkipped: number;
+  perSet: { set: number; reduced: string[]; millis: number; results: number; newArrangements: number }[];
+}
+export type AdaptedRegenerationResult =
+  | { ok: true; proposals: AdaptedProposal[]; stats: AdaptedRegenerationStats }
+  | { ok: false; reason: string };
+
+function validateAllowances(layout: Layout, options: AdaptedRegenerationOptions): string | null {
+  if (!options || !Array.isArray(options.allowances) || options.allowances.length === 0) return "Aucune autorisation fournie : la régénération adaptée exige au moins une pièce autorisée.";
+  if (options.maxDimensionSets !== undefined && (!Number.isInteger(options.maxDimensionSets) || options.maxDimensionSets < 1 || options.maxDimensionSets > ADAPTED_MAX_DIMENSION_SETS)) {
+    return `Nombre de jeux de dimensions invalide (entier de 1 à ${ADAPTED_MAX_DIMENSION_SETS}).`;
+  }
+  if (options.budgetMillis !== undefined && (!Number.isFinite(options.budgetMillis) || options.budgetMillis <= 0)) return "Budget de recherche invalide (durée positive en millisecondes).";
+  const seen = new Set<number>();
+  for (const a of options.allowances) {
+    const room = Number.isInteger(a?.roomIndex) ? layout.rooms[a.roomIndex] : undefined;
+    if (!room) return `Autorisation invalide : pièce n° ${a?.roomIndex} introuvable.`;
+    const name = `« ${room.label} ${room.number} »`;
+    if (seen.has(a.roomIndex)) return `Autorisation invalide : ${name} est autorisée deux fois.`;
+    seen.add(a.roomIndex);
+    if (room.locked) return `Autorisation invalide : ${name} est verrouillée — jamais adaptable.`;
+    if (room.parked) return `Autorisation invalide : ${name} est mise de côté.`;
+    if (!(Number.isFinite(a.referenceW) && a.referenceW > 0 && Number.isFinite(a.referenceD) && a.referenceD > 0)) return `Autorisation invalide : référence de ${name} absente ou non positive.`;
+    if (room.w > a.referenceW + 1e-6 || room.d > a.referenceD + 1e-6) {
+      return `Autorisation invalide : ${name} mesure ${fmtM(room.w)} × ${fmtM(room.d)}, au-delà de sa référence ${fmtM(a.referenceW)} × ${fmtM(a.referenceD)} — référence périmée, à reconfirmer.`;
+    }
+    if (a.minW === undefined && a.minD === undefined) return `Autorisation invalide : aucune borne fournie pour ${name}.`;
+    for (const [dim, bound, ref, engineMin] of [["largeur", a.minW, a.referenceW, room.minW], ["profondeur", a.minD, a.referenceD, room.minD]] as const) {
+      if (bound === undefined) continue;
+      if (!Number.isFinite(bound)) return `Autorisation invalide : borne de ${dim} de ${name} non numérique.`;
+      if (bound > ref + 1e-9) return `Autorisation invalide : borne de ${dim} de ${name} (${fmtM(bound)}) supérieure à sa référence (${fmtM(ref)}) — seules les réductions sont permises.`;
+      if (bound < engineMin - 1e-9) return `Autorisation invalide : borne de ${dim} de ${name} (${fmtM(bound)}) sous le minimum du moteur (${fmtM(engineMin)}).`;
+    }
+  }
+  return null;
+}
+
+export function regenerateWithAllowances(layout: Layout, options: AdaptedRegenerationOptions): AdaptedRegenerationResult {
+  const invalid = validateAllowances(layout, options);
+  if (invalid) return { ok: false, reason: invalid };
+  const t0 = Date.now();
+  const budgetMillis = options.budgetMillis ?? ADAPTED_DEFAULT_BUDGET_MILLIS;
+  const maxSets = options.maxDimensionSets ?? ADAPTED_MAX_DIMENSION_SETS;
+  const byRoom = new Map(options.allowances.map((a) => [a.roomIndex, a]));
+  // Dimensions réellement réductibles (borne strictement sous la référence).
+  const dims: { roomIndex: number; field: "w" | "d"; bound: number; label: string }[] = [];
+  for (const a of options.allowances) {
+    const room = layout.rooms[a.roomIndex];
+    if (a.minW !== undefined && a.minW < a.referenceW - 1e-9) dims.push({ roomIndex: a.roomIndex, field: "w", bound: a.minW, label: `${room.label} ${room.number} largeur ${fmtM(a.minW)}` });
+    if (a.minD !== undefined && a.minD < a.referenceD - 1e-9) dims.push({ roomIndex: a.roomIndex, field: "d", bound: a.minD, label: `${room.label} ${room.number} profondeur ${fmtM(a.minD)}` });
+  }
+  // Jeux : sous-ensembles NON VIDES de dimensions réduites, du plus réduit
+  // au moins réduit (à effectif égal, ordre des autorisations).
+  const masks: number[] = [];
+  for (let m = 1; m < 1 << dims.length; m++) masks.push(m);
+  const bits = (m: number) => dims.reduce((c, _, i) => c + ((m >> i) & 1), 0);
+  masks.sort((p, q) => bits(q) - bits(p) || p - q);
+  const planned = masks.slice(0, maxSets);
+  const stats: AdaptedRegenerationStats = {
+    dimensionSetsPossible: masks.length,
+    dimensionSetsPlanned: planned.length,
+    dimensionSetsTried: 0,
+    setsCapped: masks.length > planned.length,
+    budgetMillis,
+    elapsedMillis: 0,
+    budgetReached: false,
+    adaptedSubsetsExamined: 0,
+    candidatesSeen: 0,
+    sameArrangementSkipped: 0,
+    outOfBoundsRejected: 0,
+    lockedChangedRejected: 0,
+    duplicatesSkipped: 0,
+    perSet: [],
+  };
+  const openingsOf = (l: Layout, i: number) =>
+    JSON.stringify({ d: l.doors.filter((d) => d.roomIndex === i).map((d) => [d.wall, d.cx, d.cy, d.width, d.to]), w: l.windows.filter((w) => w.roomIndex === i).map((w) => [w.wall, w.cx, w.cy, w.width]) });
+  const center = (r: PlacedRoom) => [r.x + r.w / 2, r.y + r.d / 2];
+  // Même disposition = chaque pièce non verrouillée reste à moins de 1 m
+  // d'une pièce de même type du brouillon : une simple réduction sur place
+  // n'est pas une disposition nouvelle.
+  const sameArrangement = (v: Layout) => {
+    const used = new Set<number>();
+    return v.rooms.every((r) => {
+      if (r.locked || r.parked) return true;
+      const [cx, cy] = center(r);
+      const j = layout.rooms.findIndex((o, k) => !used.has(k) && !o.locked && !o.parked && o.type === r.type && Math.hypot(center(o)[0] - cx, center(o)[1] - cy) < 1.0);
+      if (j < 0) return false;
+      used.add(j);
+      return true;
+    });
+  };
+  const typedKey = (l: Layout) => l.rooms.map((r) => `${r.type}@${r.x.toFixed(2)},${r.y.toFixed(2)},${r.w.toFixed(2)},${r.d.toFixed(2)}`).sort().join(";");
+  const seenKeys = new Set<string>();
+  const proposals: AdaptedProposal[] = [];
+  const surf = (l: Layout) => ({ circulation: l.surfaces.circulation, cheminementExterieur: l.surfaces.cheminementExterieur, total: l.surfaces.circulation + l.surfaces.cheminementExterieur });
+  const fp = (l: Layout) => (l.footprint ? { w: l.footprint.w, d: l.footprint.d, area: l.footprint.w * l.footprint.d } : null);
+
+  for (let s = 0; s < planned.length; s++) {
+    if (Date.now() - t0 >= budgetMillis) {
+      stats.budgetReached = true;
+      break;
+    }
+    const ts = Date.now();
+    const m = planned[s];
+    const input = cloneLayout(layout);
+    for (const a of options.allowances) {
+      input.rooms[a.roomIndex].w = a.referenceW;
+      input.rooms[a.roomIndex].d = a.referenceD;
+    }
+    dims.forEach((dim, i) => {
+      if ((m >> i) & 1) input.rooms[dim.roomIndex][dim.field] = dim.bound;
+    });
+    const mode: RegenerationMode = { adaptedJoin: true, stats: { subsets: 0, refusedFreshTooDeep: 0, refusedNoFreshRoom: 0 } };
+    const res = regenerateWithMode(input, mode);
+    stats.adaptedSubsetsExamined += mode.stats.subsets;
+    let fresh = 0;
+    for (const v of res.variants) {
+      stats.candidatesSeen += 1;
+      if (sameArrangement(v)) { stats.sameArrangementSkipped += 1; continue; }
+      const lockedOk = layout.rooms.every((r, i) => !r.locked || (JSON.stringify(roomRect(r)) === JSON.stringify(roomRect(v.rooms[i])) && v.rooms[i].locked === true && openingsOf(v, i) === openingsOf(layout, i)));
+      if (!lockedOk) { stats.lockedChangedRejected += 1; continue; }
+      const rooms: AdaptedRoomReport[] = v.rooms.map((r, i) => {
+        const o = layout.rooms[i];
+        const a = byRoom.get(i) ?? null;
+        const lowW = a ? (a.minW ?? a.referenceW) : o.w;
+        const lowD = a ? (a.minD ?? a.referenceD) : o.d;
+        const highW = a ? a.referenceW : o.w;
+        const highD = a ? a.referenceD : o.d;
+        return {
+          roomIndex: i,
+          name: `${o.label} ${o.number}`,
+          locked: !!o.locked,
+          reference: a ? { w: a.referenceW, d: a.referenceD } : null,
+          bounds: a ? { minW: a.minW ?? null, minD: a.minD ?? null } : null,
+          current: { w: o.w, d: o.d },
+          proposed: { w: r.w, d: r.d },
+          withinBounds: r.w >= lowW - 1e-9 && r.w <= highW + 1e-9 && r.d >= lowD - 1e-9 && r.d <= highD + 1e-9,
+          moved: Math.abs(r.x - o.x) > 1e-6 || Math.abs(r.y - o.y) > 1e-6,
+          openingsChanged: openingsOf(v, i) !== openingsOf(layout, i),
+        };
+      });
+      if (!rooms.every((x) => x.withinBounds)) { stats.outOfBoundsRejected += 1; continue; }
+      const key = typedKey(v);
+      if (seenKeys.has(key)) { stats.duplicatesSkipped += 1; continue; }
+      seenKeys.add(key);
+      fresh += 1;
+      const adapted = cloneLayout(v);
+      adapted.variantLabel = `Adaptée ${proposals.length + 1}`;
+      proposals.push({ layout: adapted, dimensionSet: s + 1, rooms, surfaces: { before: surf(layout), after: surf(v) }, footprint: { before: fp(layout), after: fp(v) } });
+    }
+    stats.dimensionSetsTried += 1;
+    stats.perSet.push({ set: s + 1, reduced: dims.filter((_, i) => (m >> i) & 1).map((d) => d.label), millis: Date.now() - ts, results: res.variants.length, newArrangements: fresh });
+  }
+  stats.elapsedMillis = Date.now() - t0;
+  return { ok: true, proposals, stats };
 }
 
 export interface GenerationResult {
