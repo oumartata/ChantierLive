@@ -254,6 +254,83 @@ aucun compte propriétaire supplémentaire n'a été créé. Le navigateur montr
 donc l'état « aucun versement » et le prix « non établi ». Les statuts
 sont couverts par le test unitaire.
 
+**Preuve métier complète du 2026-10-06** (aucun code modifié) :
+
+*Données.* Couple de démonstration EXISTANT (entreprise et propriétaire
+principal) du chantier « DÉMO AVANCEMENT — validation navigateur »
+(`scripts/seed-demo-avancement.mjs`), plus l'ingénieur de démonstration
+existant (`scripts/demo_seed_chantierlive.mjs`). Aucun compte créé,
+aucun mot de passe réinitialisé ou affiché : connexion par un serveur local
+à usage unique. Sauvegarde vérifiée avant écriture :
+`.local_backups/pre_versements_demo_*_20261006_054910`.
+
+*Parcours, circuits normaux, dans le navigateur.* Les règles existantes
+ont été rencontrées puis respectées, sans être contournées : un plan
+retenu est exigé pour estimer, un plan publié et validé pour proposer.
+1. L'entreprise dépose un plan et le partage ; le propriétaire le
+   retient.
+2. L'entreprise désigne l'ingénieur et lui soumet le plan ; l'ingénieur
+   valide ; l'entreprise publie le plan.
+3. L'entreprise estime puis propose le devis (1 × 10 000 000 FCFA) ; le
+   propriétaire l'accepte.
+4. L'entreprise fixe l'avance exigée : 3 000 000 FCFA.
+5. Le propriétaire déclare un versement de 2 500 000 FCFA (Orange Money,
+   05/10/2026).
+6. L'entreprise confirme la réception.
+
+*Résultats attendus et observés* (identiques entre la synthèse
+`/entreprise/chantiers/[id]`, la page Versements de l'entreprise et celle
+du propriétaire) :
+
+| État | Prix convenu | Reconnu | En attente | Reste dû |
+|---|---|---|---|---|
+| Après déclaration | 10 000 000 | 0 (0) | 2 500 000 (1) | 10 000 000 : un montant en attente n'est pas déduit |
+| Après confirmation | 10 000 000 | 2 500 000 (1) | 0 (0) | 7 500 000 |
+
+Valeurs identiques après rechargement. Statuts réellement prévus :
+« Déclaré, en attente de confirmation », puis « Confirmé par les deux
+parties ».
+
+*Actions selon les droits existants.*
+- Propriétaire auteur de la déclaration : « Contester », « Annuler ma
+  déclaration » et « Joindre le justificatif » ; jamais « Confirmer ».
+- Entreprise : « Confirmer la réception » et « Contester ».
+
+*Séparation entreprise / propriétaire.*
+- Le propriétaire est refusé sur `/entreprise/chantiers/[id]` (« Chantier
+  non accessible ») ; son tableau de bord entreprise est vide.
+- Aucune dépense, aucun achat, aucun justificatif d'entreprise sur ses
+  pages Chantier, Versements, Synthèse, Photos, Plans, Devis et
+  Avancement. Le seul justificatif visible est celui de **son** propre
+  versement.
+- Sur ordinateur et à 390 px : aucun débordement horizontal.
+
+*Données de démonstration ajoutées (local)*, sur ce chantier :
+- 1 plan déposé, partagé, retenu, validé et publié ;
+- 1 désignation d'ingénieur dans l'organisation « Espace professionnel »
+  (entreprise de démonstration) ;
+- 1 devis accepté (10 000 000 FCFA) ;
+- l'avance exigée (3 000 000 FCFA) ;
+- 1 versement reconnu (2 500 000 FCFA).
+
+Preuves, hors Git : `exports/preuves/versements-2026-10-06/`.
+
+**Confrontation aux critères écrits d'ESPACES-5** :
+- satisfait : réutilisation de `list_advance_payments` et de
+  `declare_advance_payment` (déclaration par la page existante), sans
+  migration ;
+- satisfait : présentation entreprise dédiée, avec statuts, prouvée de
+  bout en bout ;
+- **reste à faire, ESPACES-5 demeure partiel** :
+  1. le menu « Versements clients » (`/entreprise/versements`) mène encore
+     à la page générique `chantiers/[id]/acomptes`, pas à la présentation
+     entreprise ;
+  2. l'historique (`advance_events`) n'est consultable que sur la page
+     générique, pas dans la présentation entreprise ;
+  3. la fidélité à la maquette « Versements clients » n'est pas vérifiée :
+     les huit maquettes du 2026-10-03 ne sont pas dans le dépôt, et aucune
+     référence de substitution n'a été fabriquée.
+
 ## 5. Permissions concernées
 
 Aucune permission existante n'est élargie. Nouvelles lignes nécessaires
