@@ -6,6 +6,8 @@ import { createClient } from "@/lib/supabase/client";
 import { Button, TextField, AlertBanner } from "@/components/ui";
 import { commitMediaUpload, getUploadStatus, prepareMediaUpload, recoverMediaUpload } from "./actions";
 import { isConfirmedNonExistent, resumeUploadPlan } from "@/lib/media/uploadResumePolicy";
+import { preparePhotoForUpload } from "@/lib/media/compressPhoto";
+import { formatMegabytes } from "@/lib/media/photoCompression";
 
 const BUCKET = "project-media";
 
@@ -40,15 +42,45 @@ export function MediaUploadForm({ projectId }: { projectId: string }) {
   // fichier (voir handleFileChange) ; "Déposer la photo" recliqué sans
   // changer de fichier REPREND cette même opération.
   const pendingOperationUuidRef = useRef<string | null>(null);
+  // B025 : la photo est préparée (compressée si elle dépasse la cible) UNE
+  // SEULE FOIS, au choix du fichier — jamais à chaque clic : une reprise
+  // renvoie ainsi exactement le même contenu (même empreinte). L'original de
+  // l'appareil n'est jamais modifié (BR043).
+  const [preparing, setPreparing] = useState(false);
+  const [preparedNote, setPreparedNote] = useState<string | null>(null);
+  const selectionRef = useRef(0);
 
   // Nouveau fichier choisi = nouvel envoi explicite : abandonne toute
   // opération en attente pour l'ancien fichier (jamais reprise pour un
   // contenu différent).
-  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     pendingOperationUuidRef.current = null;
-    setSelectedFile(e.target.files?.[0] ?? null);
+    setSelectedFile(null);
+    setPreparedNote(null);
     setError(null);
     setSuccess(false);
+    const chosen = e.target.files?.[0] ?? null;
+    if (!chosen) return;
+    const selection = ++selectionRef.current;
+    setPreparing(true);
+    try {
+      const prepared = await preparePhotoForUpload(chosen);
+      if (selection !== selectionRef.current) return; // un autre fichier a été choisi entre-temps
+      const { outcome } = prepared;
+      if (outcome.kind === "refused") {
+        setError(outcome.message);
+        if (fileInputRef.current) fileInputRef.current.value = "";
+        return;
+      }
+      setSelectedFile(prepared.file);
+      if (outcome.kind === "compressed") {
+        setPreparedNote(
+          `Photo allégée sur votre appareil : ${formatMegabytes(prepared.originalBytes)} → ${formatMegabytes(outcome.sizeBytes)}. L'original reste intact dans votre galerie.`
+        );
+      }
+    } finally {
+      if (selection === selectionRef.current) setPreparing(false);
+    }
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -229,8 +261,17 @@ export function MediaUploadForm({ projectId }: { projectId: string }) {
         accept="image/jpeg,image/png,image/webp,video/mp4"
         onChange={handleFileChange}
         required
-        className="text-body text-ink"
+        // Largeur bornée : le champ natif imposait sa propre largeur et
+        // faisait déborder la page à 390 px (constaté lors de la vérification
+        // de B025, défaut antérieur à ce lot).
+        className="w-full min-w-0 max-w-full text-body text-ink"
       />
+      {preparing ? <p className="text-caption text-muted">Préparation de la photo…</p> : null}
+      {preparedNote && !preparing ? (
+        <p className="text-caption text-muted" data-testid="photo-preparee">
+          {preparedNote}
+        </p>
+      ) : null}
       {selectedFile && error && (
         <p className="text-caption text-muted">
           Fichier retenu pour la reprise : {selectedFile.name}
@@ -244,7 +285,7 @@ export function MediaUploadForm({ projectId }: { projectId: string }) {
       />
       {error && <AlertBanner variant="error" title="Envoi impossible" explanation={error} />}
       {success && <AlertBanner variant="information" title="Photo déposée" explanation="Visible en aperçu, à publier pour l'équipe." />}
-      <Button type="submit" loading={pending} disabled={pending}>
+      <Button type="submit" loading={pending} disabled={pending || preparing}>
         Déposer la photo
       </Button>
     </form>
