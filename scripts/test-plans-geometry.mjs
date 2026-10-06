@@ -2124,7 +2124,9 @@ try {
       const openings = (L, i) => JSON.stringify({ d: L.doors.filter((d) => d.roomIndex === i).map((d) => [d.wall, d.cx, d.cy, d.width, d.to]), w: L.windows.filter((w) => w.roomIndex === i).map((w) => [w.wall, w.cx, w.cy, w.width]) });
       const li = idxB3(b3.layout, "Chambre", 2);
       const locked = g.lockRoom(b3.layout, li);
-      const res = g.regenerateUnlocked(locked);
+      // Budget en temps levé (test n° 28) : seule la borne fixe en noeuds
+      // s'applique, résultat indépendant de la charge de la machine.
+      const res = g.regenerateUnlocked(locked, { backtrackMaxMillis: Infinity });
       const fresh = res.variants.filter((v) => v.variantLabel !== "Disposition actuelle (inchangée)");
       record("28. Fixture Chambre 2 verrouillée : au moins une disposition réellement nouvelle proposée", fresh.length >= 1, res.variants.map((v) => v.variantLabel).join(", "));
       const lr = locked.rooms[li];
