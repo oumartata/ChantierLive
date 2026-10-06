@@ -13,9 +13,12 @@
 // Assertions : seulement des invariants voulus (plans de départ admissibles ;
 // concordance des trois contrôles quand c'est du BÂTI qui se trouve devant la
 // fenêtre ; concordance au-delà de la sonde ; aucune autre anomalie qui
-// masquerait le résultat). Les cas « cheminement extérieur » sont des
-// CONSTATS imprimés, jamais assertés : la convention à retenir (dégagement
-// devant un passage extérieur) attend une décision explicite.
+// masquerait le résultat). Cas « cheminement extérieur » : la convention du
+// prototype est CONSERVÉE par décision explicite (2026-10-06) — l'outil (et
+// le choix automatique) refusent une fenêtre dont la sonde de dégagement est
+// occupée par un tel passage, motif EXTERIOR_PATH_CLEARANCE_REASON, tandis que
+// le vérificateur indépendant n'ajoute aucun refus. Ces deux points sont
+// désormais assertés, y compris après export/réimport du fichier de projet.
 //
 // Usage : node scripts/test-plans-window-obstruction.mjs
 
@@ -36,7 +39,7 @@ function record(name, pass, detail) {
 const tmpDir = mkdtempSync(join(tmpdir(), "plans-window-obstruction-"));
 try {
   const tscBin = join(repoRoot, "node_modules", ".bin", process.platform === "win32" ? "tsc.cmd" : "tsc");
-  const sources = ["geometry.ts", "exteriorExposure.ts"].map((f) => `"${join("src", "app", "prototype-plans", f)}"`).join(" ");
+  const sources = ["geometry.ts", "exteriorExposure.ts", "projectFile.ts"].map((f) => `"${join("src", "app", "prototype-plans", f)}"`).join(" ");
   const compile = spawnSync(`"${tscBin}" ${sources} --module commonjs --target es2020 --outDir "${tmpDir}" --esModuleInterop --skipLibCheck --strict`, {
     shell: true,
     encoding: "utf8",
@@ -48,6 +51,12 @@ try {
   } else {
     const g = await import(pathToFileURL(join(tmpDir, "geometry.js")).href);
     const x = await import(pathToFileURL(join(tmpDir, "exteriorExposure.js")).href);
+    const pf = await import(pathToFileURL(join(tmpDir, "projectFile.js")).href);
+    const roundTrip = (L) => {
+      const back = pf.validateProjectFile(JSON.parse(JSON.stringify(pf.serializeProject(L, "N"))));
+      if (!back.ok) throw new Error(back.error);
+      return back.value.layout;
+    };
 
     const base = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-b3-regeneration-reproduction.json"), "utf8")).layout;
     const pathFixture = JSON.parse(readFileSync(join(__dirname, "fixtures", "plans-window-obstruction-exterior-path.json"), "utf8")).layout;
@@ -104,6 +113,7 @@ try {
         verifierAccepts: windowMsgs.length === 0,
         verifierWhy: windowMsgs.length ? windowMsgs.join(" | ") : touches ? "mur qui touche le contour englobant" : "exposition prouvée (mur hors contour)",
         others,
+        allAfter: after,
         probeHits: hits,
         exposure: exposure.kind,
         exposureWhy: exposure.reason,
@@ -164,8 +174,8 @@ try {
       );
     }
 
-    // ---- Cheminement extérieur devant la fenêtre : CONSTATS (non assertés).
-    console.log("\nCONSTATS — cheminement extérieur devant la fenêtre (convention en attente de décision, non asserté) :");
+    // ---- Cheminement extérieur devant la fenêtre : convention du prototype
+    // conservée (décision du 2026-10-06), désormais assertée.
     const c1 = verdicts(pathFixture, idx(pathFixture, "Chambre", 1), "left", 1, 1);
     show("Cheminement extérieur DANS le contour englobant (fixture figée : Chambre 1, mur gauche, passage à 0,10 m)", c1);
     const withPath = JSON.parse(JSON.stringify(base));
@@ -173,7 +183,29 @@ try {
     withPath.exteriorPaths = [...(withPath.exteriorPaths ?? []), { x: sw.cx - 0.6, y: fp.y + fp.d, w: 1.2, d: 1.2 }];
     const c2 = verdicts(withPath, salon, "bottom", salonOffset, sw.width);
     show("Cheminement extérieur HORS du contour englobant (passage de 1,20 m posé contre le mur bas du salon)", c2);
-    record("Constats non masqués par une autre anomalie (cas du cheminement extérieur)", c1.others.length === 0 && c2.others.length === 0, [...c1.others, ...c2.others].join(" ; "));
+    const pathCases = [
+      ["dans le contour (fixture figée)", pathFixture, idx(pathFixture, "Chambre", 1), "left", 1, 1, c1],
+      ["hors du contour", withPath, salon, "bottom", salonOffset, sw.width, c2],
+    ];
+    for (const [where, L, ri, wall, off, width, v] of pathCases) {
+      record(
+        `Cheminement extérieur ${where} : l'outil refuse pour le seul motif de la convention (« ${g.EXTERIOR_PATH_CLEARANCE_REASON} »)`,
+        v.probeHits.length > 0 && v.probeHits.every((h) => h === "cheminement extérieur") && v.tool === `refuse — ${g.EXTERIOR_PATH_CLEARANCE_REASON}`,
+        v.tool
+      );
+      record(
+        `Cheminement extérieur ${where} : le vérificateur reste satisfait (aucune anomalie, aucun refus ajouté par la convention)`,
+        v.verifierAccepts && v.allAfter.length === 0,
+        v.allAfter.join(" ; ")
+      );
+      const imported = roundTrip(L);
+      const vi = verdicts(imported, ri, wall, off, width);
+      record(
+        `Cheminement extérieur ${where} : même comportement après export/réimport du fichier de projet`,
+        vi.tool === v.tool && vi.verifierAccepts && vi.allAfter.length === 0 && JSON.stringify(imported.exteriorPaths) === JSON.stringify(L.exteriorPaths),
+        vi.tool
+      );
+    }
 
     const total = results.length;
     const passed = results.filter(Boolean).length;

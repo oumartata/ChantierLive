@@ -1148,8 +1148,10 @@ les contrôles existants sont réutilisés.
   touche le contour bâti, ou exposition prouvée de cette baie par
   `windowProvenExterior`). Le motif d'un refus vient de
   `classifyWallExposure`.
-- **Obstruction** : même sonde (`doorOutsideProbe`) et mêmes éléments
-  bâtis que `chooseExteriorWindow`.
+- **Dégagement** : même sonde (`doorOutsideProbe`) et mêmes éléments que
+  `chooseExteriorWindow` (pièces, circulations intérieures et, par
+  convention du prototype, cheminements extérieurs ; liste partagée
+  `windowClearanceObstacles` depuis le 2026-10-06).
 - **Plan entier** : `independentVerify` est appelé avant et après ;
   toute anomalie nouvelle fait refuser la modification.
 - **Garde-fous propres à l'édition** :
@@ -1245,7 +1247,8 @@ rejoué après export et réimport du fichier de projet.
 - **Conservation exacte** de la pièce verrouillée (position, dimensions,
   verrou, porte, fenêtre) : **208/208**.
 - **Erreurs `independentVerify`** : 0.
-- **Fenêtre jamais condamnée** : pour chaque proposition, la fenêtre
+- **Aucune fenêtre condamnée constatée sur les cas examinés** : pour
+  chaque proposition, la fenêtre
   verrouillée a été retirée d'une copie puis replacée telle quelle par
   `placeWindow` (mêmes contrôles d'exposition, d'obstruction et du plan
   entier) : **208/208 acceptées**.
@@ -1326,24 +1329,34 @@ résultat : il n'y en a aucune dans tous les cas.
 | Cheminement extérieur **hors** du contour (posé contre le mur bas du salon) | **accepte** (mur sur le contour) | **obstruée** | extérieur | **refuse** |
 
 **Conclusion** :
-- **Pas de défaut du vérificateur vis-à-vis du bâti.** Le contour englobant
-  inclut pièces et circulations intérieures (`recomputeDerivedGeometry`),
-  et la grille d'exposition les peint comme du bâti. Un élément bâti devant
-  la fenêtre rend donc son mur non extérieur, et les contrôles concordent.
-  C'est de la **géométrie**.
+- **Bâti devant la fenêtre : aucun défaut constaté sur les cas
+  examinés.** Le contour englobant inclut pièces et circulations
+  intérieures (`recomputeDerivedGeometry`), et la grille d'exposition les
+  peint comme du bâti. Verdict exact, sur la **portion de mur de la
+  fenêtre examinée** (et non sur tout le mur) :
+  - le mur de la pièce ne touche plus le contour englobant ;
+  - la preuve d'exposition classe cette portion « séparation » (à 0,10 m)
+    ou « obstruée » (témoin à 1,00 m, sous sa profondeur de 0,80 m) ;
+  - le vérificateur refuse donc la fenêtre, comme l'outil.
+  - Un obstacle proche ne rend pas nécessairement tout le mur intérieur :
+    une autre portion du même mur peut rester exposée. Elle n'a pas été
+    examinée ici.
 - **La divergence porte uniquement sur le cheminement extérieur**, exclu du
   contour englobant et de la grille d'exposition.
-  - Géométriquement, c'est de l'air libre : le vérificateur et la preuve
-    d'exposition acceptent.
-  - La sonde de l'outil et de la génération (`chooseExteriorWindow`) le
-    compte parmi les obstacles : c'est une **convention de dégagement**
+  - Le modèle le traite comme **non bâti, par convention** : il ne connaît
+    ni sa couverture, ni sa hauteur, ni ses conditions réelles. Rien ne
+    prouve qu'il soit à l'air libre. Le vérificateur et la preuve
+    d'exposition, qui suivent cette convention, acceptent.
+  - La sonde de l'outil et du choix automatique (`chooseExteriorWindow`)
+    le compte parmi les obstacles : c'est une **convention de dégagement**
     devant un passage extérieur, et non une obstruction par du bâti.
 - **Impact mesuré côté outil** : 10 positions refusées pour ce seul motif,
   sur 52 920 testées (630 variantes générées, dont 31 avec un cheminement
   extérieur).
 - **Impact côté génération : non mesuré.** Il faudrait modifier le moteur,
-  ce qui suppose une décision préalable. La génération ne pose jamais de
-  fenêtre devant un cheminement extérieur.
+  ce qui suppose une décision préalable. Par construction du choix
+  automatique (même sonde), la génération ne pose pas de fenêtre dont le
+  dégagement est occupé par un cheminement extérieur.
 
 **Correctif** : aucun n'est nécessaire au sens d'un défaut. **Décision
 attendue** sur la convention :
@@ -1357,6 +1370,45 @@ attendue** sur la convention :
 3. **la rendre obligatoire partout** : ajouter la sonde au vérificateur.
    Ce n'est **pas recommandé sans décision** : des projets aujourd'hui
    admissibles, édités ou importés, pourraient devenir invalides.
+
+### Dégagement devant les fenêtres — décision et clôture (2026-10-06)
+
+**Décision** : la convention actuelle de dégagement est **conservée**
+(option 1 ci-dessus).
+
+**Comportement conservé** :
+- l'outil Fenêtre et le choix automatique refusent une fenêtre si un
+  cheminement extérieur empiète sur la sonde de dégagement existante
+  (0,32 m) ;
+- le vérificateur indépendant n'ajoute aucun refus ;
+- aucun projet existant n'est réécrit ni rendu invalide pour ce seul
+  motif.
+
+**Centralisation, sans refonte** : `windowClearanceObstacles`
+(`geometry.ts`) est la liste unique des éléments examinés par la sonde.
+Elle sert aux deux appelants de `chooseExteriorWindow` et à
+`placeWindow`, et porte l'explication de la convention.
+- Un cheminement extérieur y est traité comme non bâti par convention :
+  ce n'est jamais un mur, et ce n'est pas une norme.
+- Motif affiché par l'outil (`EXTERIOR_PATH_CLEARANCE_REASON`) :
+  « Dégagement devant la fenêtre occupé par un cheminement extérieur —
+  convention du prototype. »
+- Si du bâti se trouve aussi dans la sonde, c'est son motif qui est
+  affiché.
+
+**Contrôles** :
+- `test-plans-window-obstruction` : 13/13, dont 6 nouvelles assertions
+  qui remplacent les constats. Pour chacun des deux cas (cheminement dans
+  et hors du contour) :
+  - l'outil refuse pour ce seul motif ;
+  - le vérificateur reste satisfait (aucune anomalie) ;
+  - le comportement est identique après export et réimport du fichier de
+    projet.
+- `test-plans-windows` : 20/20, avec le motif mis à jour.
+- Instantané du moteur (code partagé réorganisé) : régénération (70 cas)
+  et redimensionnement (168 cas) **0 différence** ; génération (80 cas)
+  0 différence structurelle (4 compteurs d'échecs ±1, bruit du budget
+  temporel).
 
 ---
 

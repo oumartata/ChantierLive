@@ -1906,13 +1906,7 @@ export function buildFreePackedLayout(input: GenerationInput, needs: RoomNeed[],
       const roomIndex = roomIndexByPlacement[k];
       const room = draft.rooms[roomIndex];
       const rect = roomRect(room);
-      const otherBuilt: Rect[] = [
-        ...(draft.corridor ? [draft.corridor] : []),
-        ...draft.corridorFillers,
-        ...draft.circulations,
-        ...(draft.exteriorPaths ?? []),
-        ...draft.rooms.filter((r, i) => i !== roomIndex && !r.parked).map(roomRect),
-      ];
+      const otherBuilt: Rect[] = windowClearanceObstacles(draft, roomIndex).map((o) => o.rect);
       const chosen = chooseExteriorWindow(rect, draft.footprint!, otherBuilt, room.exteriorWall);
       if (chosen) {
         room.exteriorWall = chosen.wall;
@@ -2150,6 +2144,34 @@ function openingLeadsOutside(layout: Layout, roomIndex: number, wall: WallSide):
 // bâtiment non rectangulaire — une façade en retrait (bâtiment en L, encoche)
 // n'est pas couverte : elle ne touche jamais ce rectangle et est donc
 // refusée, jamais acceptée à tort ni présentée comme prise en charge.
+// Éléments examinés par la sonde de dégagement devant une fenêtre
+// (doorOutsideProbe) — liste UNIQUE, partagée par le choix automatique
+// (chooseExteriorWindow, via ses appelants) et l'outil Fenêtre
+// (placeWindow) : pièces et circulations intérieures (du bâti), puis
+// cheminements extérieurs. Pour ces derniers, il s'agit d'une CONVENTION DU
+// PROTOTYPE, conservée par décision explicite (2026-10-06) : le modèle traite
+// un cheminement extérieur comme NON BÂTI (il ne connaît ni sa couverture, ni
+// sa hauteur, ni ses conditions réelles) — ce n'est jamais un mur — mais
+// aucune fenêtre n'est posée si un tel passage empiète sur la sonde de
+// dégagement. Hypothèse de conception, pas une norme réglementaire. Le
+// vérificateur indépendant N'APPLIQUE PAS cette convention : aucun refus
+// ajouté, aucun projet existant rendu invalide pour ce seul motif.
+export interface WindowClearanceObstacle {
+  rect: Rect;
+  name: string;
+  exteriorPath: boolean;
+}
+export const EXTERIOR_PATH_CLEARANCE_REASON = "Dégagement devant la fenêtre occupé par un cheminement extérieur — convention du prototype.";
+export function windowClearanceObstacles(layout: Layout, roomIndex: number): WindowClearanceObstacle[] {
+  return [
+    ...(layout.corridor ? [{ rect: layout.corridor, name: "le corridor", exteriorPath: false }] : []),
+    ...layout.corridorFillers.map((rect) => ({ rect, name: "une circulation", exteriorPath: false })),
+    ...(layout.circulations ?? []).map((rect) => ({ rect, name: "une circulation", exteriorPath: false })),
+    ...layout.rooms.flatMap((r, i) => (i !== roomIndex && !r.parked ? [{ rect: roomRect(r), name: `« ${r.label} ${r.number} »`, exteriorPath: false }] : [])),
+    ...(layout.exteriorPaths ?? []).map((rect) => ({ rect, name: "un cheminement extérieur", exteriorPath: true })),
+  ];
+}
+
 export function chooseExteriorWindow(
   rect: Rect,
   footprint: Rect,
@@ -4478,13 +4500,7 @@ function regenerateUnlockedCore(layout: Layout): RegenerationResult {
         const room = finalLayout.rooms[p.need.idx];
         if (room.parked) continue;
         const rect = roomRect(room);
-        const otherBuilt: Rect[] = [
-          ...(finalLayout.corridor ? [finalLayout.corridor] : []),
-          ...finalLayout.corridorFillers,
-          ...finalLayout.circulations,
-          ...(finalLayout.exteriorPaths ?? []),
-          ...finalLayout.rooms.filter((r, i) => i !== p.need.idx && !r.parked).map(roomRect),
-        ];
+        const otherBuilt: Rect[] = windowClearanceObstacles(finalLayout, p.need.idx).map((o) => o.rect);
         const chosen = chooseExteriorWindow(rect, footprint, otherBuilt, room.exteriorWall);
         if (chosen) {
           room.exteriorWall = chosen.wall;
@@ -5437,8 +5453,9 @@ export function placeDoor(layout: Layout, roomIndex: number, wall: WallSide, alo
 //   touche le contour bâti — wallTouchesExterior — OU exposition prouvée de
 //   CETTE baie — windowProvenExterior) ; motif de refus lu dans
 //   classifyWallExposure ;
-// - obstruction : même sonde et mêmes éléments bâtis que chooseExteriorWindow
-//   (doorOutsideProbe contre pièces, circulations, trajets extérieurs) ;
+// - dégagement : même sonde et mêmes éléments que chooseExteriorWindow
+//   (doorOutsideProbe contre windowClearanceObstacles : pièces, circulations
+//   et, par convention du prototype, cheminements extérieurs) ;
 // - plan entier : independentVerify avant/après, toute anomalie NOUVELLE
 //   refuse la modification.
 // Jamais de recalage : une saisie qui ne tient pas est REFUSÉE telle quelle
@@ -5532,17 +5549,14 @@ export function placeWindow(layout: Layout, roomIndex: number, wall: WallSide, o
     const why = classifyWallExposure(layout, roomIndex, wall, { alongMin: lo, alongMax: hi });
     return { ok: false, reason: `Le mur ${EDGE_LABEL[wall]} de ${name} ne donne pas sur l'extérieur selon les contrôles du moteur : ${why.reason}` };
   }
-  // Obstruction : même sonde et mêmes éléments que chooseExteriorWindow.
+  // Dégagement : même sonde et mêmes éléments que le choix automatique
+  // (windowClearanceObstacles). Du bâti l'emporte sur la convention du
+  // cheminement extérieur dans le motif affiché.
   const probe = doorOutsideProbe(candidate);
-  const blockers: { name: string; rect: Rect }[] = [
-    ...(layout.corridor ? [{ name: "le corridor", rect: layout.corridor }] : []),
-    ...layout.corridorFillers.map((rect) => ({ name: "une circulation", rect })),
-    ...(layout.circulations ?? []).map((rect) => ({ name: "une circulation", rect })),
-    ...(layout.exteriorPaths ?? []).map((rect) => ({ name: "un cheminement extérieur", rect })),
-    ...layout.rooms.flatMap((r, i) => (i !== roomIndex && !r.parked ? [{ name: `« ${r.label} ${r.number} »`, rect: roomRect(r) }] : [])),
-  ];
-  const hit = blockers.find((b) => rectsOverlap(probe, b.rect));
-  if (hit) return { ok: false, reason: `Le dégagement devant la fenêtre est obstrué par ${hit.name}.` };
+  const hits = windowClearanceObstacles(layout, roomIndex).filter((o) => rectsOverlap(probe, o.rect));
+  const builtHit = hits.find((o) => !o.exteriorPath);
+  if (builtHit) return { ok: false, reason: `Le dégagement devant la fenêtre est obstrué par ${builtHit.name}.` };
+  if (hits.length > 0) return { ok: false, reason: EXTERIOR_PATH_CLEARANCE_REASON };
 
   const next = cloneLayout(layout);
   next.windows = [...next.windows.filter((w) => w.roomIndex !== roomIndex), candidate];

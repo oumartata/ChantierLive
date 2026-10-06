@@ -82,7 +82,7 @@ try {
     const sal = g.regenerateUnlocked(g.lockRoom(L, idx(L, "Salon", 1))).variants.find((v) => v.variantLabel === "Régénération 1");
     const salFree = g.unlockRoom(sal, idx(sal, "Salon", 1));
     const obs = g.placeWindow(salFree, idx(salFree, "Chambre", 1), "left", 1, 1);
-    record("Refus — dégagement obstrué (cheminement extérieur devant le mur gauche de Chambre 1)", !obs.ok && /obstrué par un cheminement extérieur/.test(obs.reason), obs.ok ? "accepté à tort" : obs.reason);
+    record("Refus — dégagement occupé par un cheminement extérieur devant le mur gauche de Chambre 1 (convention du prototype)", !obs.ok && obs.reason === g.EXTERIOR_PATH_CLEARANCE_REASON, obs.ok ? "accepté à tort" : obs.reason);
 
     // 4) Pièce verrouillée : jamais modifiée.
     const locked = g.lockRoom(L, c1);
