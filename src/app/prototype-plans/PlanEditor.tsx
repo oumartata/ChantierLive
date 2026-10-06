@@ -81,6 +81,7 @@ export function PlanEditor({
   depositContext,
   requestId,
   initialVariantId,
+  initialNotices,
 }: {
   initialLayout: Layout;
   orientation: string;
@@ -88,8 +89,12 @@ export function PlanEditor({
   depositContext: DepositContext | null;
   requestId: string | null;
   initialVariantId: string | null;
+  initialNotices?: string[];
 }) {
   const [history, setHistory] = useState<Layout[]>([cloneLayout(initialLayout)]);
+  // Avis de lecture (autorisations F2 écartées à l'import ou à la reprise) :
+  // affichés tant que l'utilisateur ne les ferme pas.
+  const [readNotices, setReadNotices] = useState<string[]>(initialNotices ?? []);
   const [future, setFuture] = useState<Layout[]>([]);
   // Copie locale, modifiable par un import de fichier de projet (qui peut
   // porter une orientation différente de celle transmise par le parent) —
@@ -421,6 +426,7 @@ export function PlanEditor({
       setCurrentOrientation(validated.value.orientation);
       setCurrentVariantId(variantId);
       setCurrentVariantSnapshot(JSON.stringify({ layout: validated.value.layout, orientation: validated.value.orientation }));
+      setReadNotices(validated.notices);
       saveNow(validated.value.layout, validated.value.orientation);
     } finally {
       setLoadingVariantId(null);
@@ -473,6 +479,7 @@ export function PlanEditor({
       setFuture([]);
       setSelected(null);
       setImportError(null);
+      setReadNotices(result.notices);
       saveNow(result.value.layout, result.value.orientation);
     };
     reader.onerror = () => {
@@ -832,6 +839,18 @@ export function PlanEditor({
         <span className="text-slate-400">— reste dans ce navigateur, sur cet appareil uniquement.</span>
       </p>
       {importError ? <p className="rounded bg-red-50 p-2 text-xs text-red-700">{importError}</p> : null}
+      {readNotices.length > 0 ? (
+        <div role="alert" data-testid="read-notices" className="flex items-start justify-between gap-2 rounded bg-amber-50 p-2 text-xs text-amber-900">
+          <ul className="list-disc pl-4">
+            {readNotices.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+          <button type="button" aria-label="Fermer cet avis" className="shrink-0 px-1" onClick={() => setReadNotices([])}>
+            ×
+          </button>
+        </div>
+      ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         {(["select", "move", "resize", "add-door", "remove-door", "window"] as Tool[]).map((t) => (

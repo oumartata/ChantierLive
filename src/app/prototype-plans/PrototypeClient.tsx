@@ -49,14 +49,14 @@ export interface DepositContext {
 // invalidé explicitement par clearResumableDraft, jamais relu à chaque
 // rendu (loadDraftLocally reparse le JSON à chaque appel, une référence
 // neuve à chaque fois ferait boucler useSyncExternalStore).
-type ResumableState = { file: ProjectFile } | { error: string } | null;
+type ResumableState = { file: ProjectFile; notices: string[] } | { error: string } | null;
 let resumableCache: ResumableState | undefined;
 const resumableListeners = new Set<() => void>();
 
 function getResumableSnapshot(): ResumableState {
   if (resumableCache === undefined) {
     const result = loadDraftLocally();
-    resumableCache = !result ? null : result.ok ? { file: result.value } : { error: result.error };
+    resumableCache = !result ? null : result.ok ? { file: result.value, notices: result.notices } : { error: result.error };
   }
   return resumableCache;
 }
@@ -135,6 +135,9 @@ export function PrototypeClient({
   // l'ouverture, que `initialLayout` correspond exactement à cette variante
   // (sinon "Déposer cette variante" la redemanderait inutilement).
   const [openedVariantId, setOpenedVariantId] = useState<string | null>(null);
+  // Avis de lecture du plan ouvert (ex. autorisations F2 invalides écartées) —
+  // transmis à l'éditeur pour être affichés, jamais avalés.
+  const [draftNotices, setDraftNotices] = useState<string[]>([]);
 
   async function handleResumeVariant(variantId: string) {
     setResumeLoadingId(variantId);
@@ -152,6 +155,7 @@ export function PrototypeClient({
     }
     setOrientation(validated.value.orientation as "N" | "S" | "E" | "O");
     setOpenedVariantId(variantId);
+    setDraftNotices(validated.notices);
     setDraft(validated.value.layout);
   }
   const [terrainWidth, setTerrainWidth] = useState(15);
@@ -304,6 +308,7 @@ export function PrototypeClient({
           <button
             onClick={() => {
               setOrientation(resumable.file.orientation as "N" | "S" | "E" | "O");
+              setDraftNotices(resumable.notices);
               setDraft(resumable.file.layout);
             }}
             className="rounded bg-sky-700 px-3 py-1 text-xs font-semibold text-white"
@@ -517,6 +522,7 @@ export function PrototypeClient({
           depositContext={depositContext}
           requestId={requestId}
           initialVariantId={openedVariantId}
+          initialNotices={draftNotices}
         />
       ) : (
       <>

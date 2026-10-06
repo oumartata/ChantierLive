@@ -3,7 +3,7 @@
 // mises de côté, portes, fenêtres) pour la sauvegarde locale et l'échange
 // de fichier. Validé structurellement avant tout chargement (voir
 // validateProjectFile) — jamais une confiance aveugle dans un JSON externe.
-import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, WallSide, Window } from "./geometry";
+import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, StoredDimensionAllowance, WallSide, Window } from "./geometry";
 
 // Historique : v1 (pièces/portes/fenêtres indépendantes, zone de rangement,
 // redimensionnement) ; v2 ajoute le verrouillage (PlacedRoom.locked) et les
@@ -19,8 +19,26 @@ import type { Door, DoorGeometry, Layout, PlacedRoom, Rect, SpaceRef, WallSide, 
 // à 0/[] est un placeholder honnête (jamais recalculée a posteriori sans
 // rouvrir le plan) — rouvrir puis ré-enregistrer le brouillon la met à jour
 // avec la vraie valeur.
-export const PROJECT_FILE_VERSION = 4;
-const SUPPORTED_VERSIONS = [1, 2, 3, 4];
+// v5 ajoute Layout.dimensionAllowances (autorisations F2 d'adaptation des
+// dimensions, voir adaptation.ts). Changement de VERSION et non simple champ
+// facultatif : validateLayout conserve tel quel un champ inconnu, si bien
+// qu'une version antérieure de cet éditeur transporterait des autorisations
+// sans les comprendre ni les valider ; elle refuse désormais explicitement un
+// fichier v5. La version ÉCRITE dépend du contenu (projectFileVersionFor) :
+// un plan SANS autorisation reste écrit en v4, à l'identique — le catalogue
+// (validation en base, migration m032b : versions 1 à 4 seulement) et les
+// versions antérieures de l'éditeur continuent de l'accepter ; seul un plan
+// AVEC autorisations est écrit en v5, et y est alors refusé explicitement.
+// Un fichier v1–v4 se lit sans autorisation (aucune adaptation par défaut).
+// À la lecture, des autorisations invalides sont ÉCARTÉES avec un avis
+// explicite (`notices`) — le plan reste importé, l'adaptation n'est jamais
+// activée silencieusement.
+export const PROJECT_FILE_VERSION = 5;
+const SUPPORTED_VERSIONS = [1, 2, 3, 4, 5];
+
+export function projectFileVersionFor(layout: Layout): number {
+  return layout.dimensionAllowances && layout.dimensionAllowances.length > 0 ? 5 : 4;
+}
 
 export interface ProjectFile {
   version: number;
@@ -32,7 +50,7 @@ export interface ProjectFile {
 const STORAGE_KEY = "chantierlive:prototype-plans:draft:v1";
 
 export function serializeProject(layout: Layout, orientation: string): ProjectFile {
-  return { version: PROJECT_FILE_VERSION, savedAt: new Date().toISOString(), orientation, layout };
+  return { version: projectFileVersionFor(layout), savedAt: new Date().toISOString(), orientation, layout };
 }
 
 export type SaveResult = { ok: true } | { ok: false; error: string };
@@ -50,7 +68,7 @@ export function saveDraftLocally(file: ProjectFile): SaveResult {
   }
 }
 
-export function loadDraftLocally(): { ok: true; value: ProjectFile } | { ok: false; error: string } | null {
+export function loadDraftLocally(): { ok: true; value: ProjectFile; notices: string[] } | { ok: false; error: string } | null {
   let raw: string | null;
   try {
     raw = window.localStorage.getItem(STORAGE_KEY);
@@ -235,7 +253,42 @@ function migrateLayoutV3ToV4(layout: Record<string, unknown>): Record<string, un
   };
 }
 
-export function validateProjectFile(data: unknown): { ok: true; value: ProjectFile } | { ok: false; error: string } {
+// Validation STRICTE des autorisations F2 lues d'un fichier ou du brouillon.
+// Toute entrée invalide écarte TOUTES les autorisations du fichier (jamais
+// une sélection partielle silencieuse) ; le motif est rendu à l'appelant.
+// Contrôles : structure, identité de la pièce (index et clé type|libellé|
+// numéro), références positives, bornes de réduction (≤ référence, ≥
+// minimum du moteur, au moins une), dimensions connues ≤ référence,
+// une seule autorisation par pièce, pièce non verrouillée.
+function validateStoredAllowances(raw: unknown, rooms: PlacedRoom[]): { ok: true; value: StoredDimensionAllowance[] } | { ok: false; error: string } {
+  if (!Array.isArray(raw)) return { ok: false, error: "liste attendue" };
+  const seen = new Set<number>();
+  for (const v of raw) {
+    if (!v || typeof v !== "object") return { ok: false, error: "entrée non structurée" };
+    const a = v as Record<string, unknown>;
+    if (!isFiniteNumber(a.roomIndex) || !Number.isInteger(a.roomIndex) || a.roomIndex < 0 || a.roomIndex >= rooms.length) return { ok: false, error: "pièce inexistante" };
+    const room = rooms[a.roomIndex];
+    const name = `« ${room.label} ${room.number} »`;
+    if (seen.has(a.roomIndex)) return { ok: false, error: `${name} autorisée deux fois` };
+    seen.add(a.roomIndex);
+    if (typeof a.roomKey !== "string" || a.roomKey !== `${room.type}|${room.label}|${room.number}`) return { ok: false, error: `identité de la pièce ${name} différente de celle de l'autorisation` };
+    if (room.locked) return { ok: false, error: `${name} est verrouillée` };
+    if (!isFiniteNumber(a.referenceW) || a.referenceW <= 0 || !isFiniteNumber(a.referenceD) || a.referenceD <= 0) return { ok: false, error: `référence de ${name} invalide` };
+    if (!isFiniteNumber(a.confirmedW) || a.confirmedW <= 0 || !isFiniteNumber(a.confirmedD) || a.confirmedD <= 0) return { ok: false, error: `dimensions connues de ${name} invalides` };
+    if (a.confirmedW > a.referenceW + 1e-6 || a.confirmedD > a.referenceD + 1e-6) return { ok: false, error: `dimensions connues de ${name} au-delà de sa référence` };
+    if (a.minW === null && a.minD === null) return { ok: false, error: `aucune borne pour ${name}` };
+    for (const [bound, ref, engineMin] of [[a.minW, a.referenceW, room.minW], [a.minD, a.referenceD, room.minD]] as const) {
+      if (bound === null) continue;
+      if (!isFiniteNumber(bound)) return { ok: false, error: `borne de ${name} non numérique` };
+      if (bound > (ref as number) + 1e-9) return { ok: false, error: `borne de ${name} supérieure à sa référence (seules les réductions sont permises)` };
+      if (bound < engineMin - 1e-9) return { ok: false, error: `borne de ${name} sous le minimum du moteur` };
+    }
+    if (typeof a.confirmedAt !== "string") return { ok: false, error: `date de l'accord pour ${name} absente` };
+  }
+  return { ok: true, value: raw as StoredDimensionAllowance[] };
+}
+
+export function validateProjectFile(data: unknown): { ok: true; value: ProjectFile; notices: string[] } | { ok: false; error: string } {
   if (!data || typeof data !== "object") return { ok: false, error: "Fichier invalide : structure JSON attendue." };
   const f = data as Record<string, unknown>;
   if (!isFiniteNumber(f.version)) return { ok: false, error: "Fichier invalide : numéro de version manquant." };
@@ -254,5 +307,23 @@ export function validateProjectFile(data: unknown): { ok: true; value: ProjectFi
   if (f.version === 1 || f.version === 2 || f.version === 3) migratedLayout = migrateLayoutV3ToV4(migratedLayout);
   const layoutResult = validateLayout(migratedLayout);
   if (!layoutResult.ok) return { ok: false, error: `Géométrie invalide : ${layoutResult.error}` };
-  return { ok: true, value: { version: PROJECT_FILE_VERSION, savedAt: f.savedAt, orientation: f.orientation, layout: layoutResult.value } };
+  const notices: string[] = [];
+  let layout = layoutResult.value;
+  // Autorisations F2 : uniquement à partir de v5 ; ailleurs, jamais lues.
+  if ((layout as unknown as Record<string, unknown>).dimensionAllowances !== undefined) {
+    const stripped = { ...layout };
+    delete stripped.dimensionAllowances;
+    if (f.version !== 5) {
+      notices.push("Autorisations d'adaptation des dimensions ignorées : ce fichier antérieur à la version 5 ne peut pas en contenir.");
+      layout = stripped;
+    } else {
+      const allowances = validateStoredAllowances(layout.dimensionAllowances, layout.rooms);
+      if (allowances.ok && allowances.value.length === 0) layout = stripped;
+      else if (!allowances.ok) {
+        notices.push(`Autorisations d'adaptation des dimensions écartées (${allowances.error}) : aucune adaptation n'est active. Le plan lui-même est importé ; reconfirmez les autorisations si besoin.`);
+        layout = stripped;
+      }
+    }
+  }
+  return { ok: true, value: { version: projectFileVersionFor(layout), savedAt: f.savedAt, orientation: f.orientation, layout }, notices };
 }

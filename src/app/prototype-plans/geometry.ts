@@ -246,7 +246,33 @@ export interface ExteriorSpace {
   accessFrom: string;
 }
 
+// Autorisation F2 ENREGISTRÉE dans le plan (fichier de projet v5) : accord
+// explicite de l'utilisateur pour réduire une pièce non verrouillée lors
+// d'une régénération adaptée. `referenceW/D` = dimensions de la pièce au
+// moment de l'accord, conservées telles quelles après le choix d'un
+// résultat adapté (jamais remplacées par les dimensions réduites) ;
+// `minW/minD` = bornes confirmées (null = dimension non adaptable) ;
+// `confirmedW/D` = dimensions connues de la pièce (à l'accord, ou après
+// application d'un résultat adapté) : toute autre valeur signale une
+// modification manuelle, l'autorisation est alors à reconfirmer.
+// `roomKey` = identité de la pièce (type|libellé|numéro) au moment de
+// l'accord. Voir adaptation.ts.
+export interface StoredDimensionAllowance {
+  roomIndex: number;
+  roomKey: string;
+  referenceW: number;
+  referenceD: number;
+  minW: number | null;
+  minD: number | null;
+  confirmedW: number;
+  confirmedD: number;
+  confirmedAt: string;
+}
+
 export interface Layout {
+  // Absent = aucune autorisation F2 (comportement par défaut ; tout plan
+  // fraîchement généré n'en a pas).
+  dimensionAllowances?: StoredDimensionAllowance[];
   variantLabel: string;
   feasible: boolean;
   failureReasons: string[];
@@ -5800,7 +5826,7 @@ export type AdaptedRegenerationResult =
   | { ok: true; proposals: AdaptedProposal[]; stats: AdaptedRegenerationStats }
   | { ok: false; reason: string };
 
-function validateAllowances(layout: Layout, options: AdaptedRegenerationOptions): string | null {
+export function validateDimensionAllowances(layout: Layout, options: AdaptedRegenerationOptions): string | null {
   if (!options || !Array.isArray(options.allowances) || options.allowances.length === 0) return "Aucune autorisation fournie : la régénération adaptée exige au moins une pièce autorisée.";
   if (options.maxDimensionSets !== undefined && (!Number.isInteger(options.maxDimensionSets) || options.maxDimensionSets < 1 || options.maxDimensionSets > ADAPTED_MAX_DIMENSION_SETS)) {
     return `Nombre de jeux de dimensions invalide (entier de 1 à ${ADAPTED_MAX_DIMENSION_SETS}).`;
@@ -5831,7 +5857,7 @@ function validateAllowances(layout: Layout, options: AdaptedRegenerationOptions)
 }
 
 export function regenerateWithAllowances(layout: Layout, options: AdaptedRegenerationOptions): AdaptedRegenerationResult {
-  const invalid = validateAllowances(layout, options);
+  const invalid = validateDimensionAllowances(layout, options);
   if (invalid) return { ok: false, reason: invalid };
   const t0 = Date.now();
   const budgetMillis = options.budgetMillis ?? ADAPTED_DEFAULT_BUDGET_MILLIS;
