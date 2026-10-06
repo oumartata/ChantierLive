@@ -1211,6 +1211,90 @@ les contrôles existants sont réutilisés.
 - l'éditeur garde son défilement horizontal du plan sur mobile
   (préexistant).
 
+### Fenêtre éditée, verrouillage et régénération — vérification (2026-10-06, aucun code applicatif modifié)
+
+Point de départ : HEAD `ccf35be`. Sondes en lecture seule
+(`exports/preuves/fenetre-verrou-2026-10-06/`, hors Git), sur les 16
+dispositions de référence (4 accès × 15×20 et 15×25 × entrée directe ou
+par cour).
+
+**Rôle de `exteriorWall`** : c'est une indication de placement, pas la
+géométrie de la fenêtre. Il est posé à la génération ou à la
+régénération, puis remplacé par le mur retenu par `chooseExteriorWindow`.
+Il sert à :
+- réduire l'emprise de recherche autour des pièces verrouillées, et
+  seulement de ce côté, après revérification par `wallTouchesExterior` ;
+- détecter les cas A/B du couloir partagé ;
+- donner le mur préféré à `chooseExteriorWindow` ;
+- placer la porte véhicule d'un garage ;
+- afficher un avertissement à l'export ;
+- proposer un mur par défaut dans l'outil Fenêtre.
+
+La fenêtre réelle (`windows`) est seule contrôlée par
+`independentVerify`. L'outil F1 ne modifie pas `exteriorWall`.
+
+**Parcours testé** : déplacement réel de la fenêtre sur un autre mur
+(`placeWindow`), verrouillage, puis régénération. Le même parcours est
+rejoué après export et réimport du fichier de projet.
+
+**Résultats** :
+- **Cas** : 40 déplacements admis (sur 210 essayés), soit 80
+  régénérations et 208 propositions.
+  - 32 régénérations donnent au moins une proposition **nouvelle** ;
+  - 48 ne font que **conserver la disposition actuelle**.
+- **Conservation exacte** de la pièce verrouillée (position, dimensions,
+  verrou, porte, fenêtre) : **208/208**.
+- **Erreurs `independentVerify`** : 0.
+- **Fenêtre jamais condamnée** : pour chaque proposition, la fenêtre
+  verrouillée a été retirée d'une copie puis replacée telle quelle par
+  `placeWindow` (mêmes contrôles d'exposition, d'obstruction et du plan
+  entier) : **208/208 acceptées**.
+  - Dans 24 des 40 cas, l'emprise s'étend au-delà du nouveau mur de la
+    fenêtre (2,00 à 5,90 m), donc une construction devant elle était
+    possible. Aucune proposition admise ne la recouvre. Le motif
+    d'élimination des candidats concernés n'a pas été compté ;
+    `independentVerify` rejette toute fenêtre qui « ne débouche plus ».
+- **Fichier de projet** : régénération strictement identique à celle du
+  parcours direct, **40/40**.
+- **Synchroniser `exteriorWall` sur le mur de la fenêtre** (essai sur
+  copie) changerait les résultats dans les 40 cas, dans les deux sens
+  (ex. Salon 1 accès avant 15×20 : 2 → 0 propositions nouvelles ;
+  Chambre 1 accès avant 15×25 sur cour : 3 → 7). Aucune synchronisation
+  automatique n'est donc faite.
+
+**Conclusion** : aucun défaut de conservation ni de validation constaté
+sur les cas examinés.
+
+**Restrictions de l'outil F1, précisées** :
+- **Mur portant une porte extérieure** : c'est une limite du **rendu**,
+  pas une impossibilité géométrique. `render.ts` ne dessine pas une
+  fenêtre dont la pièce a une porte vers l'extérieur sur le même mur,
+  quelle que soit sa position. L'outil refuse ce cas pour que l'export
+  reste fidèle.
+- **Cheminement extérieur traité comme une obstruction** : la règle
+  appliquée est celle de la génération (`chooseExteriorWindow`) : une
+  sonde de 0,32 m devant la baie (`doorOutsideProbe`) ne doit rencontrer
+  aucune pièce, circulation ni cheminement extérieur. Ce n'est pas
+  l'assimilation d'un passage à un mur, mais une règle prudente.
+  - La preuve d'exposition (`exteriorExposure.ts`) ne compte **pas** les
+    cheminements extérieurs comme du bâti, et `independentVerify` ne
+    revérifie pas l'obstruction d'une fenêtre. Les deux règles
+    existantes divergent donc.
+  - Sur 918 dispositions parcourues, 19 ont un cheminement extérieur hors
+    du contour englobant. Aucune proposition examinée ne place un tel
+    cheminement devant la fenêtre verrouillée.
+  - Non modifié, faute de défaut démontré.
+
+**Branche « anomalie nouvelle » (`newIssues`)** :
+- **`placeWindow`** : inaccessible par construction. Une fenêtre ne pèse
+  que sur les contrôles 3 et 3bis de `independentVerify`, déjà assurés
+  par la précondition d'exposition.
+- **`removeWindow`** : accessible seulement pour une pièce autre qu'une
+  chambre ou un salon qui ne touche pas le contour et dont la fenêtre est
+  prouvée exposée. Aucun cas naturel n'a été trouvé (918 dispositions,
+  2 720 retraits essayés). C'est une **limite de couverture** : aucun
+  test artificiel n'a été ajouté.
+
 ---
 
 ## 3. Journal des lots
