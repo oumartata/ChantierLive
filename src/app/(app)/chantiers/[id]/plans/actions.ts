@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { validateVariantLayoutForSave } from "@/app/prototype-plans/variantValidation";
+import { attestAndSaveVariant } from "@/lib/plans/variantAttestation";
 
 const BUCKET = "project-plans";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -587,30 +588,19 @@ export async function savePlanRequestVariantAction(formData: FormData): Promise<
   const validated = validateVariantLayoutForSave(layoutRaw);
   if (!validated.ok) return { ok: false, message: validated.message };
 
-  const supabase = await createClient();
-  const service = createServiceClient();
-
-  // Frontière de confiance (M034, même principe que M032b) : le fichier
-  // validé transite par attest_plan_request_variant_layout, exécutable
-  // UNIQUEMENT par service_role, lié au profil de la SESSION SERVEUR
-  // (guard.user.id, jamais une valeur du formulaire), à la demande et à
-  // l'opération. L'enregistrement, appelé avec les droits de l'utilisateur,
-  // ne reçoit plus de plan : il consomme l'attestation.
-  const { error: attestErr } = await service.rpc("attest_plan_request_variant_layout", {
-    p_operation_uuid: operationUuid,
-    p_request_id: requestId,
-    p_profile_id: guard.user.id,
-    p_layout: validated.file,
+  // Frontière de confiance (M034, même principe que M032b) : attestation par
+  // service_role liée au profil de la SESSION SERVEUR (guard.user.id,
+  // jamais une valeur du formulaire), puis enregistrement par l'utilisateur
+  // (attestAndSaveVariant).
+  const saved = await attestAndSaveVariant(await createClient(), createServiceClient(), {
+    profileId: guard.user.id,
+    requestId,
+    parentVariantId,
+    operationUuid,
+    file: validated.file,
   });
-  if (attestErr) return { ok: false, message: mapPlanError(attestErr.message) };
-
-  const { data, error } = await supabase.rpc("save_plan_request_variant", {
-    p_request_id: requestId,
-    p_parent_variant_id: parentVariantId,
-    p_operation_uuid: operationUuid,
-  });
-  if (error) return { ok: false, message: mapPlanError(error.message) };
-  return { ok: true, value: { id: data.id, variant_number: data.variant_number } };
+  if (!saved.ok) return { ok: false, message: mapPlanError(saved.code) };
+  return { ok: true, value: saved.value };
 }
 
 export async function listPlanRequestVariantsAction(requestId: string): Promise<ActionResult<PlanRequestVariantRow[]>> {

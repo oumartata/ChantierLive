@@ -2144,6 +2144,35 @@ garantissent pas l'absence de tout contournement.
 de la variante 8 (une version candidate). S'y ajoutent les utilisateurs,
 chantiers et demandes jetables créés par les deux scripts de test.
 
+### Catalogue modifiable — copie vers un chantier, premier sous-lot (2026-10-06, sans migration)
+
+Détail et proposition de migration pour la suite :
+[`PREPARATION_CATALOGUE_MODIFIABLE.md`](./PREPARATION_CATALOGUE_MODIFIABLE.md)
+§9.
+
+- **Utilisable** : depuis le catalogue, copie de la version publiée
+  structurée d'un modèle vers un chantier rattaché à l'organisation, où
+  l'utilisateur est entreprise ou propriétaire principal.
+  - Paramètres du chantier confirmés, ceux du modèle affichés à part.
+  - Vérification sans écriture : bloquant, ou à adapter dans l'éditeur.
+  - Création d'une demande et de sa variante 1 (copie), puis ouverture
+    proposée dans l'éditeur, sans remplacement silencieux du brouillon
+    local.
+- **Moteur** : `catalogueCopy.ts`, fonctions pures. Copie posée sur le
+  terrain du chantier, sans redimensionnement ni autorisation héritée.
+  `recomputeDerivedGeometry` est exportée sans changement de
+  comportement.
+- **Preuves** :
+  - `test-plans-catalogue-copy.mjs` : 35/35, dans `npm test` ;
+  - `test-catalogue-copy-source.mjs` : 29/29, local ;
+  - parcours navigateur sur les données de démonstration.
+- **Non fait** :
+  - traçabilité de la version source (migration proposée, non
+    appliquée) ;
+  - réorientation, cour d'entrée, adaptation du programme ;
+  - consultation du catalogue par le propriétaire de chantier (décision
+    §8.1).
+
 ---
 
 ## 3. Journal des lots

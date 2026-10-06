@@ -23,9 +23,9 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export default async function PrototypePlansPage({
   searchParams,
 }: {
-  searchParams: Promise<{ retour?: string; demande?: string }>;
+  searchParams: Promise<{ retour?: string; demande?: string; variante?: string }>;
 }) {
-  const { retour, demande } = await searchParams;
+  const { retour, demande, variante } = await searchParams;
   const returnHref = retour && UUID_RE.test(retour) ? `/chantiers/${retour}/plans` : null;
   // "demande" suit la même règle que "retour" : jamais une autorisation,
   // seulement reconstruit par la session réelle de l'appelant au moment de
@@ -33,6 +33,11 @@ export default async function PrototypePlansPage({
   // "new" signale une intention (créer une demande au premier "Générer"),
   // jamais un identifiant réel.
   const requestParam = demande === "new" || (demande && UUID_RE.test(demande)) ? demande : null;
+  // "variante" : copie d'un modèle de catalogue tout juste créée, seulement
+  // PROPOSÉE à l'ouverture (jamais une autorisation : relue par
+  // get_plan_request_variant avec la session réelle, et rattachée à la
+  // demande ouverte).
+  const copyVariantParam = requestParam && requestParam !== "new" && variante && UUID_RE.test(variante) ? variante : null;
 
   let depositContext: DepositContext | null = null;
   if (returnHref && retour) {
@@ -63,7 +68,7 @@ export default async function PrototypePlansPage({
           </Link>
         </div>
       ) : null}
-      <PrototypeClient depositContext={depositContext} requestParam={requestParam} />
+      <PrototypeClient depositContext={depositContext} requestParam={requestParam} copyVariantParam={copyVariantParam} />
     </div>
   );
 }

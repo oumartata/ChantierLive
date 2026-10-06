@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, StatusChip } from "@/components/ui";
@@ -84,6 +85,20 @@ export default async function OrganisationCataloguePage({
 
   const activeEngineers = ((engineers ?? []) as EngineerDesignation[]).filter((e) => e.revoked_at === null);
 
+  // Copie vers un chantier : proposée seulement pour une version PUBLIÉE
+  // munie d'un fichier structuré — un modèle plat n'est jamais présenté
+  // comme éditable (même lecture que get_catalog_item_version_file).
+  const structuredPublished = new Set<string>();
+  await Promise.all(
+    ((items ?? []) as CatalogItemRow[])
+      .filter((item) => item.published_version_id && !item.archived_at)
+      .map(async (item) => {
+        const { data } = await supabase.rpc("get_catalog_item_version_file", { p_version_id: item.published_version_id });
+        const row = Array.isArray(data) ? data[0] : data;
+        if (row && row.layout !== null && row.layout !== undefined) structuredPublished.add(item.id);
+      })
+  );
+
   return (
     <div className="mx-auto flex max-w-md flex-col gap-6 p-6">
       <h1 className="text-h1 font-bold text-ink">Catalogue de plans — {organization.name}</h1>
@@ -127,6 +142,16 @@ export default async function OrganisationCataloguePage({
                 <UploadVersionForm organizationId={organization.id} catalogItemId={item.id} />
                 <UploadModifiableVersionForm organizationId={organization.id} catalogItemId={item.id} />
                 {item.latest_version_id ? <CatalogVersionFileLinks versionId={item.latest_version_id} /> : null}
+                {structuredPublished.has(item.id) ? (
+                  <Link
+                    href={`/organisations/${organization.id}/catalogue/${item.id}/copier`}
+                    className="w-fit text-label font-semibold text-primary"
+                  >
+                    Copier la version publiée vers un chantier →
+                  </Link>
+                ) : item.published_version_id ? (
+                  <p className="text-caption text-muted">Version publiée sans fichier structuré : non copiable pour édition.</p>
+                ) : null}
                 {(() => {
                   // CORRIGÉ (revue ciblée, point 5) : une demande PENDING dont
                   // la désignation a été révoquée ne bloque plus la

@@ -97,9 +97,13 @@ function numberInput(value: number, onChange: (v: number) => void, step = 0.1, d
 export function PrototypeClient({
   depositContext,
   requestParam,
+  copyVariantParam = null,
 }: {
   depositContext: DepositContext | null;
   requestParam: string | null;
+  // Copie d'un modèle de catalogue tout juste enregistrée (variante 1) :
+  // proposée à l'ouverture, jamais ouverte sans action de l'utilisateur.
+  copyVariantParam?: string | null;
 }) {
   const router = useRouter();
   // "new" : pas encore de demande réelle — créée au premier "Générer" dans ce
@@ -139,7 +143,30 @@ export function PrototypeClient({
   // transmis à l'éditeur pour être affichés, jamais avalés.
   const [draftNotices, setDraftNotices] = useState<string[]>([]);
 
-  async function handleResumeVariant(variantId: string) {
+  const [pendingCopyVariant, setPendingCopyVariant] = useState<string | null>(copyVariantParam);
+
+  function downloadLocalDraft() {
+    const current = getResumableSnapshot();
+    if (!current || !("file" in current)) return;
+    const blob = new Blob([JSON.stringify(current.file, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "brouillon-local-chantierlive.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  // Ouvrir une variante remplace le brouillon local de cet appareil (sauvegarde
+  // automatique à l'ouverture de l'éditeur) : confirmation explicite dès
+  // qu'un brouillon local lisible existe, sauf si l'utilisateur vient de
+  // confirmer ce remplacement dans le bandeau dédié.
+  async function handleResumeVariant(variantId: string, options: { confirmed?: boolean } = {}) {
+    const local = getResumableSnapshot();
+    if (!options.confirmed && local && "file" in local) {
+      const when = new Date(local.file.savedAt).toLocaleString("fr-FR");
+      if (!window.confirm(`Ouvrir cette variante remplacera le brouillon local enregistré sur cet appareil le ${when}. Continuer ?`)) return;
+    }
     setResumeLoadingId(variantId);
     setResumeError(null);
     const result = await getPlanRequestVariantAction(variantId);
@@ -148,10 +175,18 @@ export function PrototypeClient({
       setResumeError(result.message);
       return;
     }
+    if (requestId && result.value.request_id !== requestId) {
+      setResumeError("Cette variante n'appartient pas à la demande ouverte.");
+      return;
+    }
     const validated = validateProjectFile(result.value.layout);
     if (!validated.ok) {
       setResumeError("Variante sauvegardée illisible (format inattendu).");
       return;
+    }
+    if (variantId === pendingCopyVariant) {
+      setPendingCopyVariant(null);
+      if (depositContext && requestId) router.replace(`/prototype-plans?retour=${depositContext.projectId}&demande=${requestId}`);
     }
     setOrientation(validated.value.orientation as "N" | "S" | "E" | "O");
     setOpenedVariantId(variantId);
@@ -299,6 +334,38 @@ export function PrototypeClient({
         </p>
       </div>
 
+      {pendingCopyVariant && requestId && !draft ? (
+        <section className="flex flex-col gap-2 rounded border border-emerald-400 bg-emerald-50 p-3 text-sm" data-testid="copie-modele">
+          <p className="font-semibold text-emerald-900">
+            Copie du modèle enregistrée comme variante de cette demande. Elle n&apos;est ni déposée, ni retenue, ni validée.
+          </p>
+          {resumable && "file" in resumable ? (
+            <p className="text-emerald-900">
+              L&apos;ouvrir remplacera le brouillon local de cet appareil (enregistré le{" "}
+              {new Date(resumable.file.savedAt).toLocaleString("fr-FR")}). Téléchargez-le d&apos;abord si vous voulez le
+              conserver : il pourra être réimporté avec « Importer un fichier de projet ».
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {resumable && "file" in resumable ? (
+              <button onClick={downloadLocalDraft} className="rounded border border-emerald-600 bg-white px-3 py-1 text-xs font-semibold text-emerald-900">
+                Télécharger d&apos;abord le brouillon local (.json)
+              </button>
+            ) : null}
+            <button
+              onClick={() => handleResumeVariant(pendingCopyVariant, { confirmed: true })}
+              disabled={resumeLoadingId === pendingCopyVariant}
+              className="rounded bg-emerald-700 px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              {resumeLoadingId === pendingCopyVariant
+                ? "Chargement…"
+                : resumable && "file" in resumable
+                  ? "Ouvrir la copie (remplace le brouillon local)"
+                  : "Ouvrir la copie dans l'éditeur"}
+            </button>
+          </div>
+        </section>
+      ) : null}
       {resumable && "file" in resumable && !draft ? (
         <section className="flex flex-wrap items-center gap-3 rounded border border-sky-300 bg-sky-50 p-3 text-sm">
           <span>

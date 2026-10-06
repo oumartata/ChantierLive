@@ -1,5 +1,9 @@
 # Préparation — catalogue modifiable (prochain chantier)
 
+> **Mise à jour du 2026-10-06** : premier sous-lot du Lot B réalisé sans
+> migration, et proposition de migration pour la suite : voir §9. Les
+> sections 1 à 8 sont conservées telles quelles (historique).
+
 Document d'analyse et de plan uniquement. **Aucun code, aucune migration
 créée ou appliquée.** Complète `PREPARATION_INTEGRATION_METIER.md` (Lots
 1/2/3 terminés, 3/3) sans le modifier. Condition déjà remplie pour ouvrir ce
@@ -477,3 +481,157 @@ Copie d'un modèle vers un chantier (reste le Lot B existant, §« Lot B —
 démarrer une demande… », inchangé par cette proposition) ; gestion du
 catalogue (page existante, inchangée) ; accès aux brouillons, versions non
 publiées, ou catalogues d'autres organisations (toujours refusés).
+
+## 9. Lot B — copie vers un chantier : premier sous-lot sans migration (2026-10-06, local)
+
+### 9.1 Fonctions réellement disponibles (vérifiées depuis M034)
+
+- Lecture du modèle : `list_organization_catalog_items` et
+  `get_catalog_item_version_file` (M019/M032), réservées au **propriétaire
+  de l'organisation**.
+- Chantier : `create_plan_request` (M031b), CONTRACTOR ou OWNER/PRIMARY du
+  chantier.
+- Première variante : circuit M034 (attestation `service_role` liée au
+  profil de session, puis `save_plan_request_variant`).
+- Rattachement chantier → organisation : `projects.organization_id`, comme
+  pour `attach_catalog_plan_to_project` (D107).
+
+Ces fonctions suffisent pour un parcours complet **sans migration ni droit
+nouveau**. Seule manque la traçabilité de la version source (§9.4).
+
+### 9.2 Réellement utilisable
+
+Parcours : catalogue → « Copier la version publiée vers un chantier »
+(`/organisations/[id]/catalogue/[itemId]/copier`) → choix du chantier →
+paramètres du chantier → vérification → création → ouverture dans
+l'éditeur.
+
+- **Source** : uniquement la version **publiée**, munie d'un fichier
+  structuré. Un modèle plat n'a pas de lien de copie ; son accès direct
+  explique qu'il n'est pas éditable.
+- **Destination** : chantiers où l'utilisateur a une adhésion **active**
+  (CONTRACTOR ou OWNER/PRIMARY) **et** qui sont rattachés à l'organisation
+  du modèle. Posséder l'organisation ne donne accès à aucun chantier.
+- **Paramètres du chantier** : saisis, ou repris de la dernière demande de
+  plan de **ce chantier** (présentés comme tels, à confirmer). Jamais
+  pré-remplis depuis le modèle. Une case de confirmation est exigée et se
+  décoche à chaque modification. Les paramètres du modèle sont affichés à
+  part, en lecture seule.
+- **Vérification sans écriture** (`catalogueCopy.ts`) :
+  - **bloquant**, la copie n'est pas créée : façade d'accès différente,
+    programme différent, pièce sous les minima du chantier, élément non
+    déplaçable (couloir, raccord, circulation) hors emprise, cheminement
+    extérieur hors terrain, modèle avec cour d'entrée (limite de ce lot) ;
+  - **à adapter dans l'éditeur** : pièces hors emprise et anomalies de
+    `independentVerify`, que l'éditeur contrôle au dépôt ;
+  - aucun verdict d'admissibilité : le texte rappelle que la copie n'est
+    ni déposée ni admissible.
+- **Copie** : clone profond, posée sur le terrain et l'emprise du chantier,
+  pièces aux mêmes positions et dimensions, autorisations F2 retirées,
+  orientation du chantier. Elle est revalidée (v4, sans avis) puis
+  enregistrée comme **variante 1** d'une nouvelle demande, dont les
+  `generation_params` sont ceux du **chantier**.
+- **Reprise sans doublon** : même opération et même date de préparation
+  donnent le même fichier. Si la réponse est perdue, la demande est
+  retrouvée par l'attestation de l'opération.
+- **Brouillon** : préparer ou vérifier ne touche aucun brouillon. Dans
+  l'éditeur, la copie est seulement **proposée**. Si un brouillon local
+  existe, le bandeau prévient du remplacement et propose de le télécharger
+  (réimportable). L'ouverture d'une variante par la liste existante demande
+  désormais confirmation quand un brouillon local existe.
+- **Contrôles côté serveur** : toutes les vérifications passent par les
+  actions serveur avec la session réelle
+  (`src/lib/plans/catalogueCopySource.ts`). La demande et la variante sont
+  revérifiées par `create_plan_request` et le circuit M034.
+
+### 9.3 Garanties vérifiées
+
+- Modèle et version d'origine inchangés : ligne identique avant et après.
+- Aucune autorisation F2 héritée.
+- Aucun redimensionnement.
+- Aucune validation héritée : pas de version de chantier, pas de
+  validation de chantier, validations du catalogue inchangées.
+- Aucun dépôt automatique.
+
+Preuves :
+- `scripts/test-plans-catalogue-copy.mjs` : 35/35, branché dans
+  `npm test` ;
+- `scripts/test-catalogue-copy-source.mjs` : 29/29, local, vraies
+  sessions ;
+- parcours navigateur sur les données de démonstration (§9.6).
+
+### 9.4 Préparé, non implémenté — migration proposée (non créée, non appliquée)
+
+**Besoin** : conserver, sur la demande créée, la version source du modèle
+(« issu de “Modèle X” v1 »), immuable, et faire porter la double
+condition D107 par la base plutôt que par l'action serveur seule.
+
+**Opérations (M035, prochain identifiant libre)** :
+1. `alter table project_plan_requests add column
+   source_catalog_item_version_id uuid null references
+   plan_catalog_item_versions(id) on delete restrict` : additive, nulle
+   pour toutes les demandes existantes.
+2. Déclencheur d'immuabilité des demandes (M031) étendu à cette colonne :
+   fixée à l'insertion, jamais modifiée.
+3. `create_plan_request_from_catalog_item(p_project_id,
+   p_catalog_item_id, p_generation_params)`, en `security definer`,
+   accordée à `authenticated` :
+   - mêmes contrôles que `create_plan_request` (adhésion active
+     CONTRACTOR ou OWNER/PRIMARY, compte non provisoire) ;
+   - propriétaire de l'organisation du modèle ;
+   - `projects.organization_id = plan_catalog_items.organization_id` ;
+   - modèle non archivé ;
+   - version publiée avec `layout` non nul, sinon
+     `catalog_item_not_editable` ;
+   - insertion avec `source_catalog_item_version_id`.
+4. La variante 1 reste créée par le circuit M034 (validation et
+   préparation de la copie côté serveur) : aucun plan en argument.
+
+**Rôles concernés** : exactement ceux de `attach_catalog_plan_to_project`.
+Aucun droit nouveau, aucun accès du propriétaire de chantier au catalogue
+(§8 inchangé).
+
+**Impact** :
+- colonne additive ;
+- l'action de copie appelle la nouvelle fonction au lieu de
+  `create_plan_request` ;
+- affichage en lecture seule de la source sur la demande ;
+- aucune lecture du catalogue par ce chemin pour d'autres rôles.
+
+**Critères de réussite** :
+- la source s'affiche et ne peut être ni modifiée ni supprimée ;
+- un appel direct est refusé pour un chantier d'une autre organisation, un
+  chantier sans adhésion, un copropriétaire, un modèle non publié ou
+  plat ;
+- aucune clé étrangère vers une table de validation ;
+- deux chantiers obtiennent deux demandes indépendantes ;
+- les tests du §9.3 restent verts.
+
+### 9.5 Bloqué sur une décision
+
+1. **Appliquer la migration du §9.4** : décision du fondateur, après
+   relecture.
+2. **Consultation du catalogue par le propriétaire du chantier** (§8.1) :
+   inchangé, toujours bloqué. Le lien chantier → organisation n'existe pas
+   pour un chantier créé par son propriétaire. Ce lot n'élargit aucun accès.
+3. **Copie des seules versions publiées** : règle du Lot B appliquée telle
+   quelle. Autoriser la copie d'une version non publiée serait une décision
+   distincte.
+4. **Hors de ce sous-lot, sans décision de droits** :
+   - réorientation d'un modèle vers une autre façade d'accès ;
+   - copie d'un modèle avec cour d'entrée ;
+   - adaptation du programme (ajout ou retrait de pièces).
+
+   Ce sont des évolutions du moteur, à cadrer séparément.
+
+### 9.6 Données de démonstration (Supabase local)
+
+- **Publication de la version 1 du « Modèle démo F2 v5 (2026-10-06) »**,
+  par le circuit réel : désignation d'un ingénieur de démonstration (compte
+  local `demo-ingenieur-catalogue@example.test`, mot de passe aléatoire non
+  conservé), soumission, décision `VALIDATED`, publication par le
+  propriétaire.
+- **Sur le « Chantier démo F2 v5 »** : une demande `41b42a13…` (paramètres
+  du chantier, 15 × 20 m, accès avant) et sa variante 1, la copie. Ni
+  déposée, ni validée.
+- **Données jetables** créées par les scripts de test.

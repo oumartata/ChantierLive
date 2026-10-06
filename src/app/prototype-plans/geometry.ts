@@ -2679,7 +2679,7 @@ export function cloneLayout(layout: Layout): Layout {
 // rectangle figé depuis la génération. Utilisé après un déplacement pour
 // que la pièce puisse aller au-delà de l'ancien contour, dans le reste de
 // l'emprise constructible.
-function recomputeDerivedGeometry(layout: Layout): Layout {
+export function recomputeDerivedGeometry(layout: Layout): Layout {
   const next = cloneLayout(layout);
   // Une pièce mise de côté (parked) n'occupe aucune place réelle : exclue du
   // contour bâti et des surfaces, jamais comptée comme si elle était posée.
