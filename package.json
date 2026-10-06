@@ -11,7 +11,7 @@
     "test:sw": "node scripts/sw.test.mjs",
     "test:plans": "node scripts/test-plans-geometry.mjs",
     "test:plans:battery": "node scripts/test-plans-battery.mjs",
-    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view && npm run test:plans:windows && npm run test:plans:obstruction && npm run test:plans:f2 && npm run test:plans:f2:allowances",
+    "test": "npm run test:sw && npm run test:plans && npm run test:plans:exterior && npm run test:plans:view && npm run test:plans:windows && npm run test:plans:obstruction && npm run test:plans:f2 && npm run test:plans:f2:allowances && npm run test:plans:catalogue",
     "verify": "node scripts/quality-gate.mjs",
     "test:plans:exterior": "node scripts/test-plans-exterior-exposure.mjs",
     "test:plans:view": "node scripts/test-plans-regeneration-view.mjs",
@@ -19,7 +19,8 @@
     "test:plans:obstruction": "node scripts/test-plans-window-obstruction.mjs",
     "proof:plans:f2": "node scripts/proof-plans-f2-preparation.mjs",
     "test:plans:f2": "node scripts/test-plans-f2-adapted.mjs",
-    "test:plans:f2:allowances": "node scripts/test-plans-f2-allowances.mjs"
+    "test:plans:f2:allowances": "node scripts/test-plans-f2-allowances.mjs",
+    "test:plans:catalogue": "node scripts/test-plans-catalogue-f2.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

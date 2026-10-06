@@ -1937,6 +1937,97 @@ B/C, non implémentés ici) :
 
 **Décision attendue** : option A (recommandée) ou option B.
 
+### F2 — catalogue compatible, option A (2026-10-06, aucune migration)
+
+Point de départ : HEAD `bb8a93c`. **Décision** : option A, retrait des
+autorisations à l'entrée du catalogue.
+
+**Code** :
+- **`toCatalogueProjectFile`** (`projectFile.ts`) :
+  - travaille sur une copie du fichier déjà validé par
+    `validateProjectFile` ;
+  - retire **uniquement** `dimensionAllowances` ;
+  - produit le fichier avec `serializeProject`, la version étant déduite
+    du contenu (4) et non remplacée à la main ;
+  - refuse explicitement si le résultat n'est pas un v4, au cas où une
+    autre donnée propre à v5 apparaîtrait ;
+  - revalide entièrement le fichier produit (aucun avis, version 4) ;
+  - vérifie que la géométrie est **strictement identique**, sans tenir
+    compte de l'ordre des clés ; sinon, refus.
+  - Note : le fichier produit est daté de la conversion (`savedAt`).
+- **`depositModifiableCatalogItemVersionAction`** : conversion entre la
+  validation et l'attestation ; le fichier attesté est le v4 produit. Le
+  nombre d'autorisations non transférées est renvoyé.
+- **`UploadModifiableVersionForm`** :
+  - dès qu'un fichier portant des autorisations est choisi, l'avis
+    « Le modèle conservera les dimensions de ce plan. Les autorisations
+    de réduction propres à votre projet ne seront pas enregistrées dans le
+    catalogue. » s'affiche avant le bouton de dépôt, dans le même
+    parcours ;
+  - après le dépôt, le formulaire confirme le nombre d'autorisations non
+    transférées.
+- **Inchangé** : base, attestation réservée au `service_role`,
+  permissions, circuit `prepare` / `claim` / `attest` / `finalize`.
+
+**Preuves** :
+- **Tests** : `scripts/test-plans-catalogue-f2.mjs` (branché dans
+  `npm test`), 12/12. Un plan F2 réel (v5, 4 autorisations, dimensions
+  réduites) devient un v4 sans autorisations :
+  - géométrie strictement identique ;
+  - fichier source inchangé ;
+  - relecture valide, sans avis ni autorisation ;
+  - 3 fichiers v4 existants acceptés, géométrie identique ;
+  - un fichier structurellement invalide est refusé avant conversion ;
+  - des autorisations invalides sont écartées et le modèle sort en v4.
+- **Navigateur isolé**, compte de démonstration existant, connecté sans
+  qu'aucun mot de passe n'apparaisse (identifiants servis une seule fois
+  par un serveur local) :
+  - modèle « Modèle démo F2 v5 (2026-10-06) » créé dans l'organisation
+    de démonstration ;
+  - dépôt du fichier F2 v5 : avis affiché, puis « Modèle déposé avec la
+    géométrie du plan ; 4 autorisation(s) … non enregistrée(s) dans le
+    catalogue » ;
+  - aperçu ouvert par URL signée (`image/png`) ;
+  - modèle relu (« Récupérer le fichier modifiable ») : v4, sans
+    autorisations, géométrie **identique** à la source ; réimporté dans
+    l'éditeur, il reste en v4, sans avis, avec les mêmes dimensions et
+    le même verrou ;
+  - fichier source inchangé (même empreinte) ; la variante d'origine en
+    base garde ses 4 autorisations ;
+  - dépôt d'un fichier v4 existant : « Modèle déposé » (version 2), sans
+    avis F2.
+- **Appels directs** avec les droits ordinaires du compte de
+  démonstration, **tous refusés** :
+  - `attest_catalog_item_layout`, en v5 comme en v4 :
+    `42501 permission denied` ;
+  - `finalize_catalog_item_upload` avec un plan en argument :
+    `PGRST202`, l'ancienne signature n'existe plus ;
+  - `finalize_catalog_item_upload` sur une opération inexistante :
+    `not_authorized` ;
+  - `prepare_catalog_item_upload` sur le modèle d'une autre
+    organisation : `not_authorized`.
+
+  Ces résultats portent sur ces appels précis ; ils ne valent pas preuve
+  générale d'absence de contournement.
+- `npm run verify` : vert.
+
+**Statut** : **F2 catalogue compatible**, dépôt et relecture réellement
+vérifiés. Les lots catalogue B/C (copie d'un modèle vers un chantier)
+restent distincts et non réalisés ; ils devront ne transmettre aucune
+autorisation (voir la section précédente).
+
+**Sujet ouvert, non corrigé** : `save_plan_request_variant` (m031b)
+enregistre n'importe quel JSON comme variante de demande, sans validation
+de format à l'écriture. Il est appelable directement par `authenticated`.
+Les autorisations F2 invalides n'y sont neutralisées qu'à la lecture. Une
+validation à l'écriture, par l'action serveur et/ou en base, reste à
+traiter dans un lot dédié.
+
+**Données de démonstration ajoutées**, Supabase local : dans
+l'organisation de démonstration existante, un modèle de catalogue et deux
+versions (le modèle F2 converti et le fichier v4 `plans-c2-resolu`), avec
+leurs fichiers stockés.
+
 ---
 
 ## 3. Journal des lots

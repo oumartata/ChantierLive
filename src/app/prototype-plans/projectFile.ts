@@ -327,3 +327,41 @@ export function validateProjectFile(data: unknown): { ok: true; value: ProjectFi
   }
   return { ok: true, value: { version: projectFileVersionFor(layout), savedAt: f.savedAt, orientation: f.orientation, layout }, notices };
 }
+
+// ---- Catalogue (option A, décision du 2026-10-06) ----
+// Un modèle du catalogue conserve la GÉOMÉTRIE d'un plan issu de F2, jamais
+// les autorisations de réduction propres au projet d'origine (le
+// consentement appartient à ce projet). Appelée par l'action serveur de dépôt
+// APRÈS validateProjectFile ; travaille sur une copie (le fichier reçu n'est
+// jamais modifié) ; retire UNIQUEMENT Layout.dimensionAllowances ; produit le
+// fichier avec le sérialiseur existant (version déduite du contenu, jamais
+// remplacée à la main) ; refuse si le résultat n'est pas un v4 (donnée propre
+// à v5 autre que les autorisations : jamais supprimée en silence) ; revalide
+// entièrement le fichier obtenu et vérifie que la géométrie est STRICTEMENT
+// identique à celle du fichier reçu (hors autorisations). Note :
+// serializeProject date le fichier produit (savedAt) au moment de la
+// conversion.
+export function toCatalogueProjectFile(
+  file: ProjectFile
+): { ok: true; file: ProjectFile; removedAllowances: number } | { ok: false; error: string } {
+  const layout = JSON.parse(JSON.stringify(file.layout)) as Layout;
+  const removedAllowances = layout.dimensionAllowances?.length ?? 0;
+  delete layout.dimensionAllowances;
+  const produced = serializeProject(layout, file.orientation);
+  if (produced.version !== 4) {
+    return { ok: false, error: `ce plan contient des données de la version ${produced.version} qui ne peuvent pas être conservées dans un modèle du catalogue (version 4).` };
+  }
+  const revalidated = validateProjectFile(JSON.parse(JSON.stringify(produced)));
+  if (!revalidated.ok) return { ok: false, error: `conversion pour le catalogue invalide : ${revalidated.error}` };
+  if (revalidated.notices.length > 0 || revalidated.value.version !== 4) {
+    return { ok: false, error: "conversion pour le catalogue incohérente (avis de lecture ou version inattendus)." };
+  }
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v as object).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])])) : v;
+  const sourceGeometry = { ...file.layout } as Record<string, unknown>;
+  delete sourceGeometry.dimensionAllowances;
+  if (JSON.stringify(canon(sourceGeometry)) !== JSON.stringify(canon(revalidated.value.layout)) || revalidated.value.orientation !== file.orientation) {
+    return { ok: false, error: "conversion pour le catalogue non fidèle : la géométrie aurait changé." };
+  }
+  return { ok: true, file: revalidated.value, removedAllowances };
+}

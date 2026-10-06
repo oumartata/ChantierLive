@@ -20,15 +20,30 @@ export function UploadModifiableVersionForm({ organizationId, catalogItemId }: {
   const [error, setError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [previewInfo, setPreviewInfo] = useState<string | null>(null);
+  // Avis F2 (option A) : affiché dès qu'un fichier portant des autorisations
+  // de réduction est choisi, avant le bouton de dépôt — même parcours.
+  const [allowanceNotice, setAllowanceNotice] = useState(false);
+  const [doneInfo, setDoneInfo] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pendingOperationUuidRef = useRef<string | null>(null);
 
   function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
     pendingOperationUuidRef.current = null;
-    setSelectedFile(e.target.files?.[0] ?? null);
+    const chosen = e.target.files?.[0] ?? null;
+    setSelectedFile(chosen);
     setPreviewInfo(null);
     setError(null);
+    setDoneInfo(null);
+    setAllowanceNotice(false);
+    if (!chosen) return;
+    chosen
+      .text()
+      .then((text) => {
+        const v = validateProjectFile(JSON.parse(text));
+        setAllowanceNotice(v.ok && (v.value.layout.dimensionAllowances?.length ?? 0) > 0);
+      })
+      .catch(() => setAllowanceNotice(false));
   }
 
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
@@ -87,6 +102,12 @@ export function UploadModifiableVersionForm({ organizationId, catalogItemId }: {
       pendingOperationUuidRef.current = null;
       setSelectedFile(null);
       setPreviewInfo(null);
+      setAllowanceNotice(false);
+      setDoneInfo(
+        result.value.removedAllowances > 0
+          ? `Modèle déposé avec la géométrie du plan ; ${result.value.removedAllowances} autorisation(s) de réduction propre(s) au projet d'origine non enregistrée(s) dans le catalogue.`
+          : "Modèle déposé."
+      );
       if (fileInputRef.current) fileInputRef.current.value = "";
       router.refresh();
     });
@@ -107,6 +128,17 @@ export function UploadModifiableVersionForm({ organizationId, catalogItemId }: {
         onChange={handleFileChange}
         className="text-caption text-ink"
       />
+      {allowanceNotice ? (
+        <p role="status" data-testid="catalogue-f2-notice" className="rounded bg-amber-50 p-2 text-caption text-ink">
+          Le modèle conservera les dimensions de ce plan. Les autorisations de réduction propres à votre projet ne seront pas
+          enregistrées dans le catalogue.
+        </p>
+      ) : null}
+      {doneInfo ? (
+        <p role="status" data-testid="catalogue-deposit-done" className="text-caption text-ink">
+          {doneInfo}
+        </p>
+      ) : null}
       <canvas ref={canvasRef} className="hidden" />
       <Button type="submit" size="compact" loading={pending}>
         Déposer ce modèle modifiable

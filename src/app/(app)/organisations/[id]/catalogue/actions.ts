@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
-import { validateProjectFile } from "@/app/prototype-plans/projectFile";
+import { toCatalogueProjectFile, validateProjectFile } from "@/app/prototype-plans/projectFile";
 
 const BUCKET = "organization-catalog";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -302,7 +302,7 @@ export async function depositCatalogItemVersionAction(formData: FormData): Promi
 // que seule cette action serveur peut invoquer.
 export async function depositModifiableCatalogItemVersionAction(
   formData: FormData
-): Promise<ActionResult<{ versionId: string }>> {
+): Promise<ActionResult<{ versionId: string; removedAllowances: number }>> {
   const guard = await requireVerifiedAccount();
   if (!guard.ok) return { ok: false, message: guard.message };
 
@@ -320,6 +320,13 @@ export async function depositModifiableCatalogItemVersionAction(
   }
   const validated = validateProjectFile(layout);
   if (!validated.ok) return { ok: false, message: `Fichier de projet invalide : ${validated.error}` };
+  // Option A (2026-10-06) : le modèle conserve la géométrie, jamais les
+  // autorisations F2 du projet d'origine — conversion sur une copie,
+  // sérialiseur existant (v4), revalidation complète et contrôle de
+  // fidélité de la géométrie (toCatalogueProjectFile). Refus explicite si
+  // une donnée ne peut pas être conservée en v4.
+  const catalogueFile = toCatalogueProjectFile(validated.value);
+  if (!catalogueFile.ok) return { ok: false, message: `Fichier de projet refusé pour le catalogue : ${catalogueFile.error}` };
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const declaredMimeType = file.type || "application/octet-stream";
@@ -338,7 +345,7 @@ export async function depositModifiableCatalogItemVersionAction(
   // validateProjectFile autoritaire) détient la clé service_role.
   const { error: attestLayoutErr } = await service.rpc("attest_catalog_item_layout", {
     p_operation_uuid: operationUuid,
-    p_layout: validated.value,
+    p_layout: catalogueFile.file,
   });
   if (attestLayoutErr) return { ok: false, message: mapCatalogError(attestLayoutErr.message) };
 
@@ -348,7 +355,7 @@ export async function depositModifiableCatalogItemVersionAction(
   if (finErr) return { ok: false, message: mapCatalogError(finErr.message) };
 
   revalidatePath(`/organisations/${organizationId}/catalogue`);
-  return { ok: true, value: { versionId: version.id } };
+  return { ok: true, value: { versionId: version.id, removedAllowances: catalogueFile.removedAllowances } };
 }
 
 // Aperçu (URL signée, jamais la clé Storage brute exposée au client) ET
