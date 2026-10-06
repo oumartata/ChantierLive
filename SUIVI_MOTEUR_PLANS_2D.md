@@ -2044,6 +2044,91 @@ Diagnostic et proposition dans
   aucune exigence géométrique nouvelle.
 - **Statut** : aucune migration appliquée, aucun code modifié.
 
+### Validation à l'écriture des variantes de demandes — réalisée (2026-10-06, Supabase local)
+
+**Migration** : `20261006120000_m034_plan_request_variant_attestation.sql`
+(M033 était déjà prise par les phases de chantier). Appliquée sur Supabase
+**local uniquement** avec `supabase migration up --local`, après une
+sauvegarde vérifiée (schéma et données, dans `.local_backups/`, non
+versionné). Aucune migration existante modifiée, aucune donnée existante
+réécrite : les 33 variantes déjà présentes gardent `operation_uuid` nul.
+
+**Base** :
+- table `project_plan_request_variant_attestations` : opération, demande,
+  profil, plan validé, consommation. RLS active, aucun droit pour
+  `authenticated` ni `anon` ;
+- `attest_plan_request_variant_layout` : exécutable par `service_role`
+  seul ; idempotente pour le même contenu, la même demande et le même
+  profil ; tout autre contenu sous la même opération est refusé
+  (`attestation_conflict`) ;
+- ancienne signature `save_plan_request_variant(uuid, uuid, jsonb)`
+  supprimée ; la nouvelle reçoit l'opération, plus aucun plan. Contrôles
+  de session et de droits repris de M031b, toujours exécutés (y compris
+  en reprise). Elle consomme l'attestation et crée la variante dans la
+  même transaction ;
+- reprise d'une opération déjà consommée : même variante renvoyée, rien
+  d'écrit, même si la demande a été fermée depuis ; parent différent
+  refusé ;
+- `operation_uuid` des variantes : unique, figé par le déclencheur
+  d'immuabilité.
+
+**Code** :
+- `variantValidation.ts` : réutilise `validateProjectFile` sans le
+  modifier. Fichier structurellement invalide : refus. Autorisations F2
+  invalides : refus explicite avec le motif précis, jamais de retrait
+  silencieux. Aucune exigence géométrique ajoutée. Renvoie le fichier
+  effectivement validé ;
+- `savePlanRequestVariantAction` : validation, puis attestation avec le
+  profil de la **session serveur** (jamais une valeur du formulaire),
+  puis enregistrement par l'utilisateur ;
+- éditeur : une opération par contenu, conservée (avec le même fichier
+  sérialisé) pour une reprise de la même disposition, remise à zéro après
+  succès. En cas de refus, le motif est affiché et le brouillon reste
+  intact.
+
+**Preuves** :
+- `scripts/test-plan-request-variant-attestation.mjs` (local, hors
+  `npm test` comme les autres tests de base) : **39/39**. Couvre :
+  - 4 contenus invalides refusés sans attestation ni variante ;
+  - témoins v4 et v5 acceptés, relus identiques au fichier validé ;
+  - appel direct sans attestation refusé ;
+  - ancienne signature et toute surcharge à plan libre introuvables ;
+  - attestation et table refusées à `authenticated` et `anon` ;
+  - attestation d'un autre utilisateur ou d'une autre demande refusée ;
+  - même opération avec un contenu, un profil ou une demande différents :
+    refusée ;
+  - deux finalisations simultanées : une seule variante ;
+  - reprise après échec réel, et après réponse perdue : aucun doublon ;
+  - accès retiré et demande fermée entre attestation et enregistrement :
+    refus ;
+- `scripts/test-plan-requests.mjs` adapté, avec un vrai fichier de projet
+  valide au lieu d'un plan vide : **30/30**, assertions métier et de
+  permissions inchangées ;
+- **navigateur isolé**, compte de démonstration existant, connexion sans
+  affichage du mot de passe, demande de démonstration `44da7fdf…` :
+  - enregistrements valides : variante 7 (issue de la variante 1) et
+    variante 8 (issue de la 6, v5 avec 4 autorisations) ;
+  - contenu altéré entre le navigateur et le serveur (requête
+    interceptée) : refus affiché pour des autorisations invalides, puis
+    pour une porte vers une pièce inexistante ; brouillon conservé ;
+    aucune variante ni attestation créée ;
+  - rechargement : 8 variantes retrouvées ; la variante 8 est déposée
+    comme candidat (demande passée à `DEPOSITED`). Rien n'est retenu,
+    validé ni publié ;
+  - aucune erreur dans la console ni dans le journal du serveur.
+
+**Constat** : la variante 1 de la démonstration porte des autorisations
+invalides, écartées à l'ouverture avec un avis visible. Une variante
+enregistrée depuis elle est donc un v4 sans autorisations : c'est le
+comportement existant à la lecture, pas un retrait à l'écriture. Les
+anciennes variantes invalides de démonstration (2 à 6, et la 1) sont
+**conservées**, non nettoyées.
+
+**Données de démonstration ajoutées** (Supabase local) : variantes 7 et
+8 de la demande `44da7fdf…`, leurs 2 attestations consommées, le dépôt
+de la variante 8 (une version candidate). S'y ajoutent les utilisateurs,
+chantiers et demandes jetables créés par les deux scripts de test.
+
 ---
 
 ## 3. Journal des lots

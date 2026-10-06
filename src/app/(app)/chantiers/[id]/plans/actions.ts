@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
+import { validateVariantLayoutForSave } from "@/app/prototype-plans/variantValidation";
 
 const BUCKET = "project-plans";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -84,6 +85,16 @@ function mapPlanError(message: string | undefined): string {
       return "Le fichier reçu ne correspond pas à un format reconnu ou a été altéré. Réessayez avec un fichier valide.";
     case "file_not_finalized":
       return "Le fichier de ce plan n'est pas encore disponible.";
+    // M034 : validation à l'écriture des variantes de demandes.
+    case "layout_not_attested":
+    case "attestation_invalid":
+      return "Le plan n'a pas pu être vérifié avant l'enregistrement. Réessayez.";
+    case "attestation_conflict":
+      return "Un enregistrement différent est déjà en cours pour cette opération. Rechargez la page puis réessayez.";
+    case "layout_invalid_format":
+      return "Fichier de projet invalide : structure JSON attendue.";
+    case "layout_too_large":
+      return "Le plan est trop volumineux pour être enregistré.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -564,23 +575,39 @@ export async function savePlanRequestVariantAction(formData: FormData): Promise<
 
   const requestId = formData.get("request_id");
   const parentVariantIdRaw = formData.get("parent_variant_id");
+  const operationUuid = formData.get("operation_uuid");
   const layoutRaw = formData.get("layout");
-  if (!requireUuid(requestId) || typeof layoutRaw !== "string") {
+  if (!requireUuid(requestId) || !requireUuid(operationUuid) || typeof layoutRaw !== "string") {
     return { ok: false, message: "Requête invalide." };
   }
   const parentVariantId = requireUuid(parentVariantIdRaw) ? parentVariantIdRaw : null;
-  let layout: unknown;
-  try {
-    layout = JSON.parse(layoutRaw);
-  } catch {
-    return { ok: false, message: "Requête invalide." };
-  }
+  // M034 : validation AUTORITAIRE (validateProjectFile, réutilisé tel quel)
+  // avant tout appel RPC ; autorisations F2 invalides refusées
+  // explicitement, jamais retirées en silence (variantValidation.ts).
+  const validated = validateVariantLayoutForSave(layoutRaw);
+  if (!validated.ok) return { ok: false, message: validated.message };
 
   const supabase = await createClient();
+  const service = createServiceClient();
+
+  // Frontière de confiance (M034, même principe que M032b) : le fichier
+  // validé transite par attest_plan_request_variant_layout, exécutable
+  // UNIQUEMENT par service_role, lié au profil de la SESSION SERVEUR
+  // (guard.user.id, jamais une valeur du formulaire), à la demande et à
+  // l'opération. L'enregistrement, appelé avec les droits de l'utilisateur,
+  // ne reçoit plus de plan : il consomme l'attestation.
+  const { error: attestErr } = await service.rpc("attest_plan_request_variant_layout", {
+    p_operation_uuid: operationUuid,
+    p_request_id: requestId,
+    p_profile_id: guard.user.id,
+    p_layout: validated.file,
+  });
+  if (attestErr) return { ok: false, message: mapPlanError(attestErr.message) };
+
   const { data, error } = await supabase.rpc("save_plan_request_variant", {
     p_request_id: requestId,
     p_parent_variant_id: parentVariantId,
-    p_layout: layout,
+    p_operation_uuid: operationUuid,
   });
   if (error) return { ok: false, message: mapPlanError(error.message) };
   return { ok: true, value: { id: data.id, variant_number: data.variant_number } };

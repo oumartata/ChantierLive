@@ -10,6 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -68,6 +69,30 @@ async function addMembership(projectId, profileId, role, ownerProfile = null) {
     .single();
   if (error) throw new Error(`addMembership: ${error.message}`);
   return data.id;
+}
+
+// M034 : un plan de variante n'est plus passé à save_plan_request_variant.
+// Ce script rejoue le chemin de l'action serveur : attestation par le
+// service_role (profil = l'utilisateur réellement connecté, demande,
+// opération), puis enregistrement avec la session de l'utilisateur. Le
+// fichier attesté est un VRAI fichier de projet valide (fixture v4 du
+// dépôt) — la validation elle-même est couverte par
+// scripts/test-plan-request-variant-attestation.mjs.
+const VALID_PROJECT_FILE = JSON.parse(readFileSync(new URL("./fixtures/plans-c2-resolu.projet.json", import.meta.url), "utf8"));
+function editedProjectFile(dx) {
+  const file = JSON.parse(JSON.stringify(VALID_PROJECT_FILE));
+  file.layout.rooms[0].x += dx;
+  return file;
+}
+async function saveVariant(user, requestId, parentVariantId, file) {
+  const operationUuid = randomUUID();
+  const { error: attestErr } = await service.rpc("attest_plan_request_variant_layout", {
+    p_operation_uuid: operationUuid, p_request_id: requestId, p_profile_id: user.id, p_layout: file,
+  });
+  if (attestErr) return { data: null, error: attestErr };
+  return user.client.rpc("save_plan_request_variant", {
+    p_request_id: requestId, p_parent_variant_id: parentVariantId, p_operation_uuid: operationUuid,
+  });
 }
 
 function checksumOf(bytes) {
@@ -156,23 +181,20 @@ async function main() {
   // ===========================================================================
   // 2. Variantes — numérotation, append-only, lecture après "rechargement"
   // ===========================================================================
-  const { data: variant1, error: v1Err } = await contractor.client.rpc("save_plan_request_variant", {
-    p_request_id: reqContractor.id, p_parent_variant_id: null, p_layout: { rooms: [{ label: "Chambre", x: 2, y: 2 }] },
-  });
+  const { data: variant1, error: v1Err } = await saveVariant(contractor, reqContractor.id, null, VALID_PROJECT_FILE);
   record("Variante 1 sauvegardée — numéro 1", !v1Err && variant1?.variant_number === 1, v1Err?.message);
 
-  const { data: variant2, error: v2Err } = await contractor.client.rpc("save_plan_request_variant", {
-    p_request_id: reqContractor.id, p_parent_variant_id: variant1?.id ?? null, p_layout: { rooms: [{ label: "Chambre", x: 2.5, y: 2 }] },
-  });
+  const { data: variant2, error: v2Err } = await saveVariant(contractor, reqContractor.id, variant1?.id ?? null, editedProjectFile(0.5));
   record("Variante 2 (éditée) sauvegardée — numéro 2, parent = variante 1", !v2Err && variant2?.variant_number === 2 && variant2?.parent_variant_id === variant1.id, v2Err?.message);
 
   const { data: v1Reread, error: v1RereadErr } = await contractor.client.rpc("get_plan_request_variant", { p_variant_id: variant1.id });
   // Comparaison par valeur (jamais par ordre de clés : jsonb ne garantit pas
   // de préserver l'ordre d'insertion des clés d'un objet au retour).
-  const v1Room = v1Reread?.layout?.rooms?.[0];
+  const v1Room = v1Reread?.layout?.layout?.rooms?.[0];
+  const fixtureRoom = VALID_PROJECT_FILE.layout.rooms[0];
   record(
     "Variante 1 intacte après l'ajout de la variante 2 (ancienne jamais écrasée)",
-    !v1RereadErr && v1Room?.label === "Chambre" && v1Room?.x === 2 && v1Room?.y === 2,
+    !v1RereadErr && v1Room?.label === fixtureRoom.label && v1Room?.x === fixtureRoom.x && v1Room?.y === fixtureRoom.y,
     v1RereadErr?.message ?? JSON.stringify(v1Reread?.layout)
   );
 
@@ -223,9 +245,7 @@ async function main() {
   record("Une seule version créée pour cet upload (aucun doublon)", versionCountForVariant === 1);
 
   // Demande déjà DEPOSITED : un AUTRE variant de la même demande ne peut plus être déposé.
-  const { data: variant3, error: v3Err } = await contractor.client.rpc("save_plan_request_variant", {
-    p_request_id: reqContractor.id, p_parent_variant_id: null, p_layout: { rooms: [] },
-  });
+  const { data: variant3, error: v3Err } = await saveVariant(contractor, reqContractor.id, null, editedProjectFile(1));
   record("Variante 3 — refusée (demande déjà DEPOSITED, jamais rouverte)", v3Err?.message === "request_not_open", v3Err?.message ?? JSON.stringify(variant3));
 
   // ===========================================================================
@@ -245,7 +265,7 @@ async function main() {
   // ===========================================================================
   const { projectId: otherProjectId } = await createDraftProject(otherContractor.client, "CONTRACTOR", "chantier-pour-mismatch");
   const { data: reqOther } = await otherContractor.client.rpc("create_plan_request", { p_project_id: otherProjectId, p_generation_params: {} });
-  const { data: variantOther } = await otherContractor.client.rpc("save_plan_request_variant", { p_request_id: reqOther.id, p_parent_variant_id: null, p_layout: {} });
+  const { data: variantOther } = await saveVariant(otherContractor, reqOther.id, null, VALID_PROJECT_FILE);
   const { error: crossAttachErr } = await service
     .from("project_plan_request_variants")
     .update({ project_plan_version_id: deposited.project_plan_version_id, deposited_at_server: new Date().toISOString() })

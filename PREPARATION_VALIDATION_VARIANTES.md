@@ -66,10 +66,20 @@ Le plan est ensuite immuable.
 
 ## 4. Proposition (option recommandée : attestation dédiée, contenu porté par l'attestation)
 
-### 4.1 Base (migration m033, à créer, **non appliquée**)
+### 4.1 Base (proposition initiale)
+
+> **Mise à jour du 2026-10-06** : l'identifiant M033 était déjà pris
+> (phases de chantier, `20261003050000_m033_project_phases.sql`). La
+> migration réalisée est
+> `supabase/migrations/20261006120000_m034_plan_request_variant_attestation.sql`,
+> appliquée sur Supabase **local uniquement**. Elle reprend cette
+> proposition et y ajoute la colonne `operation_uuid` sur les variantes
+> (contrainte d'unicité, figée par le déclencheur d'immuabilité). Le code
+> ci-dessous reste la proposition d'origine ; la référence est le fichier
+> de migration.
 
 ```sql
--- m033 — validation à l'écriture des variantes de demandes (PROPOSITION)
+-- m034 (proposé sous le nom m033) — validation à l'écriture des variantes de demandes (PROPOSITION)
 begin;
 
 -- Attestations : contenu VALIDÉ par l'action serveur, en attente

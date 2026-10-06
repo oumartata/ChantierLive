@@ -394,24 +394,47 @@ export function PlanEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requestId]);
 
+  // M034 : une opération par contenu à enregistrer. Reprise (refus
+  // transitoire, réponse réseau perdue) de la MÊME disposition : même
+  // opération et même fichier sérialisé (même savedAt), donc jamais de
+  // doublon côté serveur. Toute modification entre-temps : nouvelle
+  // opération. Remise à zéro après un succès.
+  const saveVariantOperationRef = useRef<{ key: string; uuid: string; layoutJson: string } | null>(null);
+
   async function handleSaveVariant() {
     if (!requestId) return;
     setSavePending(true);
     setSaveVariantError(null);
     try {
-      const file = serializeProject(current, currentOrientation);
+      const key = JSON.stringify({ requestId, parent: currentVariantId, layout: current, orientation: currentOrientation });
+      if (saveVariantOperationRef.current?.key !== key) {
+        saveVariantOperationRef.current = {
+          key,
+          uuid: crypto.randomUUID(),
+          layoutJson: JSON.stringify(serializeProject(current, currentOrientation)),
+        };
+      }
+      const operation = saveVariantOperationRef.current;
       const formData = new FormData();
       formData.set("request_id", requestId);
       if (currentVariantId) formData.set("parent_variant_id", currentVariantId);
-      formData.set("layout", JSON.stringify(file));
+      formData.set("operation_uuid", operation.uuid);
+      formData.set("layout", operation.layoutJson);
       const result = await savePlanRequestVariantAction(formData);
+      // Refus : le brouillon (current, historique) reste intact, le motif
+      // est affiché ; rien n'est sélectionné, validé ni publié.
       if (!result.ok) {
         setSaveVariantError(result.message);
         return;
       }
+      saveVariantOperationRef.current = null;
       setCurrentVariantId(result.value.id);
       setCurrentVariantSnapshot(JSON.stringify({ layout: current, orientation: currentOrientation }));
       refreshVariants();
+    } catch {
+      setSaveVariantError(
+        "Réponse du serveur non reçue. Votre disposition est conservée ; réessayez — un même enregistrement ne crée jamais de doublon."
+      );
     } finally {
       setSavePending(false);
     }
