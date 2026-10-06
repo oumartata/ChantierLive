@@ -1806,6 +1806,137 @@ adaptées » et « Propositions sans réduction ».
 - **Recherche** : toujours non exhaustive (référence ou borne seulement,
   pas de valeur intermédiaire).
 
+### F2 v5 — demandes de plans vérifiées, catalogue préparé (2026-10-06, aucun code applicatif modifié)
+
+Point de départ : HEAD `f9630af`.
+
+**Données de démonstration**, Supabase **local** uniquement : compte de
+test dédié, rôle CONTRACTOR, et chantier « Chantier démo F2 v5
+(2026-10-06) » (`bd7c356a-…`). Ils ont été créés par le chemin réel de
+l'application (`create_draft_project`). Scripts dans
+`exports/preuves/f2-demandes-2026-10-06/` (hors Git). Le mot de passe
+aléatoire du compte, affiché une fois dans un retour d'outil, a été
+remplacé ensuite par un nouveau mot de passe non affiché.
+
+#### Demandes de plans : v5 vérifié
+
+Parcours réel, navigateur isolé :
+1. création d'une demande ;
+2. Cuisine 1 verrouillée, autorisations confirmées (bornes de la
+   fixture) ;
+3. recherche adaptée, puis choix de l'adaptation 1 ;
+4. « Sauvegarder cette disposition comme nouvelle variante ».
+
+Résultats :
+- **Variante enregistrée en v5**, identique au fichier exporté par
+  l'éditeur, au seul horodatage `savedAt` près : autorisations
+  (références 3,0333 / 1,6143 m, bornes 3,00 / 1,50 m), dimensions
+  réduites, verrou de Cuisine 1, portes et fenêtres. La comparaison
+  ignore l'ordre des clés, que `jsonb` réordonne.
+- **Rechargement puis « Ouvrir variante 1 »** : 4 autorisations valides,
+  références conservées, aucun avis.
+- **« Déposer cette variante »**, par le circuit existant
+  (`finalize_plan_request_variant_deposit`) :
+  - demande passée à DEPOSITED, variante rattachée à la version de plan ;
+  - candidat déposé en tant que CONTRACTOR ;
+  - **aucune validation, ni plan retenu ni publié**
+    (`retained_plan_version_id` et `published_plan_version_id` vides) ;
+  - autorisations conservées dans la variante.
+- **PNG** : le fichier stocké (`project-plans`, 53 114 octets) est
+  **identique octet pour octet** au PNG exporté par l'éditeur juste avant
+  le dépôt. Cette correspondance tient au **rendu client** (même SVG,
+  même toile) et à la comparaison client entre plan courant et variante
+  enregistrée. **Le serveur ne la vérifie pas** : ce n'est pas une
+  garantie côté serveur.
+- **Autorisations invalides** (variante v5 enregistrée avec le compte de
+  démonstration et l'appel RPC normal, borne supérieure à la référence) :
+  - par « Ouvrir variante 1 » comme par « Charger dans l'éditeur » :
+    avis « Autorisations d'adaptation des dimensions écartées… » affiché ;
+    aucune autorisation active, toutes les pièces « non autorisée » ;
+    recherche adaptée **désactivée** ;
+  - géométrie conservée : largeurs réduites, verrou de la cuisine.
+- **Révocation** : les autorisations disparaissent (fichier redevenu v4)
+  et **les dimensions restent identiques**. Seule la permission
+  d'adapter disparaît.
+- **Constat préexistant**, hors périmètre : `save_plan_request_variant`
+  accepte n'importe quel JSON, sans validation de format. Les
+  autorisations F2 invalides n'y sont neutralisées qu'**à la lecture**
+  (`validateProjectFile`), jamais activées. Ajouter une validation à
+  l'écriture serait un autre lot ; l'appel RPC direct reste ouvert à
+  `authenticated`.
+- **Aucun défaut constaté** sur ces parcours : aucun correctif.
+
+#### Catalogue : proposition prête, migration non appliquée
+
+**Ce qui bloque v5**, vérifié en lecture seule dans la base locale :
+- **Seul blocage : `attest_catalog_item_layout`** (m032b), exécutable par
+  le seul `service_role`, avec le filtre `version not in (1, 2, 3, 4)`, qui
+  lève `layout_unknown_version`. Aucune autre fonction ni contrainte de
+  table ne filtre la version.
+- **Côté TypeScript**, rien ne bloque :
+  - le formulaire et l'action serveur acceptent v5 (`validateProjectFile`) ;
+  - l'action transmet `validated.value`, dont la version vaut 4 sans
+    autorisation et 5 avec ;
+  - le refus vient donc de la base, avec le message « Version du fichier
+    de projet non reconnue ».
+- **Aucun chemin ne relit aujourd'hui le plan d'un modèle** vers l'éditeur
+  ou un chantier : `attach_catalog_plan_to_project` ne rattache que
+  l'image, et les lots catalogue B/C sont absents.
+
+**Portée du consentement** : une autorisation F2 appartient au projet sur
+lequel elle a été confirmée. Elle ne doit jamais devenir, à travers un
+modèle du catalogue, une autorisation de réduire les pièces d'un autre
+chantier.
+
+**Option A, recommandée, sans migration** : retirer les autorisations à
+l'entrée du catalogue.
+- Dans `depositModifiableCatalogItemVersionAction` (`catalogue/actions.ts`),
+  après `validateProjectFile` (validation complète inchangée) : supprimer
+  `layout.dimensionAllowances` et transmettre le fichier en version
+  `projectFileVersionFor(layout)`, soit 4.
+- Avis explicite : « Les autorisations d'adaptation des dimensions
+  restent attachées au projet d'origine ; elles ne sont pas transférées
+  au catalogue. »
+- **Garanties conservées** :
+  - SQL inchangé (versions 1 à 4) ;
+  - attestation toujours réservée au `service_role` ;
+  - permissions inchangées ;
+  - fichiers v1–v4 inchangés ;
+  - aucun contournement par appel RPC direct, puisque l'attestation
+    reste inaccessible à `authenticated`.
+- **Tests à ajouter** :
+  - un fichier v5 déposé au catalogue est accepté en v4 sans
+    autorisations, avec l'avis ;
+  - v1–v4 inchangés ;
+  - l'appel direct de l'attestation par `authenticated` reste refusé.
+
+**Option B, non recommandée en l'état** : conserver les autorisations
+dans le modèle.
+- Il faudrait une nouvelle migration (m033) qui remplace
+  `attest_catalog_item_layout` par un corps identique, avec `not in (1,
+  2, 3, 4, 5)` et les mêmes `revoke` et `grant` (`service_role` seul).
+- Il faudrait aussi :
+  - valider en base la présence d'une version 5 cohérente, au minimum que
+    `layout.dimensionAllowances` soit un tableau ;
+  - surtout, garantir dans les futurs lots B/C le retrait des
+    autorisations lors de toute copie.
+
+  Élargir la liste SQL seul ne suffit pas : le modèle porterait un
+  consentement étranger au chantier destinataire.
+
+**Traitement proposé pour une future copie depuis le catalogue** (lots
+B/C, non implémentés ici) :
+- le plan copié n'a **aucune** autorisation (`dimensionAllowances`
+  retiré, fichier en v4) ;
+- les dimensions de la copie sont conservées telles quelles ;
+- l'adaptation n'est possible qu'après une **nouvelle confirmation sur le
+  projet destinataire**, avec pour référence les dimensions au moment de
+  cet accord ;
+- si l'option B était retenue, le retrait à la copie serait obligatoire
+  et testé.
+
+**Décision attendue** : option A (recommandée) ou option B.
+
 ---
 
 ## 3. Journal des lots
