@@ -2028,6 +2028,22 @@ l'organisation de démonstration existante, un modèle de catalogue et deux
 versions (le modèle F2 converti et le fichier v4 `plans-c2-resolu`), avec
 leurs fichiers stockés.
 
+### Validation à l'écriture des variantes de demandes — préparée (2026-10-06)
+
+Diagnostic et proposition dans
+[](./PREPARATION_VALIDATION_VARIANTES.md).
+
+- **Défaut reproduit** par appel direct, avec un compte autorisé : JSON
+  quelconque, référence invalide et autorisations F2 invalides sont
+  écrits.
+- **Seule voie** : l'insertion par . Le plan
+  est ensuite immuable, et la table est inaccessible à .
+- **Proposition** : attestation dédiée (), liée au profil,
+  à la demande et au contenu exact, à usage unique ; nouvelle signature
+  sans plan en argument ; refus explicite des autorisations invalides ;
+  aucune exigence géométrique nouvelle.
+- **Statut** : aucune migration appliquée, aucun code modifié.
+
 ---
 
 ## 3. Journal des lots
