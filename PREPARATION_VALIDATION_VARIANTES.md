@@ -21,7 +21,8 @@ n'est affiché.
 
 Le contenu stocké est le JSON envoyé, à l'ordre des clés près (`jsonb`).
 Les variantes 2 à 6 restent en base comme données de démonstration : rien
-n'a été nettoyé ni réécrit.
+n'a été nettoyé ni réécrit. Les variantes 2, 3 et 4 sont invalides ; les
+variantes 5 et 6 sont les témoins valides (v4 et v5).
 
 ## 2. Voies d'écriture (vérifiées dans la base locale, en lecture seule)
 

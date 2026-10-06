@@ -2120,9 +2120,24 @@ réécrite : les 33 variantes déjà présentes gardent `operation_uuid` nul.
 **Constat** : la variante 1 de la démonstration porte des autorisations
 invalides, écartées à l'ouverture avec un avis visible. Une variante
 enregistrée depuis elle est donc un v4 sans autorisations : c'est le
-comportement existant à la lecture, pas un retrait à l'écriture. Les
-anciennes variantes invalides de démonstration (2 à 6, et la 1) sont
-**conservées**, non nettoyées.
+comportement existant à la lecture, pas un retrait à l'écriture.
+
+Variantes antérieures de la demande `44da7fdf…`, toutes **conservées**
+telles quelles (aucune donnée modifiée, aucun nettoyage) :
+- **invalides** : la 1 (autorisations invalides, enregistrée lors du lot
+  F2 v5), la 2 (JSON qui n'est pas un fichier de projet), la 3 (porte
+  vers une pièce inexistante) et la 4 (autorisations F2 invalides) ;
+- **témoins valides** : la 5 (v4) et la 6 (v5, 4 autorisations), écrites
+  lors de la reproduction du défaut.
+
+**Portée de la protection** : elle porte sur le circuit applicatif
+(action serveur, éditeur) et sur les accès ordinaires testés,
+c'est-à-dire les rôles `authenticated` et `anon` par l'API. Les rôles
+privilégiés de la base (`service_role`, propriétaire des tables, accès
+SQL direct) restent une frontière de confiance : ils ne sont pas soumis
+à cette validation, et la clé `service_role` ne doit être détenue que
+par le serveur. Les résultats valent pour les appels testés ; ils ne
+garantissent pas l'absence de tout contournement.
 
 **Données de démonstration ajoutées** (Supabase local) : variantes 7 et
 8 de la demande `44da7fdf…`, leurs 2 attestations consommées, le dépôt
