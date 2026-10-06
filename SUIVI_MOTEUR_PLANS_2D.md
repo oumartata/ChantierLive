@@ -1410,6 +1410,162 @@ Elle sert aux deux appelants de `chooseExteriorWindow` et à
   0 différence structurelle (4 compteurs d'échecs ±1, bruit du budget
   temporel).
 
+### F2 — préparation : adaptation volontaire des dimensions en régénération (2026-10-06, rien d'activé)
+
+Point de départ : HEAD `81e8bac`. **Aucun code applicatif modifié.**
+
+**Preuve reproductible** : `scripts/proof-plans-f2-preparation.mjs`
+(`npm run proof:plans:f2`, hors `npm test` puisque F2 n'existe pas
+encore). Fixtures :
+- `scripts/fixtures/plans-f2-cuisine-verrouillee.json` (cas de départ) ;
+- `scripts/fixtures/plans-f2-exemple-adapte.json` (exemple adapté).
+
+#### A. Notions existantes et source de référence
+
+| Notion | Où | Rôle actuel |
+|---|---|---|
+| Dimensions cibles et minimales du programme (`targetWidth/Depth`, `minWidth/Depth`) | `GenerationInput.needs`, **non conservées** dans le plan ni dans le fichier de projet | Génération : `sizeFor` borne la cible à [minimum ; cible × 1,25]. La génération réduit déjà quand une rangée ne tient pas (chambres 3,03 m pour une cible de 3,50 m dans la fixture B3), en l'annonçant. |
+| Minima (`PlacedRoom.minW/minD`) | Plan et fichier de projet | Plancher du moteur et de l'éditeur. **Ce n'est ni un accord de l'utilisateur ni une norme.** |
+| Dimensions actuelles (`w`, `d`) | Plan et fichier de projet, modifiées par l'éditeur | La régénération les prend comme cibles **fixes** (`sizeFor(r.w, r.minW)`) et rejette toute réduction (`fitExact`). |
+| Verrou (`locked`) | Plan et fichier de projet | Position, dimensions, porte et fenêtre intouchées. |
+
+**Risque** : un rétrécissement progressif, si chaque régénération adaptée
+repart des dimensions issues de la précédente.
+
+**Source de référence recommandée** : les **dimensions de référence
+enregistrées au moment où l'utilisateur donne l'autorisation**, pièce par
+pièce, avec les bornes qu'il a confirmées. Toute régénération adaptée
+calcule ses bornes à partir de cette référence, jamais à partir du dernier
+résultat. Une nouvelle référence n'existe que si l'utilisateur renouvelle
+explicitement son accord.
+
+Les cibles du programme ne sont pas utilisables comme référence sans
+conserver d'abord l'entrée de génération, ce qui serait un nouveau
+format.
+
+#### B. Cas reproductible
+
+Paramètres par défaut de l'écran, « Variante 3 », **Cuisine 1
+verrouillée**. Ce n'est aucun des deux cas B3.
+
+La recherche à dimensions constantes ne propose **aucune disposition
+nouvelle** :
+- 25 essais à ordre fixe, tous sans place ;
+- 13 combinaisons « corridor partagé », toutes écartées avant
+  construction.
+
+La cuisine verrouillée coupe la rangée arrière en deux segments, de
+4,38 m (exactement le salon) et de 3,33 m (exactement les deux
+sanitaires).
+
+#### C. Faisabilité
+
+**Exemple adapté valide : il existe.** Il est reconstruit avec les seules
+fonctions de l'éditeur, puis figé. Bornes de preuve : au plus −10 % par
+dimension, jamais sous les minima, aucun agrandissement.
+- **Pièces** :
+  - Chambre 3 passe dans la rangée arrière, à droite de la cuisine ;
+  - les sanitaires passent en façade avant ;
+  - largeurs : Chambres 1 et 2 de 3,03 à 3,00 m, Sanitaires 1 et 2 de 1,61
+    à 1,50 m ;
+  - aucune profondeur modifiée.
+- **Contrôles** : 0 anomalie au vérificateur indépendant, Cuisine 1
+  strictement identique, programme inchangé.
+- **Surfaces** : circulation intérieure 29,74 → 29,74 m², cheminement
+  extérieur 0 → 0, total 29,74 → 29,74 m².
+- **Contour englobant** : 11,00 × 9,80 → 11,00 × 11,40 m. Chambre 3
+  déborde sous l'ancienne rangée, dans l'emprise.
+
+**Incapacité de la recherche actuelle** : nourrie exactement de ces
+dimensions adaptées, elle ne retrouve pas l'exemple (0 nouvelle). Un essai
+plus large (63 combinaisons de réductions par type, −10 % puis −15 %) ne
+donne rien non plus.
+
+Explication cohérente avec le code, sans instrumentation :
+- dans le cas « rangée arrière verrouillée », les pièces rejoignent la
+  rangée verrouillée **par type entier** (les trois chambres ensemble ou
+  aucune) ;
+- une pièce de jonction ne peut pas être plus profonde que la rangée
+  verrouillée.
+
+**Impossibilité** : jamais déduite. L'échec est celui de la recherche, et
+l'exemple prouve l'existence.
+
+**Conséquence** : sur ce cas, **adapter les dimensions ne suffit pas**. Il
+faut aussi qu'une recherche place des pièces **individuellement** dans la
+rangée verrouillée.
+
+#### D. Plus petit premier lot implémentable (proposition)
+
+1. **Moteur seul, aucune interface** :
+   - option `regenerateUnlocked(layout, { allowances })` ; sans option, le
+     comportement reste strictement inchangé ;
+   - `allowances` : par pièce non verrouillée, une référence (largeur,
+     profondeur) et des bornes confirmées (largeur et profondeur
+     minimales, en mètres), jamais sous `minW/minD` ;
+   - énumération bornée de dimensions entre la référence et la borne, au
+     plus 8 jeux de dimensions par régénération, budget de temps affiché
+     et compté.
+2. **Avec l'option seulement** : jonction **par pièce** (sous-ensembles
+   bornés de pièces identiques), et non plus par type entier, dans les
+   cas « corridor partagé ».
+3. **Mêmes contrôles** : `finalizeCandidate`, `admitIfValid`,
+   `independentVerify`. Un résultat adapté porte son tableau avant/après
+   par pièce.
+4. **Lot suivant (interface)** :
+   - dialogue d'autorisation : pour chaque pièce, référence et bornes
+     proposées, à confirmer une à une ;
+   - carte de comparaison existante, avec les dimensions avant/après, les
+     pièces déplacées, les ouvertures modifiées et les surfaces (y compris
+     total et cheminement extérieur) ;
+   - choix explicite par `commit`, donc Annuler/Rétablir.
+5. **Sauvegarde et compatibilité** : un champ **facultatif**
+   `dimensionAllowances` dans le plan.
+   - Son absence signifie qu'aucune autorisation n'est donnée.
+   - Il est validé à l'import quand il est présent.
+   - Pas de changement de version : `validateLayout` conserve aujourd'hui
+     les champs inconnus, et les fichiers existants restent valides tels
+     quels.
+
+**Critères de réussite du premier lot** :
+- fixture F2 : au moins une proposition **nouvelle**, adaptée et
+  admissible, dans les bornes données ; Cuisine 1 strictement identique ;
+- sans option : instantané de référence **identique** (génération,
+  régénération, redimensionnement) ;
+- B3 Chambre 2 et Salon 1 inchangés ;
+- aucune dimension sous la borne confirmée ; aucun agrandissement non
+  autorisé ;
+- budget mesuré et affiché ;
+- aucune régénération ne repart d'un résultat adapté pour calculer ses
+  bornes.
+
+#### E. Décisions nécessaires, avec recommandation
+
+1. **Référence** : les dimensions au moment de l'autorisation
+   (**recommandé**), ou les cibles du programme (il faudrait alors
+   conserver l'entrée de génération).
+2. **Sens des variations** : réductions seulement dans un premier temps
+   (**recommandé**), agrandissements jusqu'à la cible éventuellement plus
+   tard.
+3. **Borne proposée par défaut à l'utilisateur**, à confirmer pièce par
+   pièce : par exemple −5 % (**recommandé**, valeur à décider). Les
+   minima du moteur ne restent qu'un plancher.
+4. **Jonction par pièce** réservée au mode adapté (**recommandé**, pour
+   ne rien changer au comportement par défaut), ou étendue aussi aux
+   dimensions constantes, ce qui changerait les résultats actuels et
+   demanderait sa propre validation.
+5. **Persistance des autorisations** : champ facultatif dans le plan
+   (**recommandé**), ou autorisations limitées à la session.
+
+**Limites de cette préparation** :
+- un seul cas de départ ;
+- l'exemple est construit à la main, pas trouvé par une recherche ;
+- l'effet de la jonction par pièce est **supposé** (cohérent avec le
+  code) et non démontré ;
+- l'exemple agrandit le contour englobant vers l'arrière, ce qui reste
+  admissible pour le moteur ;
+- **F2 reste en « préparation »** : aucune fonction utilisable.
+
 ---
 
 ## 3. Journal des lots
