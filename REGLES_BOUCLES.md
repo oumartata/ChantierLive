@@ -73,8 +73,11 @@ tranche ; l'agent s'arrête et signale.
 - **V3** Navigateur : **seulement si l'interface change**, sur ordinateur et
   à 390 px de large ; preuves rangées hors Git dans
   `exports/preuves/<sujet>-<date>/`, sans secret.
-- **V4** Un test qui échoue est rapporté tel quel ; un échec dépendant de
-  la charge machine est relancé seul, puis signalé comme tel.
+- **V4** Test connu restant dépendant de la charge machine :
+  « 28. Comptes toujours cohérents ; budget jamais atteint »
+  (`scripts/test-plans-geometry.mjs`, même cause que « B3 Chambre 2 »,
+  corrigé en boucle 6 ; non corrigé, hors périmètre). Tout autre échec est
+  rapporté tel quel.
 
 ---
 

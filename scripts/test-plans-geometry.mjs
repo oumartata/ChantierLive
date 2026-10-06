@@ -2086,7 +2086,10 @@ try {
           res.failureReasons.length === d.orderedPlacementFailures + d.orderedFinalizeRejected + d.backtrackFinalizeRejected + d.sharedFinalizeRejected + d.controlRejected
         );
       };
-      const ch2 = g.regenerateUnlocked(g.lockRoom(b3.layout, idxB3(b3.layout, "Chambre", 2)));
+      // Budget en temps levé pour ce test : seule la borne fixe en noeuds
+      // explorés s'applique, résultat indépendant de la charge de la machine
+      // (échec constaté sous charge le 2026-10-06, budget de 150 ms atteint).
+      const ch2 = g.regenerateUnlocked(g.lockRoom(b3.layout, idxB3(b3.layout, "Chambre", 2)), { backtrackMaxMillis: Infinity });
       const d2 = ch2.diagnostics;
       const rejected = ch2.failureReasons.filter((f) => f.startsWith("Plan complet (retour arrière) rejeté à la finalisation"));
       record(

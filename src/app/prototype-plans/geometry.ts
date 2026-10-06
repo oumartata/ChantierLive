@@ -4043,8 +4043,18 @@ function roomsKeyOf(l: Layout): string {
 // pas garantie symétrique sous une réflexion à 90°, voir son propre
 // commentaire "recherche BORNÉE et NON EXHAUSTIVE") — d'où la fusion
 // plutôt qu'un remplacement.
-export function regenerateUnlocked(layout: Layout): RegenerationResult {
-  return regenerateWithMode(layout, undefined);
+// Budget de la recherche avec retour arrière. ABSENT en usage normal
+// (éditeur, recherche en arrière-plan) : bornes BACKTRACK_MAX_NODES ET
+// BACKTRACK_MAX_MILLIS inchangées. Un test peut lever la seule borne en
+// temps (backtrackMaxMillis: Infinity) pour un résultat indépendant de la
+// charge de la machine : la borne fixe en noeuds explorés s'applique alors
+// seule, à l'identique d'une exécution non ralentie.
+export interface RegenerationSearchBudget {
+  backtrackMaxMillis: number;
+}
+
+export function regenerateUnlocked(layout: Layout, searchBudget?: RegenerationSearchBudget): RegenerationResult {
+  return regenerateWithMode(layout, undefined, searchBudget);
 }
 
 // Mode interne de la régénération. ABSENT pour la régénération ordinaire
@@ -4058,8 +4068,8 @@ interface RegenerationMode {
   stats: { subsets: number; refusedFreshTooDeep: number; refusedNoFreshRoom: number };
 }
 
-function regenerateWithMode(layout: Layout, mode: RegenerationMode | undefined): RegenerationResult {
-  const nativeResult = regenerateUnlockedCore(layout, mode);
+function regenerateWithMode(layout: Layout, mode: RegenerationMode | undefined, searchBudget?: RegenerationSearchBudget): RegenerationResult {
+  const nativeResult = regenerateUnlockedCore(layout, mode, searchBudget);
   if (layout.accessSide !== "left" && layout.accessSide !== "right") {
     return nativeResult;
   }
@@ -4067,7 +4077,7 @@ function regenerateWithMode(layout: Layout, mode: RegenerationMode | undefined):
   const toVirtual = { terrainWidth: layout.terrain.d, terrainDepth: layout.terrain.w, accessSide: virtualAccessSide };
   const toPhysical = { terrainWidth: layout.terrain.w, terrainDepth: layout.terrain.d, accessSide: layout.accessSide };
   const virtualLayout = transposeDoubleLoadedResult(layout, toVirtual);
-  const virtualResult = regenerateUnlockedCore(virtualLayout, mode);
+  const virtualResult = regenerateUnlockedCore(virtualLayout, mode, searchBudget);
 
   const seen = new Set(nativeResult.variants.map(roomsKeyOf));
   const variants = [...nativeResult.variants];
@@ -4132,7 +4142,7 @@ function regenerateWithMode(layout: Layout, mode: RegenerationMode | undefined):
 // fonction inchangée. La stratégie dédiée corridor partagé ci-dessous (gardée
 // par `entryWallForRegen`) s'applique donc EXACTEMENT de la même façon pour
 // gauche/droite que pour avant/arrière, sans duplication de sa géométrie.
-function regenerateUnlockedCore(layout: Layout, mode?: RegenerationMode): RegenerationResult {
+function regenerateUnlockedCore(layout: Layout, mode?: RegenerationMode, searchBudget?: RegenerationSearchBudget): RegenerationResult {
   const failureReasons: string[] = [];
   if (!layout.emprise || !layout.footprint) {
     return { variants: [], preferenceNotes: [], failureReasons: ["Disposition de base incomplète : régénération impossible."], searchStats: [] };
@@ -4583,7 +4593,7 @@ function regenerateUnlockedCore(layout: Layout, mode?: RegenerationMode): Regene
   // placements COMPLETS trouvés ; jamais pour une disposition partielle.
   function attemptBacktrack(mode: ObstacleMode, searchEmprise: Rect, searchLabel: string): { results: { layout: Layout; note: string }[]; summary: string } {
     const label = `Retour arrière, ${mode.name}${searchLabel}`;
-    const outcome = backtrackPackNeedsIntoFreeSpace(searchEmprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
+    const outcome = backtrackPackNeedsIntoFreeSpace(searchEmprise, mode.obstacles, needs, BACKTRACK_MAX_NODES, searchBudget?.backtrackMaxMillis ?? BACKTRACK_MAX_MILLIS, BACKTRACK_MAX_COMPLETE);
     const results: { layout: Layout; note: string }[] = [];
     diag.backtrackSearches += 1;
     diag.backtrackComplete += outcome.complete.length;
