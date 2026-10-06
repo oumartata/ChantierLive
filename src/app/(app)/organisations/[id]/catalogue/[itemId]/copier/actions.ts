@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient, requireVerifiedAccount } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import type { CatalogueCopyReport, DestinationParams } from "@/app/prototype-plans/catalogueCopy";
-import { checkCatalogueCopyDestination, createCatalogueCopy, latestDestinationParams, prepareCatalogueCopyFor } from "@/lib/plans/catalogueCopySource";
+import { checkCatalogueCopyDestination, createCatalogueCopy, latestDestinationParams, prepareCatalogueCopyFor, resumeCatalogueCopy } from "@/lib/plans/catalogueCopySource";
 
 // Catalogue modifiable — copie d'un modèle vers un chantier (premier sous-lot,
 // sans migration). Toutes les vérifications d'accès sont faites ici, côté
@@ -120,4 +120,20 @@ export async function createCatalogueCopyAction(
   }
   revalidatePath(`/chantiers/${projectId}/plans`);
   return { ok: true, value: { requestId: created.requestId, variantId: created.variantId, projectId } };
+}
+
+// Terminer une copie interrompue (demande avec origine, sans variante),
+// depuis la page Plans du chantier. Aucune donnée du navigateur hormis
+// l'identifiant de la demande : opération, version source et paramètres sont
+// relus sur la demande, et chaque écriture revérifie les droits (M035/M034).
+export async function resumeCatalogueCopyAction(
+  requestId: string
+): Promise<{ ok: true; value: { requestId: string; variantId: string; projectId: string } } | { ok: false; message: string }> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { ok: false, message: guard.message };
+  if (!isUuid(requestId)) return { ok: false, message: "Requête invalide." };
+  const resumed = await resumeCatalogueCopy(await createClient(), createServiceClient(), guard.user.id, requestId);
+  if (!resumed.ok) return { ok: false, message: mapCopyError("code" in resumed ? resumed.code : undefined, resumed.message) };
+  revalidatePath(`/chantiers/${resumed.projectId}/plans`);
+  return { ok: true, value: { requestId: resumed.requestId, variantId: resumed.variantId, projectId: resumed.projectId } };
 }

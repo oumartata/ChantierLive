@@ -6,6 +6,7 @@ import { AlertBanner, Button, Card, StatusChip, EmptyState } from "@/components/
 import { DepositPlanForm } from "./DepositPlanForm";
 import { AttachCatalogForm } from "./AttachCatalogForm";
 import { PlanVersionActionButton } from "./PlanVersionActionButton";
+import { ResumeCatalogueCopyButton } from "./ResumeCatalogueCopyButton";
 import type { PlanRequestRow } from "./actions";
 
 const READ_URL_TTL_SECONDS = 60 * 10;
@@ -343,9 +344,19 @@ export default async function PlansPage({ params }: { params: Promise<{ id: stri
                       return "Origine : un modèle du catalogue de l'entreprise";
                     })()}
                   </span>
+                  {r.status === "OPEN" && Number(r.variant_count) === 0 && origins.get(r.id)?.has_catalog_source ? (
+                    // Copie de modèle interrompue avant sa variante 1 : seule
+                    // la personne qui l'a lancée peut la terminer (revérifié
+                    // côté serveur et en base, M035/M034).
+                    r.created_by_profile_id === user.id ? (
+                      <ResumeCatalogueCopyButton requestId={r.id} />
+                    ) : (
+                      <span className="text-muted">Copie interrompue : seule la personne qui l&apos;a lancée peut la terminer.</span>
+                    )
+                  ) : null}
                   {r.status === "OPEN" ? (
                     <Link href={`/prototype-plans?retour=${project.id}&demande=${r.id}`} className="font-semibold text-primary">
-                      Reprendre →
+                      {Number(r.variant_count) === 0 && origins.get(r.id)?.has_catalog_source ? "Ouvrir la demande vide →" : "Reprendre →"}
                     </Link>
                   ) : null}
                 </li>

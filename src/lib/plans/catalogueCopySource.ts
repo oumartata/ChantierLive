@@ -231,3 +231,103 @@ export async function createCatalogueCopy(
   if (!saved.ok) return { ok: false, message: "La copie n'a pas pu être enregistrée.", code: saved.code };
   return { ok: true, requestId: request.id as string, variantId: saved.value.id, report: prepared.report };
 }
+
+// Terminer une copie INTERROMPUE après l'étape A (demande créée avec son
+// origine, aucune variante) — par exemple page fermée avant l'enregistrement.
+// L'identifiant d'opération, perdu côté navigateur, est relu côté serveur
+// sur la demande elle-même (jamais transmis au navigateur). Même demande,
+// même version source, mêmes paramètres du chantier (ceux ENREGISTRÉS sur
+// la demande, jamais reconstruits depuis la version publiée actuelle) :
+// - A est rejouée avec la même opération (M035 : droits sur le chantier et
+//   sur la source revérifiés, auteur identique exigé, aucune écriture) ;
+// - B/C enregistrent la variante 1 (M034) ; un fichier déjà attesté pour
+//   cette opération est réutilisé tel quel, sinon la copie est préparée à
+//   nouveau depuis la version source exacte.
+// Rejouer ou cliquer deux fois renvoie la même variante, sans doublon.
+export async function resumeCatalogueCopy(
+  supabase: SupabaseClient,
+  service: SupabaseClient,
+  profileId: string,
+  requestId: string
+): Promise<{ ok: true; projectId: string; requestId: string; variantId: string } | (CopyFailure & { code?: string })> {
+  const refused: CopyFailure = { ok: false, message: "Demande introuvable ou non autorisée." };
+  const { data: request } = await service
+    .from("project_plan_requests")
+    .select("id, project_id, created_by_profile_id, status, generation_params, source_catalog_item_version_id, catalog_copy_operation_uuid")
+    .eq("id", requestId)
+    .maybeSingle();
+  if (!request) return refused;
+  // Lecteur habilité de la demande (mêmes règles que la page Plans).
+  const { data: readable, error: readErr } = await supabase.rpc("list_plan_requests", { p_project_id: request.project_id });
+  const listed = !readErr && Array.isArray(readable) ? readable.find((r) => r.id === requestId) : undefined;
+  if (!listed) return refused;
+  if (!request.source_catalog_item_version_id || !request.catalog_copy_operation_uuid) {
+    return { ok: false, message: "Cette demande ne provient pas d'une copie de modèle : il n'y a pas de copie à terminer." };
+  }
+  if (request.created_by_profile_id !== profileId) {
+    return { ok: false, message: "Seule la personne qui a lancé cette copie peut la terminer." };
+  }
+  const operationUuid = request.catalog_copy_operation_uuid as string;
+  const versionId = request.source_catalog_item_version_id as string;
+
+  // Copie déjà enregistrée (réponse perdue, double clic) : même variante.
+  const { data: done } = await service
+    .from("project_plan_request_variants")
+    .select("id")
+    .eq("request_id", requestId)
+    .eq("operation_uuid", operationUuid)
+    .maybeSingle();
+  if (done) return { ok: true, projectId: request.project_id, requestId, variantId: done.id };
+  if (Number(listed.variant_count) > 0) {
+    return { ok: false, message: "Cette demande contient déjà d'autres variantes : la copie d'origine ne peut plus y être ajoutée comme première variante." };
+  }
+  if (request.status !== "OPEN") return { ok: false, message: "Cette demande n'est plus ouverte : la copie ne peut plus être terminée." };
+
+  // Fichier à enregistrer : celui déjà attesté pour cette opération, sinon
+  // une copie préparée depuis la version source EXACTE.
+  const attested = async () => {
+    const { data } = await service
+      .from("project_plan_request_variant_attestations")
+      .select("request_id, profile_id, layout")
+      .eq("operation_uuid", operationUuid)
+      .maybeSingle();
+    return data && data.request_id === requestId && data.profile_id === profileId ? (data.layout as unknown) : null;
+  };
+  let file: unknown = await attested();
+  if (!file) {
+    const { data: version } = await service
+      .from("plan_catalog_item_versions")
+      .select("organization_id, catalog_item_id")
+      .eq("id", versionId)
+      .maybeSingle();
+    if (!version) return refused;
+    // Lecture de la source avec la SESSION : propriétaire de l'organisation.
+    const source = await loadCatalogueCopySource(supabase, version.organization_id, version.catalog_item_id, { versionId, allowUnpublished: true });
+    if (!source.ok) return { ok: false, message: source.message };
+    const params = parseDestinationParams(request.generation_params);
+    if (!params.ok) return { ok: false, message: `Paramètres enregistrés sur la demande illisibles : ${params.error}` };
+    const { report, copy } = prepareCatalogueCopy(source.value.file, params.value, { modelLabel: source.value.label, savedAt: new Date().toISOString() });
+    if (!copy) return { ok: false, message: `La copie ne peut pas être terminée : ${report.blocking.join(" ")}` };
+    file = copy;
+  }
+
+  // A — rejouée avec la même opération : aucune écriture, droits revérifiés.
+  const { data: replay, error: replayErr } = await supabase.rpc("create_plan_request_from_catalog_item", {
+    p_project_id: request.project_id,
+    p_catalog_item_version_id: versionId,
+    p_generation_params: request.generation_params,
+    p_operation_uuid: operationUuid,
+  });
+  if (replayErr || !replay) return { ok: false, message: "La copie ne peut pas être terminée.", code: replayErr?.message };
+  if (replay.id !== requestId) return refused;
+
+  // B + C — variante 1 (M034). Une préparation concurrente a pu attester un
+  // autre fichier (date différente) : on termine alors avec celui-là.
+  let saved = await attestAndSaveVariant(supabase, service, { profileId, requestId, parentVariantId: null, operationUuid, file });
+  if (!saved.ok && saved.code === "attestation_conflict") {
+    const concurrent = await attested();
+    if (concurrent) saved = await attestAndSaveVariant(supabase, service, { profileId, requestId, parentVariantId: null, operationUuid, file: concurrent });
+  }
+  if (!saved.ok) return { ok: false, message: "La copie n'a pas pu être enregistrée.", code: saved.code };
+  return { ok: true, projectId: request.project_id, requestId, variantId: saved.value.id };
+}

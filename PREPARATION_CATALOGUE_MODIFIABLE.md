@@ -758,3 +758,82 @@ copie), ni déposée ni validée.
 La page Plans affiche son origine. Les demandes antérieures, dont la copie
 `41b42a13…` du lot précédent, affichent « Origine non renseignée ».
 
+## 11. Reprise d'une copie interrompue (2026-10-06, sans migration)
+
+### 11.1 Constat avant correctif (démonstration réelle)
+
+Scénario : demande créée avec son origine (étape A), page fermée avant
+l'enregistrement de la variante.
+
+Au retour par la page Plans, la ligne affichait « 0 variante » et
+l'origine, mais seul « Reprendre → » était proposé.
+- Ce lien ouvre une **demande vide** : seul « Générer les variantes » est
+  proposé, ce qui créerait d'ailleurs une nouvelle demande.
+- Relancer la copie depuis le catalogue crée une **autre** opération, donc
+  une autre demande.
+- L'identifiant d'opération, perdu avec la page, n'était nulle part
+  accessible à l'utilisateur.
+
+La copie exacte ne pouvait donc **pas** être terminée. Ouvrir la demande
+vide n'est pas une reprise de la copie.
+
+### 11.2 Correctif
+
+Aucune migration, aucun droit nouveau.
+
+- **Action explicite** « Terminer la copie du modèle », sur la ligne d'une
+  demande ouverte, sans variante, avec origine. Elle est affichée à la
+  personne qui a lancé la copie. Les autres lecteurs voient « Copie
+  interrompue : seule la personne qui l'a lancée peut la terminer ».
+- Le lien vers l'éditeur devient alors « Ouvrir la demande vide → ».
+- **Côté serveur** (`resumeCatalogueCopy`) :
+  - opération, version source et paramètres du chantier sont relus sur la
+    demande elle-même, jamais reçus du navigateur ni reconstruits depuis la
+    version publiée actuelle ;
+  - l'étape A est rejouée avec la **même opération** : M035 revérifie
+    l'adhésion, le rôle, la propriété de l'organisation, le rattachement
+    et l'auteur, sans rien écrire ;
+  - puis B et C enregistrent la variante 1 par le circuit M034 ;
+  - si un fichier a déjà été attesté pour cette opération, il est repris
+    tel quel ; sinon, la copie est préparée de nouveau depuis la **version
+    source exacte**.
+- **Messages clairs** si la reprise est impossible :
+  - demande sans origine ;
+  - autre auteur ;
+  - demande plus ouverte ;
+  - autres variantes déjà présentes ;
+  - droits retirés ;
+  - demande introuvable.
+- **Brouillon** : la copie terminée est seulement **proposée** dans
+  l'éditeur, avec le bandeau qui protège le brouillon local.
+- **Rien d'automatique** : aucune demande abandonnée n'est modifiée ni
+  terminée sans action, et aucune origine n'est modifiée.
+
+### 11.3 Preuves
+
+- `scripts/test-catalogue-copy-source.mjs` : **72/72**, dont 13 nouveaux
+  cas :
+  - reprise sur la même demande, sans nouvelle demande ;
+  - copie de la version source v2 alors que v3 a été publiée entre-temps ;
+  - origine, paramètres et version source inchangés ;
+  - réponse perdue et double clic sans doublon ;
+  - échec entre attestation et enregistrement (fichier attesté repris) ;
+  - autre lecteur, personne hors chantier, demande sans origine, demande
+    déjà munie d'une autre variante, accès retiré : refus.
+- **Navigateur** (démonstration) :
+  - demande interrompue `a27bfb39…` ;
+  - « Terminer la copie du modèle », double-cliqué, ouvre l'éditeur sur la
+    variante 1 de la **même** demande ;
+  - brouillon local intact jusqu'à la confirmation ;
+  - en base : 1 variante, celle de l'opération d'origine, aucune demande
+    supplémentaire.
+
+### 11.4 Limites
+
+- Seule la personne qui a lancé la copie peut la terminer : le rejeu M035
+  exige le même auteur.
+- Une demande qui a reçu d'autres variantes entre-temps ne reçoit plus la
+  copie.
+- Données de démonstration ajoutées : la demande interrompue `a27bfb39…`,
+  terminée ensuite par le parcours navigateur.
+

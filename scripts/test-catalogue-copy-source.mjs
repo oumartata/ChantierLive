@@ -345,6 +345,63 @@ try {
   const { error: originsOutsiderErr } = await outsider.client.rpc("list_plan_request_origins", { p_project_id: projectA });
   record("Origines refusées hors chantier", originsOutsiderErr?.message === "not_authorized", originsOutsiderErr?.message);
 
+  // --- 8 bis. Copie interrompue après A (page fermée) : reprise explicite ---
+  const interrupt = async (versionId) => {
+    const { data, error } = await direct(owner.client, projectA, versionId, randomUUID());
+    if (error) throw new Error(`interruption: ${error.message}`);
+    return data;
+  };
+  const geomOf = async (variantId) => geom((await service.from("project_plan_request_variants").select("layout").eq("id", variantId).single()).data.layout.layout);
+  const interrupted = await interrupt(vSecond.id);
+  const vSecondBefore = (await service.from("plan_catalog_item_versions").select("*").eq("id", vSecond.id).single()).data;
+  // Une version 3 est publiée pendant l'interruption : la reprise doit rester sur la version 2.
+  const modelV3 = JSON.parse(JSON.stringify(model));
+  modelV3.layout.rooms[0].x += 1;
+  const vThird = await depositVersion(owner.client, orgA, itemPublished.id, modelV3);
+  await publish(owner, engineer, designation.id, vThird.id);
+  const requestsBeforeResume = await count("project_plan_requests", "project_id", projectA);
+  const resumedCopy = await src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted.id);
+  record("Reprise d'une copie interrompue : même demande, variante 1 créée", resumedCopy.ok && resumedCopy.requestId === interrupted.id && (await count("project_plan_request_variants", "request_id", interrupted.id)) === 1, resumedCopy.message);
+  record("Reprise : aucune nouvelle demande", (await count("project_plan_requests", "project_id", projectA)) === requestsBeforeResume);
+  record("Reprise : copie de la version source EXACTE (v2), pas de la version publiée actuelle (v3)", resumedCopy.ok && same(await geomOf(resumedCopy.variantId), geom(modelV2.layout)));
+  const { data: interruptedAfter } = await service.from("project_plan_requests").select("source_catalog_item_version_id, generation_params").eq("id", interrupted.id).single();
+  record("Reprise : origine et paramètres du chantier inchangés", interruptedAfter.source_catalog_item_version_id === vSecond.id && same(interruptedAfter.generation_params, interrupted.generation_params));
+  record("Reprise : version source inchangée", same((await service.from("plan_catalog_item_versions").select("*").eq("id", vSecond.id).single()).data, vSecondBefore));
+  const again = await src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted.id);
+  record("Reprise rejouée (réponse perdue) : même variante, aucun doublon", again.ok && again.variantId === resumedCopy.variantId && (await count("project_plan_request_variants", "request_id", interrupted.id)) === 1);
+
+  const interrupted2 = await interrupt(vThird.id);
+  const [d1, d2] = await Promise.all([
+    src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted2.id),
+    src.resumeCatalogueCopy(tab2, service, owner.id, interrupted2.id),
+  ]);
+  record("Double clic (deux reprises simultanées) : une seule variante", d1.ok && d2.ok && d1.variantId === d2.variantId && (await count("project_plan_request_variants", "request_id", interrupted2.id)) === 1, d1.message ?? d2.message);
+
+  // Échec entre B (attestation) et C (enregistrement) : le fichier attesté est repris tel quel.
+  const interrupted3 = await interrupt(vThird.id);
+  const { data: op3Row } = await service.from("project_plan_requests").select("catalog_copy_operation_uuid").eq("id", interrupted3.id).single();
+  const attestedAt = "2026-10-06T00:00:00.000Z";
+  const preparedForB = await src.prepareCatalogueCopyFor(owner.client, owner.id, { ...base, versionId: vThird.id, params: destParams, savedAt: attestedAt });
+  await service.rpc("attest_plan_request_variant_layout", { p_operation_uuid: op3Row.catalog_copy_operation_uuid, p_request_id: interrupted3.id, p_profile_id: owner.id, p_layout: preparedForB.copy });
+  const resumedB = await src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted3.id);
+  const savedB = resumedB.ok ? (await service.from("project_plan_request_variants").select("layout").eq("id", resumedB.variantId).single()).data : null;
+  record("Échec entre attestation et enregistrement : fichier déjà attesté repris tel quel", resumedB.ok && savedB.layout.savedAt === attestedAt, resumedB.message);
+
+  const interrupted4 = await interrupt(vThird.id);
+  const byOther = await src.resumeCatalogueCopy(contractorB.client, service, contractorB.id, interrupted4.id);
+  record("Reprise par un autre lecteur de la demande : refusée", !byOther.ok && /Seule la personne qui a lancé cette copie/.test(byOther.message), byOther.message);
+  const byOutsider = await src.resumeCatalogueCopy(outsider.client, service, outsider.id, interrupted4.id);
+  record("Reprise hors chantier : refusée sans rien révéler", !byOutsider.ok && byOutsider.message === "Demande introuvable ou non autorisée.", byOutsider.message);
+  const legacyResume = await src.resumeCatalogueCopy(owner.client, service, owner.id, legacy.id);
+  record("Demande sans origine : rien à terminer, message clair", !legacyResume.ok && /ne provient pas d'une copie/.test(legacyResume.message), legacyResume.message);
+  const { data: op4Row } = await service.from("project_plan_requests").select("catalog_copy_operation_uuid").eq("id", interrupted4.id).single();
+  const otherOp = randomUUID();
+  await service.rpc("attest_plan_request_variant_layout", { p_operation_uuid: otherOp, p_request_id: interrupted4.id, p_profile_id: owner.id, p_layout: preparedForB.copy });
+  await owner.client.rpc("save_plan_request_variant", { p_request_id: interrupted4.id, p_parent_variant_id: null, p_operation_uuid: otherOp });
+  const withOther = await src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted4.id);
+  record("Demande déjà munie d'une autre variante : reprise refusée, expliquée", !withOther.ok && /déjà d'autres variantes/.test(withOther.message) && op4Row.catalog_copy_operation_uuid !== otherOp, withOther.message);
+  const interrupted5 = await interrupt(vThird.id);
+
   // --- 9. Ancien parcours et droits revérifiés à l'écriture -----------------
   record("Ancien parcours : create_plan_request fonctionne, sans origine", !!legacy?.id && legacy.source_catalog_item_version_id === null);
   const op5 = randomUUID();
@@ -355,6 +412,8 @@ try {
   record("Accès au chantier retiré : appel direct refusé en base", revokedDirect?.message === "not_authorized", revokedDirect?.message);
   const { error: revokedReplay } = await direct(owner.client, projectA, vPublished.id, op);
   record("Accès retiré : même la reprise d'une opération réussie est refusée", revokedReplay?.message === "not_authorized", revokedReplay?.message);
+  const resumeRevoked = await src.resumeCatalogueCopy(owner.client, service, owner.id, interrupted5.id);
+  record("Accès retiré : reprise d'une copie interrompue refusée, aucune variante", !resumeRevoked.ok && (await count("project_plan_request_variants", "request_id", interrupted5.id)) === 0, resumeRevoked.message);
 } catch (err) {
   console.error("ERREUR:", err.message);
   results.push(false);
