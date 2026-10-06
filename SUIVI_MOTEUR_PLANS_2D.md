@@ -1688,6 +1688,124 @@ automatiquement.
 - **Interface absente** ; aucune sauvegarde des autorisations. F2 reste
   **« moteur expérimental, interface absente »**.
 
+### F2 — utilisable : autorisation explicite, comparaison et sauvegarde (2026-10-06)
+
+Point de départ : HEAD `5d11447`. Deux sous-lots :
+- `a2a4fef` : modèle, fichier de projet et règles de référence ;
+- sous-lot 2 : Web Worker et interface.
+
+Le moteur de recherche n'est pas modifié.
+
+**Autorisations** (`adaptation.ts`, `AdaptationPanel.tsx`) :
+- **Par défaut** : mode ordinaire inchangé. Le bouton « Autoriser une
+  adaptation des dimensions » est distinct et le panneau est fermé.
+- **Aucune pièce ni dimension autorisée automatiquement** : un champ vide
+  vaut « non autorisée ».
+- **Affichage par pièce** : dimensions actuelles, référence autorisée et
+  minimum technique, ce dernier présenté comme un plancher du moteur, ni
+  un accord ni une norme. Les pièces verrouillées sont exclues.
+- **Confirmation explicite** (« Confirmer ces autorisations ») : une
+  entrée Annuler. Une autorisation invalide est refusée avec le motif du
+  validateur du moteur, sans rien enregistrer.
+
+**Référence stable** :
+- elle est conservée après le choix d'un résultat adapté
+  (`applyAdaptedProposal` ne met à jour que les dimensions connues) ;
+- une modification manuelle des dimensions, une pièce changée ou mise de
+  côté rend l'autorisation « à reconfirmer » ; une pièce verrouillée la
+  rend « exclue » ; seules les autorisations valides alimentent la
+  recherche ;
+- reconfirmer après une modification manuelle prend les dimensions
+  actuelles comme nouvelle référence, de façon visible ;
+- révocation par pièce ou globale ;
+- un plan nouvellement généré n'a aucune autorisation.
+
+**Sauvegarde** (`projectFile.ts`) — convention réelle :
+- **Le catalogue valide la version en base** (migration m032b : 1 à 4),
+  et l'action serveur transmet la version normalisée par
+  `validateProjectFile`.
+- **Version écrite selon le contenu** :
+  - plan **sans** autorisation : v4, à l'identique d'avant ;
+  - plan **avec** autorisations : **v5**, refusé explicitement par une
+    version antérieure de l'éditeur et par le catalogue.
+- **Lecture stricte** : structure, identité de pièce, bornes ≤ référence
+  et ≥ minimum du moteur, dimensions connues ≤ référence, unicité, pièce
+  non verrouillée. Une entrée invalide écarte toutes les autorisations ;
+  le plan est importé et un **avis est affiché** (import, brouillon
+  local, variante enregistrée). Des autorisations dans un fichier < v5
+  sont ignorées avec avis.
+- **L'import ne lance aucune recherche.**
+
+**Recherche** (`adaptedSearch.worker.ts`, Web Worker natif, sans
+dépendance) :
+- **Fil de l'interface libre** : régénération ordinaire et adaptée
+  calculées dans le worker.
+- **État affiché** : « Recherche en cours… X s ».
+- **Annulation** : terminaison du worker et identifiant de requête
+  périmé.
+- **Résultat périmé** : si le plan change pendant la recherche, l'avis
+  apparaît aussitôt et le résultat n'est ni présenté ni appliqué. Le
+  choix d'une proposition dont la base n'est plus le plan courant est
+  refusé, propositions ordinaires comprises.
+- **Budget décrit honnêtement** : au plus 8 jeux, arrêt entre deux jeux
+  après environ 6 s, un jeu commencé va à son terme.
+
+**Comparaison** (`RegenerationPanel` réutilisé) : trois sections
+distinctes, « Disposition actuelle — inchangée », « Propositions
+adaptées » et « Propositions sans réduction ».
+- **Carte adaptée** : aperçu, réductions par pièce (dimensions et
+  surfaces avant → après), indicateurs.
+- **Comparaison détaillée** :
+  - par pièce : référence, bornes, actuelle et proposée (m ; m²),
+    déplacement, ouvertures ;
+  - circulation intérieure, cheminement extérieur, total et contour
+    englobant, avant et après, avec les écarts ;
+  - contrôles et verrous.
+- **Choix** : explicite, par `commit`, donc Annuler/Rétablir. Consulter
+  ou fermer ne modifie rien.
+
+**Preuves** :
+- **Tests** : `test-plans-f2-allowances` 31/31 (nouveaux tests) ;
+  `npm run verify` vert, build de production avec le worker compris.
+- **Navigateur** (profil Playwright isolé, `exports/preuves/f2-interface-2026-10-06/`,
+  hors Git), fixture F2 reconstruite à l'écran :
+  - mode ordinaire : aucune nouvelle proposition, brouillon inchangé ;
+  - panneau fermé par défaut, aucune autorisation ;
+  - refus « sous le minimum » et « au-delà de la référence », sans
+    enregistrement ;
+  - confirmation des bornes de la fixture : v5 ;
+  - recherche : 2 propositions adaptées, 8 jeux sur 15, environ 1,4 s de
+    calcul et 1,9 s de bout en bout ;
+  - comparaison par pièce, choix, cuisine verrouillée intacte, référence
+    conservée (3,03 m) ;
+  - Annuler et Rétablir ; rechargement et reprise ;
+  - deuxième recherche : 18 propositions, aucune largeur sous les bornes
+    (certaines remontent vers la référence, ce qui reste autorisé) ;
+  - annulation (4 essais sur 4) ; résultat périmé (2 sur 2) ; choix
+    périmé refusé ;
+  - export v5 puis réimport : autorisations restaurées, sans recherche ;
+    fichier invalide : plan importé, autorisations écartées, avis
+    affiché ;
+  - révocation : retour en v4 ;
+  - mobile 390 px : aucun débordement de page ; une modification manuelle
+    rend l'autorisation « à reconfirmer ».
+  - Le brouillon préexistant du profil a été restauré à l'identique.
+
+**Limites** :
+- **Catalogue** : un plan **avec** autorisations (v5) y est refusé, avec
+  le message « Version du fichier de projet non reconnue ». Il faut
+  révoquer les autorisations avant le dépôt, ou décider plus tard d'une
+  migration de base.
+- **Demandes de plan** : un dépôt de variante ou de plan de projet
+  enregistre les autorisations avec le plan. Aucune validation de version
+  en base n'a été constatée sur ce chemin, qui n'a pas été testé dans ce
+  lot.
+- **Progression** : pas d'avancement par jeu, seulement la durée écoulée.
+- **Mobile** : le tableau par pièce défile horizontalement dans son
+  cadre.
+- **Recherche** : toujours non exhaustive (référence ou borne seulement,
+  pas de valeur intermédiaire).
+
 ---
 
 ## 3. Journal des lots

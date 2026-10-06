@@ -28,13 +28,19 @@ import {
   type Door,
   type Layout,
   type PlacedRoom,
+  type AdaptedProposal,
+  type AdaptedRegenerationResult,
+  type AdaptedRegenerationStats,
+  type AdaptedRoomReport,
   type RegenerationResult,
   type VerificationIssue,
   type WallSide,
 } from "./geometry";
 import { escapeXml, isSmallRoom, renderSvg, renderSvgToPngBlob, roomTextFits, STAMP } from "./render";
 import { saveDraftLocally, serializeProject, validateProjectFile } from "./projectFile";
-import { buildRegenerationView, CURRENT_VARIANT_LABEL, deltaOf, REGEN_PAGE_SIZE, type LayoutMetrics } from "./regenerationView";
+import { buildRegenerationView, compareBySurfaces, CURRENT_VARIANT_LABEL, deltaOf, metricsOf, REGEN_PAGE_SIZE, type LayoutMetrics } from "./regenerationView";
+import { applyAdaptedProposal, applyOrdinaryProposal, confirmAllowances, engineAllowances, revokeAllowances, type AllowanceInput } from "./adaptation";
+import { AdaptationPanel, type AdaptedSearchState } from "./AdaptationPanel";
 import type { DepositContext } from "./PrototypeClient";
 // Actions serveur RÉELLES et INCHANGÉES du chantier (Lots 1/2,
 // PREPARATION_INTEGRATION_METIER.md) : aucun second mécanisme de dépôt.
@@ -132,7 +138,23 @@ export function PlanEditor({
   // explicitement "Choisir cette disposition" (voir handleAcceptRegeneration).
   // selectedIndex : indice dans result.variants (identité de la proposition),
   // jamais son numéro d'affichage ; null tant que rien n'est sélectionné.
-  const [regen, setRegen] = useState<{ base: Layout; result: RegenerationResult; selectedIndex: number | null } | null>(null);
+  const [regen, setRegen] = useState<{
+    base: Layout;
+    result: RegenerationResult;
+    selectedIndex: number | null;
+    // F2 : propositions adaptées (présentes seulement après une recherche adaptée).
+    adapted?: { proposals: AdaptedProposal[]; stats: AdaptedRegenerationStats; millis: number };
+    selectedAdapted?: number | null;
+  } | null>(null);
+  // F2 : panneau d'autorisation (fermé par défaut) et recherche adaptée dans un
+  // Web Worker. `base` = plan au lancement : un résultat n'est présenté que si
+  // le plan courant est toujours exactement celui-là.
+  const [adaptOpen, setAdaptOpen] = useState(false);
+  const [adaptSearch, setAdaptSearch] = useState<AdaptedSearchState & { base?: Layout }>({ status: "idle" });
+  const [nowTick, setNowTick] = useState(0);
+  const workerRef = useRef<Worker | null>(null);
+  const searchIdRef = useRef(0);
+  const latestCurrentRef = useRef<Layout | null>(null);
   // Sauvegarde locale automatique initiale (à l'ouverture) puis après chaque
   // modification validée (voir saveNow, appelé par commit/undo/redo/import) —
   // jamais un geste séparé à retenir. Un échec (stockage plein, navigation
@@ -500,6 +522,16 @@ export function PlanEditor({
     saveNow(next, currentOrientation);
   }
 
+  useEffect(() => {
+    latestCurrentRef.current = current;
+  });
+  useEffect(() => {
+    if (adaptSearch.status !== "running") return;
+    const t = window.setInterval(() => setNowTick(Date.now()), 500);
+    return () => window.clearInterval(t);
+  }, [adaptSearch.status]);
+  useEffect(() => () => workerRef.current?.terminate(), []);
+
   function undo() {
     if (history.length <= 1) return;
     const previous = history[history.length - 2];
@@ -689,6 +721,81 @@ export function PlanEditor({
     setWindowNotice({ roomIndex: selected, kind: "applied", text: "Fenêtre retirée." });
   }
 
+  // ---- F2 : autorisations et recherche adaptée ----
+  function handleConfirmAllowances(inputs: AllowanceInput[]): string | null {
+    const res = confirmAllowances(current, inputs, new Date().toISOString());
+    if (!res.ok) return res.reason;
+    commit(res.layout, "");
+    return null;
+  }
+
+  function handleRevokeAllowances(roomIndex?: number) {
+    commit(revokeAllowances(current, roomIndex), "");
+  }
+
+  function stopWorker() {
+    workerRef.current?.terminate();
+    workerRef.current = null;
+    searchIdRef.current += 1;
+  }
+
+  function handleAdaptedSearch() {
+    const allowances = engineAllowances(current);
+    if (allowances.length === 0) return;
+    stopWorker();
+    let worker: Worker;
+    try {
+      worker = new Worker(new URL("./adaptedSearch.worker.ts", import.meta.url));
+    } catch (e) {
+      setAdaptSearch({ status: "error", message: e instanceof Error ? e.message : "Web Worker indisponible dans ce navigateur." });
+      return;
+    }
+    workerRef.current = worker;
+    const id = searchIdRef.current;
+    const base = current;
+    setNowTick(Date.now());
+    setAdaptSearch({ status: "running", startedAt: Date.now(), base });
+    worker.onmessage = (e: MessageEvent) => {
+      const data = e.data as { id: number; ok: boolean; error?: string; ordinary?: RegenerationResult; adapted?: AdaptedRegenerationResult; millis: number };
+      if (data.id !== id || searchIdRef.current !== id) return;
+      worker.terminate();
+      workerRef.current = null;
+      // Résultat devenu périmé (plan modifié pendant la recherche) : jamais
+      // présenté ni appliqué.
+      if (latestCurrentRef.current !== base) {
+        setAdaptSearch({ status: "stale" });
+        return;
+      }
+      if (!data.ok || !data.ordinary || !data.adapted) {
+        setAdaptSearch({ status: "error", message: data.error ?? "réponse incomplète" });
+        return;
+      }
+      if (!data.adapted.ok) {
+        setAdaptSearch({ status: "error", message: data.adapted.reason });
+        return;
+      }
+      setAdaptSearch({ status: "idle" });
+      setRegen({
+        base,
+        result: data.ordinary,
+        selectedIndex: null,
+        adapted: { proposals: data.adapted.proposals, stats: data.adapted.stats, millis: data.millis },
+        selectedAdapted: null,
+      });
+    };
+    worker.onerror = (ev) => {
+      if (searchIdRef.current !== id) return;
+      stopWorker();
+      setAdaptSearch({ status: "error", message: ev.message || "erreur du calcul en arrière-plan" });
+    };
+    worker.postMessage({ id, layout: base, allowances });
+  }
+
+  function handleCancelAdaptedSearch() {
+    stopWorker();
+    setAdaptSearch({ status: "cancelled" });
+  }
+
   // Lance la régénération des pièces non verrouillées — le brouillon en
   // cours d'édition (history/current) N'EST PAS modifié tant qu'un résultat
   // n'a pas été explicitement choisi : `regen` ne stocke qu'une proposition
@@ -702,10 +809,24 @@ export function PlanEditor({
   }
 
   function handleAcceptRegeneration() {
-    if (!regen || regen.selectedIndex === null) return;
-    const chosen = regen.result.variants[regen.selectedIndex];
-    if (!chosen || chosen.variantLabel === CURRENT_VARIANT_LABEL) return;
-    commit(chosen, "");
+    if (!regen) return;
+    // Résultat calculé sur un autre état du plan (ex. Annuler pendant la
+    // consultation) : jamais appliqué.
+    if (regen.base !== current) {
+      setFlash("Résultat périmé : le plan a changé depuis la recherche. Rien n'a été appliqué — relancez la recherche.");
+      window.setTimeout(() => setFlash(null), 4000);
+      return;
+    }
+    if (regen.adapted && regen.selectedAdapted !== null && regen.selectedAdapted !== undefined) {
+      const proposal = regen.adapted.proposals[regen.selectedAdapted];
+      if (!proposal) return;
+      commit(applyAdaptedProposal(current, proposal.layout), "");
+    } else {
+      if (regen.selectedIndex === null) return;
+      const chosen = regen.result.variants[regen.selectedIndex];
+      if (!chosen || chosen.variantLabel === CURRENT_VARIANT_LABEL) return;
+      commit(applyOrdinaryProposal(current, chosen), "");
+    }
     setRegen(null);
     setSelected(null);
   }
@@ -1032,11 +1153,37 @@ export function PlanEditor({
         </button>
       ) : null}
 
+      {!regen ? (
+        <button
+          type="button"
+          onClick={() => setAdaptOpen((o) => !o)}
+          aria-expanded={adaptOpen}
+          data-testid="adapt-toggle"
+          className={`w-fit rounded border px-3 py-1 text-sm ${adaptOpen ? "border-amber-700 bg-amber-100" : "border-amber-500"}`}
+        >
+          {adaptOpen ? "Masquer l'adaptation des dimensions" : "Autoriser une adaptation des dimensions"}
+        </button>
+      ) : null}
+      {!regen && adaptOpen ? (
+        <AdaptationPanel
+          key={JSON.stringify(current.dimensionAllowances ?? null) + current.rooms.map((r) => `${r.w}x${r.d}${r.locked ? "L" : ""}${r.parked ? "P" : ""}`).join(",")}
+          layout={current}
+          canSearch={lockedCount > 0 && unlockedCount > 0 ? null : "La recherche adaptée, comme la régénération, exige au moins une pièce verrouillée et une pièce non verrouillée."}
+          search={adaptSearch.status === "running" && adaptSearch.base !== current ? { status: "stale" } : adaptSearch}
+          onConfirm={handleConfirmAllowances}
+          onRevoke={handleRevokeAllowances}
+          onSearch={handleAdaptedSearch}
+          onCancelSearch={handleCancelAdaptedSearch}
+          now={nowTick}
+        />
+      ) : null}
+
       {regen ? (
         <RegenerationPanel
           regen={regen}
           orientation={currentOrientation}
-          onSelect={(i) => setRegen((r) => (r ? { ...r, selectedIndex: i } : r))}
+          onSelect={(i) => setRegen((r) => (r ? { ...r, selectedIndex: i, selectedAdapted: null } : r))}
+          onSelectAdapted={(i) => setRegen((r) => (r ? { ...r, selectedAdapted: i, selectedIndex: null } : r))}
           onAccept={handleAcceptRegeneration}
           onCancel={handleCancelRegeneration}
         />
@@ -1481,19 +1628,214 @@ function MetricsList({ m }: { m: LayoutMetrics }) {
   );
 }
 
+// F2 — propositions ADAPTÉES (dimensions réduites dans les bornes
+// autorisées), présentées à part des propositions sans réduction et de la
+// disposition actuelle. Même ordre de présentation que les autres
+// propositions (classement selon les surfaces), identité = indice dans
+// `proposals`, jamais le numéro affiché.
+type AdaptedData = { proposals: AdaptedProposal[]; stats: AdaptedRegenerationStats; millis: number };
+
+function adaptedOrder(adapted: AdaptedData): { index: number; displayNumber: number }[] {
+  return adapted.proposals
+    .map((p, index) => ({ p, index }))
+    .sort((a, b) => {
+      const c = compareBySurfaces(a.p.layout, b.p.layout);
+      return Math.abs(c) > 1e-12 ? c : a.index - b.index;
+    })
+    .map((x, k) => ({ index: x.index, displayNumber: k + 1 }));
+}
+
+const dims = (v: { w: number; d: number }) => `${num(v.w)} × ${num(v.d)}`;
+
+function AdaptedSection({
+  base,
+  adapted,
+  orientation,
+  selected,
+  onSelect,
+}: {
+  base: Layout;
+  adapted: AdaptedData;
+  orientation: string;
+  selected: number | null;
+  onSelect: (i: number | null) => void;
+}) {
+  const order = useMemo(() => adaptedOrder(adapted), [adapted]);
+  const [shown, setShown] = useState(REGEN_PAGE_SIZE);
+  const total = order.length;
+  const st = adapted.stats;
+  return (
+    <section data-testid="adapted-proposals" className="flex flex-col gap-2 rounded border-2 border-amber-300 bg-amber-50/60 p-2">
+      <h4 className="text-sm font-semibold">
+        Propositions adaptées (dimensions comprises entre vos bornes et la référence autorisée) — <span data-testid="adapted-count">{Math.min(shown, total)} affichée(s) sur {total}</span>
+      </h4>
+      <p data-testid="adapted-stats" className="text-xs text-slate-700">
+        {st.dimensionSetsTried} jeu(x) de dimensions essayé(s) sur {st.dimensionSetsPossible} possible(s)
+        {st.setsCapped ? ` (plafond de ${st.dimensionSetsPlanned})` : ""} ; durée de la recherche adaptée {num(st.elapsedMillis / 1000)} s
+        {st.budgetReached ? " ; arrêt sur budget, après le jeu en cours (dépassement possible)" : " ; budget non atteint"}. Recherche non exhaustive : l&apos;absence
+        d&apos;une proposition ne prouve pas qu&apos;aucune adaptation n&apos;existe. Même ordre de présentation que ci-dessous (classement selon les surfaces).
+      </p>
+      {total === 0 ? (
+        <p data-testid="adapted-none" className="text-xs text-amber-950">Aucune disposition adaptée nouvelle et admissible trouvée dans ces bornes par cette recherche.</p>
+      ) : (
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {order.slice(0, shown).map(({ index, displayNumber }) => {
+            const p = adapted.proposals[index];
+            const isSel = selected === index;
+            const reduced = p.rooms.filter((r) => r.proposed.w !== r.current.w || r.proposed.d !== r.current.d);
+            return (
+              <li key={index} data-testid="adapted-card" className={`flex min-w-0 flex-col gap-2 rounded border-2 bg-white p-2 ${isSel ? "border-amber-800" : "border-amber-200"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">Adaptation {displayNumber}</span>
+                  <button
+                    onClick={() => onSelect(isSel ? null : index)}
+                    aria-pressed={isSel}
+                    className={`rounded border px-2 py-1 text-xs ${isSel ? "border-amber-800 bg-amber-800 text-white" : "border-amber-500"}`}
+                  >
+                    {isSel ? "Sélectionnée" : `Comparer l'adaptation ${displayNumber}`}
+                  </button>
+                </div>
+                <RegenPreview layout={p.layout} orientation={orientation} label={`Aperçu de l'adaptation ${displayNumber}`} />
+                <ul className="list-disc pl-4 text-xs text-amber-950">
+                  {reduced.map((r) => (
+                    <li key={r.roomIndex}>
+                      {r.name} : {dims(r.current)} → {dims(r.proposed)} m ({num(r.current.w * r.current.d)} → {num(r.proposed.w * r.proposed.d)} m²)
+                    </li>
+                  ))}
+                </ul>
+                <MetricsList m={metricsOf(p.layout, base)} />
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {shown < total ? (
+        <button onClick={() => setShown((n) => n + REGEN_PAGE_SIZE)} className="w-fit rounded border border-amber-500 bg-white px-3 py-2 text-sm">
+          Afficher davantage ({Math.min(REGEN_PAGE_SIZE, total - shown)} de plus, {total - shown} restante(s))
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function AdaptedCompare({ base, adapted, index, orientation }: { base: Layout; adapted: AdaptedData; index: number; orientation: string }) {
+  const p = adapted.proposals[index];
+  const displayNumber = adaptedOrder(adapted).find((o) => o.index === index)?.displayNumber ?? index + 1;
+  const before = metricsOf(base, base);
+  const after = metricsOf(p.layout, base);
+  const rows: [string, number, number][] = [
+    ["Circulation intérieure", p.surfaces.before.circulation, p.surfaces.after.circulation],
+    ["Cheminement extérieur (conv.)", p.surfaces.before.cheminementExterieur, p.surfaces.after.cheminementExterieur],
+    ["Total des deux", p.surfaces.before.total, p.surfaces.after.total],
+    ["Contour englobant", p.footprint.before?.area ?? 0, p.footprint.after?.area ?? 0],
+  ];
+  const bound = (r: AdaptedRoomReport) =>
+    r.bounds ? `l ≥ ${r.bounds.minW !== null ? num(r.bounds.minW) : "—"} ; p ≥ ${r.bounds.minD !== null ? num(r.bounds.minD) : "—"}` : "non autorisée";
+  return (
+    <section data-testid="adapted-compare" className="rounded border-2 border-amber-800 bg-white p-2 sm:p-3">
+      <h4 className="text-sm font-semibold">Comparer : disposition actuelle et adaptation {displayNumber}</h4>
+      <div className="mt-2 grid grid-cols-2 gap-2">
+        <RegenPreview layout={base} orientation={orientation} label="Disposition actuelle" />
+        <RegenPreview layout={p.layout} orientation={orientation} label={`Adaptation ${displayNumber}`} />
+      </div>
+      <div className="mt-2 overflow-x-auto">
+        <table data-testid="adapted-rooms" className="w-full text-xs">
+          <thead>
+            <tr className="text-left">
+              <th className="pr-2">Pièce</th>
+              <th className="whitespace-nowrap pr-2">Référence (m)</th>
+              <th className="whitespace-nowrap pr-2">Bornes (m)</th>
+              <th className="whitespace-nowrap pr-2">Actuelle (m ; m²)</th>
+              <th className="whitespace-nowrap pr-2">Proposée (m ; m²)</th>
+              <th className="pr-2">Déplacée</th>
+              <th>Ouvertures</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {p.rooms.map((r) => (
+              <tr key={r.roomIndex} className={r.proposed.w !== r.current.w || r.proposed.d !== r.current.d ? "bg-amber-50" : ""}>
+                <td className="whitespace-nowrap pr-2">
+                  {r.name}
+                  {r.locked ? " 🔒" : ""}
+                </td>
+                <td className="whitespace-nowrap pr-2">{r.reference ? dims(r.reference) : "—"}</td>
+                <td className="whitespace-nowrap pr-2">{bound(r)}</td>
+                <td className="whitespace-nowrap pr-2">
+                  {dims(r.current)} ; {num(r.current.w * r.current.d)}
+                </td>
+                <td className="whitespace-nowrap pr-2">
+                  {dims(r.proposed)} ; {num(r.proposed.w * r.proposed.d)}
+                  {r.withinBounds ? "" : " HORS BORNES"}
+                </td>
+                <td className="pr-2">{r.moved ? "oui" : "non"}</td>
+                <td>{r.openingsChanged ? "modifiées" : "inchangées"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-2 overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-left">
+              <th className="pr-1 sm:pr-2">Indicateur (m²)</th>
+              <th className="whitespace-nowrap pr-1 text-right sm:pr-2">Actuelle</th>
+              <th className="whitespace-nowrap pr-1 text-right sm:pr-2">Adapt. {displayNumber}</th>
+              <th className="whitespace-nowrap text-right">Écart</th>
+            </tr>
+          </thead>
+          <tbody className="tabular-nums">
+            {rows.map(([label, a, b]) => (
+              <tr key={label}>
+                <td className="pr-1 sm:pr-2" title={label.startsWith("Cheminement") ? EXTERIOR_CONVENTION : undefined}>
+                  {label}
+                </td>
+                <td className="whitespace-nowrap pr-1 text-right sm:pr-2">{num(a)}</td>
+                <td className="whitespace-nowrap pr-1 text-right sm:pr-2">{num(b)}</td>
+                <td className="whitespace-nowrap text-right">{signedNum(deltaOf(b, a))}</td>
+              </tr>
+            ))}
+            <tr>
+              <td className="pr-1 sm:pr-2">Contrôles</td>
+              <td className="pr-1 text-right sm:pr-2">{before.errors} err.</td>
+              <td className="pr-1 text-right sm:pr-2">{after.errors} err.</td>
+              <td />
+            </tr>
+            <tr>
+              <td className="pr-1 sm:pr-2">Verrous</td>
+              <td className="pr-1 text-right sm:pr-2">référence</td>
+              <td className="pr-1 text-right sm:pr-2">{after.locksPreserved ? "conservés" : "MODIFIÉS"}</td>
+              <td />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-2 text-xs text-slate-600">
+        Contour englobant : {p.footprint.before ? `${num(p.footprint.before.w)} × ${num(p.footprint.before.d)} m` : "—"} →{" "}
+        {p.footprint.after ? `${num(p.footprint.after.w)} × ${num(p.footprint.after.d)} m` : "—"}. Choisir cette adaptation conserve la référence autorisée
+        de chaque pièce ; une nouvelle recherche repartira de cette référence, jamais des dimensions réduites.
+      </p>
+    </section>
+  );
+}
+
 function RegenerationPanel({
   regen,
   orientation,
   onSelect,
+  onSelectAdapted,
   onAccept,
   onCancel,
 }: {
-  regen: { base: Layout; result: RegenerationResult; selectedIndex: number | null };
+  regen: { base: Layout; result: RegenerationResult; selectedIndex: number | null; adapted?: AdaptedData; selectedAdapted?: number | null };
   orientation: string;
   onSelect: (i: number | null) => void;
+  onSelectAdapted: (i: number | null) => void;
   onAccept: () => void;
   onCancel: () => void;
 }) {
+  const adapted = regen.adapted;
+  const selectedAdapted = adapted && regen.selectedAdapted !== null && regen.selectedAdapted !== undefined ? regen.selectedAdapted : null;
   const { result, base } = regen;
   // Calculé une fois par résultat : la numérotation reste stable tant que le
   // panneau reste ouvert. « Afficher davantage » ne relance aucune
@@ -1563,9 +1905,11 @@ function RegenerationPanel({
         </div>
       </section>
 
+      {adapted ? <AdaptedSection base={base} adapted={adapted} orientation={orientation} selected={selectedAdapted} onSelect={onSelectAdapted} /> : null}
+
       {result.variants.length > 0 && total === 0 ? (
         <section data-testid="regen-none" className="rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-          <p className="font-semibold">Aucune nouvelle proposition.</p>
+          <p className="font-semibold">{adapted ? "Aucune proposition sans réduction." : "Aucune nouvelle proposition."}</p>
           <p className="mt-1 text-xs">
             Cette recherche n&apos;a trouvé aucune disposition nouvelle et admissible pour les pièces non verrouillées. Ce n&apos;est
             pas un nouveau plan : votre disposition actuelle{view.currentEngineIndex !== null ? " reste admissible et" : ""} est
@@ -1577,7 +1921,7 @@ function RegenerationPanel({
       {total > 0 ? (
         <section data-testid="regen-proposals" className="flex flex-col gap-2">
           <h4 className="text-sm font-semibold">
-            Nouvelles propositions — <span data-testid="regen-count">{Math.min(shown, total)} affichée(s) sur {total}</span>
+            {adapted ? "Propositions sans réduction" : "Nouvelles propositions"} — <span data-testid="regen-count">{Math.min(shown, total)} affichée(s) sur {total}</span>
           </h4>
           <p data-testid="regen-order" className="text-xs text-slate-700">
             <strong>Classement selon les surfaces</strong> (ordre de présentation, jamais la garantie d&apos;un meilleur plan) :
@@ -1685,7 +2029,9 @@ function RegenerationPanel({
             </p>
           ) : null}
         </section>
-      ) : total > 0 ? (
+      ) : selectedAdapted !== null && adapted ? (
+        <AdaptedCompare base={base} adapted={adapted} index={selectedAdapted} orientation={orientation} />
+      ) : total > 0 || (adapted && adapted.proposals.length > 0) ? (
         <p className="text-xs text-slate-600">Sélectionnez une proposition (« Comparer ») pour la mettre côte à côte avec la disposition actuelle avant de choisir.</p>
       ) : null}
 
@@ -1697,8 +2043,13 @@ function RegenerationPanel({
             Choisir cette disposition (proposition {selected.displayNumber})
           </button>
         ) : null}
+        {selectedAdapted !== null && adapted ? (
+          <button onClick={onAccept} className="rounded bg-amber-800 px-3 py-2 text-sm font-semibold text-white">
+            Choisir cette disposition adaptée (adaptation {adaptedOrder(adapted).find((o) => o.index === selectedAdapted)?.displayNumber})
+          </button>
+        ) : null}
         <button onClick={onCancel} className="rounded border border-indigo-400 bg-white px-3 py-2 text-sm">
-          {total === 0 && result.variants.length > 0 ? "Conserver cette disposition" : "Fermer sans appliquer — garder le brouillon actuel"}
+          {total === 0 && result.variants.length > 0 && !(adapted && adapted.proposals.length > 0) ? "Conserver cette disposition" : "Fermer sans appliquer — garder le brouillon actuel"}
         </button>
       </div>
     </div>
