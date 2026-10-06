@@ -2031,14 +2031,14 @@ leurs fichiers stockés.
 ### Validation à l'écriture des variantes de demandes — préparée (2026-10-06)
 
 Diagnostic et proposition dans
-[](./PREPARATION_VALIDATION_VARIANTES.md).
+[`PREPARATION_VALIDATION_VARIANTES.md`](./PREPARATION_VALIDATION_VARIANTES.md).
 
 - **Défaut reproduit** par appel direct, avec un compte autorisé : JSON
   quelconque, référence invalide et autorisations F2 invalides sont
   écrits.
-- **Seule voie** : l'insertion par . Le plan
-  est ensuite immuable, et la table est inaccessible à .
-- **Proposition** : attestation dédiée (), liée au profil,
+- **Seule voie** : l'insertion par `save_plan_request_variant`. Le plan
+  est ensuite immuable, et la table est inaccessible à `authenticated`.
+- **Proposition** : attestation dédiée (`service_role`), liée au profil,
   à la demande et au contenu exact, à usage unique ; nouvelle signature
   sans plan en argument ; refus explicite des autorisations invalides ;
   aucune exigence géométrique nouvelle.

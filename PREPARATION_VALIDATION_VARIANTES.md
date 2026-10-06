@@ -244,9 +244,9 @@ recommandée.
   la lecture : « illisible » si le format est invalide, autorisations
   écartées avec avis.
 - **Appelants de l'ancienne RPC** (recherche dans le dépôt) :
-  - l'action serveur  ;
-  - le test d'intégration  (4 appels
-    directs, dont un avec ), **à adapter** pour passer par
+  - l'action serveur `savePlanRequestVariantAction` ;
+  - le test d'intégration `scripts/test-plan-requests.mjs` (4 appels
+    directs, dont un avec `p_layout: {}`), **à adapter** pour passer par
     l'attestation ou par l'action.
 
   Tout autre appel direct serait refusé après migration, ce qui est
