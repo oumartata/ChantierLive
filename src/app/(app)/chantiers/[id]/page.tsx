@@ -106,13 +106,17 @@ export default async function ChantierFichePage({
   const isOwnerPrimary = isOwner && membership?.owner_profile === "PRIMARY";
   let financialSummary: FinancialSummary | null = null;
   let phasePlan: { status: string; global_progress: string | number | null } | null = null;
+  // M040 (D177) : « Avancement validé », mesure distincte (BR034).
+  let validatedProgress: { applicable_count: number; validated_count: number; validated_progress: string | number | null; computable: boolean } | null = null;
   if (isOwner) {
-    const [{ data: fsData }, { data: ppData }] = await Promise.all([
+    const [{ data: fsData }, { data: ppData }, { data: vpData }] = await Promise.all([
       supabase.rpc("get_project_financial_summary", { p_project_id: id }),
       supabase.rpc("get_project_phase_plan", { p_project_id: id }),
+      supabase.rpc("get_project_validated_progress", { p_project_id: id }),
     ]);
     financialSummary = Array.isArray(fsData) ? fsData[0] ?? null : fsData ?? null;
     phasePlan = Array.isArray(ppData) ? ppData[0] ?? null : ppData ?? null;
+    validatedProgress = Array.isArray(vpData) ? vpData[0] ?? null : vpData ?? null;
   }
 
   return (
@@ -190,9 +194,10 @@ export default async function ChantierFichePage({
 
           {/* M033 — avancement réel (déclaré par l'entreprise), plus de teaser
               « indisponible » : si aucun plan n'est encore publié, l'écran
-              dédié l'explique lui-même, jamais un pourcentage inventé ici. */}
+              dédié l'explique lui-même, jamais un pourcentage inventé ici.
+              D177 : deux mesures distinctes, chacune sous son propre libellé. */}
           <Card className="flex flex-col gap-2" data-testid="fiche-avancement-teaser">
-            <h2 className="text-h2 font-semibold text-ink">Avancement</h2>
+            <h2 className="text-h2 font-semibold text-ink">Avancement déclaré par l&apos;entreprise</h2>
             {phasePlan?.status === "PUBLIE" ? (
               <>
                 <p className="text-display font-bold text-ink">{formatPercent(phasePlan.global_progress)}</p>
@@ -204,6 +209,20 @@ export default async function ChantierFichePage({
             <Link href={`/chantiers/${id}/avancement`} className="text-label font-semibold text-primary">
               Voir le détail
             </Link>
+          </Card>
+
+          <Card className="flex flex-col gap-2" data-testid="fiche-avancement-valide">
+            <h2 className="text-h2 font-semibold text-ink">Avancement validé</h2>
+            {validatedProgress?.computable ? (
+              <>
+                <p className="text-display font-bold text-ink">{formatPercent(validatedProgress.validated_progress)}</p>
+                <p className="text-caption text-muted">
+                  {validatedProgress.validated_count} étape(s) validée(s) par vous sur {validatedProgress.applicable_count} publiée(s).
+                </p>
+              </>
+            ) : (
+              <p className="text-body text-muted">Non calculable : aucune étape publiée.</p>
+            )}
           </Card>
 
           <Card className="flex flex-col gap-3" data-testid="fiche-gestion">

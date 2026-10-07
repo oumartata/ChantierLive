@@ -34,6 +34,17 @@ function mapPhaseError(message: string | undefined): string {
       return "Un motif est obligatoire pour modifier les étapes ou les poids après publication.";
     case "unauthenticated":
       return "Session expirée. Reconnectez-vous.";
+    // M040 (B019/B020, D179).
+    case "phase_invalid_dates":
+      return "La date de fin prévue doit suivre la date de début prévue.";
+    case "phase_validated_immutable":
+      return "Cette étape est validée par le propriétaire : elle ne peut plus être modifiée.";
+    case "invalid_transition":
+      return "Cette action n'est pas possible dans l'état actuel de l'étape.";
+    case "decision_invalid":
+      return "Décision invalide.";
+    case "no_change":
+      return "Aucune modification à enregistrer.";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -125,6 +136,74 @@ export async function updateProgressAction(_prev: PhaseActionState, formData: Fo
     p_project_id: projectId,
     p_phase_id: phaseId,
     p_progression: progression,
+    p_expected_revision: revision,
+  });
+  if (error) return { error: mapPhaseError(error.message) };
+  return done(projectId);
+}
+
+// M040 — déclaration « terminée » (entreprise), décision du propriétaire
+// principal (motif obligatoire pour un refus), dates prévues après
+// publication (motif). Droits revérifiés en base (D179).
+export async function declarePhaseAction(_prev: PhaseActionState, formData: FormData): Promise<PhaseActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  const projectId = formData.get("project_id");
+  const phaseId = formData.get("phase_id");
+  const revision = readRevision(formData);
+  if (!isUuid(projectId) || !isUuid(phaseId) || revision === null) return { error: "Requête invalide." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("declare_phase_complete", { p_project_id: projectId, p_phase_id: phaseId, p_expected_revision: revision });
+  if (error) return { error: mapPhaseError(error.message) };
+  return done(projectId);
+}
+
+export async function decidePhaseAction(_prev: PhaseActionState, formData: FormData): Promise<PhaseActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  const projectId = formData.get("project_id");
+  const phaseId = formData.get("phase_id");
+  const revision = readRevision(formData);
+  const decision = formData.get("decision");
+  const reason = formData.get("reason");
+  if (!isUuid(projectId) || !isUuid(phaseId) || revision === null || (decision !== "VALIDEE" && decision !== "REFUSEE")) {
+    return { error: "Requête invalide." };
+  }
+  if (decision === "REFUSEE" && (typeof reason !== "string" || reason.trim().length < 3)) {
+    return { error: "Indiquez le motif du refus (3 caractères au moins)." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("decide_phase", {
+    p_project_id: projectId,
+    p_phase_id: phaseId,
+    p_decision: decision,
+    p_reason: typeof reason === "string" ? reason.trim() : null,
+    p_expected_revision: revision,
+  });
+  if (error) return { error: error.message === "reason_required" ? "Indiquez le motif du refus (3 caractères au moins)." : mapPhaseError(error.message) };
+  return done(projectId);
+}
+
+export async function updateScheduleAction(_prev: PhaseActionState, formData: FormData): Promise<PhaseActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  const projectId = formData.get("project_id");
+  const phaseId = formData.get("phase_id");
+  const revision = readRevision(formData);
+  const reason = formData.get("reason");
+  const date = (name: string) => {
+    const v = formData.get(name);
+    return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null;
+  };
+  if (!isUuid(projectId) || !isUuid(phaseId) || revision === null) return { error: "Requête invalide." };
+  if (typeof reason !== "string" || reason.trim().length < 1) return { error: "Un motif est obligatoire pour modifier les dates prévues après publication." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("update_phase_schedule", {
+    p_project_id: projectId,
+    p_phase_id: phaseId,
+    p_planned_start: date("planned_start"),
+    p_planned_end: date("planned_end"),
+    p_reason: reason.trim(),
     p_expected_revision: revision,
   });
   if (error) return { error: mapPhaseError(error.message) };

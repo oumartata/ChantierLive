@@ -58,6 +58,25 @@ machines:
     rule: "Jamais modifiée ni supprimée ; la version remplacée reste lisible dans l'historique (AC058). État dérivé, sans colonne : la version courante est daily_logs.current_version_id, les autres sont SUPERSEDED."
     transitions:
       - {from: PUBLISHED, to: SUPERSEDED, guard: "linked_correction_created_with_reason (supersedes_version_id, D152)"}
+  # Étapes de chantier (M033 + M040, B019/B020, D177–D179) ; statuts stockés
+  # en français dans project_phases.status. Deux mesures distinctes (D177) :
+  # « Avancement déclaré par l'entreprise » (pondéré) et « Avancement validé »
+  # (étapes VALIDEE / étapes actives d'un plan publié ; non calculable sinon).
+  project_phase:
+    initial: DRAFT
+    states: [DRAFT, PUBLISHED, DECLARED_COMPLETE, VALIDATED, REFUSED]
+    stored_as: {DRAFT: BROUILLON, PUBLISHED: PUBLIEE, DECLARED_COMPLETE: TERMINEE, VALIDATED: VALIDEE, REFUSED: REFUSEE}
+    terminal: [VALIDATED]
+    rules:
+      - "Étape validée figée : libellé, poids, progression, dates prévues, archivage (seule la position peut changer)."
+      - "Étape publiée modifiable par l'entreprise avec motif et trace (restructuration, dates prévues)."
+      - "Validation et refus par le propriétaire principal seul ; copropriétaire en lecture (D179)."
+      - "Déclarer terminée ne modifie pas la progression déclarée (D177)."
+    transitions:
+      - {from: DRAFT, to: PUBLISHED, guard: "contractor_publishes_plan_weights_sum_100"}
+      - {from: [PUBLISHED, REFUSED], to: DECLARED_COMPLETE, guard: "contractor_active (D179)"}
+      - {from: DECLARED_COMPLETE, to: VALIDATED, guard: "owner_primary_active"}
+      - {from: DECLARED_COMPLETE, to: REFUSED, guard: "owner_primary_active_with_reason"}
   # Documents tels que réalisés (M039, B028, D169–D176) ; statuts stockés en
   # français. Le remplacement ne change pas l'état : il ajoute une version
   # liée (document_versions, insertion seule), la précédente reste lisible.
