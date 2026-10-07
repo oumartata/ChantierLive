@@ -98,15 +98,19 @@ machines:
     # Budget interne : versions publiées directement par l'entreprise, sans approbation (D185).
     applies_to: [expense]
     initial: DRAFT
-    states: [DRAFT, PUBLISHED, APPROVED, REJECTED, DISPUTED, SUPERSEDED, CANCELLED]
-    rule: "APPROVED/REJECTED/DISPUTED are never edited in place ; approbations internes à l'entreprise, jamais visibles ni décidées par le propriétaire (D183)"
+    # Réalisé par M045 (B031, D183, D184, D187) ; statuts stockés en français.
+    states: [DRAFT, PUBLISHED, APPROVED, REJECTED, DISPUTED, CANCELLED]
+    stored_as: {DRAFT: BROUILLON, PUBLISHED: SOUMISE, APPROVED: APPROUVEE, REJECTED: REFUSEE, DISPUTED: CONTESTEE, CANCELLED: ANNULEE}
+    terminal: [REJECTED, CANCELLED]
+    rule: "APPROVED/REJECTED/DISPUTED are never edited in place ; approbations internes à l'entreprise, jamais visibles ni décidées par le propriétaire (D183) ; brouillon visible par son auteur seul (D187) ; une correction crée une nouvelle version liée, la version remplacée (SUPERSEDED) reste consultable et sort des totaux (D187)"
     transitions:
-      - {from: DRAFT, to: PUBLISHED, guard: "authorized_and_valid"}
+      - {from: DRAFT, to: PUBLISHED, guard: "site_manager_author_submits (D184 F3/F4)"}
+      - {from: DRAFT, to: APPROVED, guard: "contractor_author_publishes_approved (D184 F4)"}
       - {from: PUBLISHED, to: APPROVED, guard: "contractor_active_verified (interne ; D183)"}
-      - {from: PUBLISHED, to: REJECTED, guard: "contractor_active_with_reason (interne ; D183)"}
-      - {from: [PUBLISHED, APPROVED], to: DISPUTED, guard: "contractor_active_with_reason (interne ; D183)"}
-      - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: SUPERSEDED, guard: "linked_replacement_created"}
-      - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: CANCELLED, guard: "linked_counter_entry_created"}
+      - {from: PUBLISHED, to: REJECTED, guard: "contractor_active_with_reason, définitif (D183, D187 H4)"}
+      - {from: APPROVED, to: DISPUTED, guard: "contractor_active_with_reason (interne ; D183, D184 F4)"}
+      - {from: [APPROVED, DISPUTED], to: APPROVED, guard: "contractor_linked_correction_with_reason (nouvelle version ; D184 F7, D187 H5)"}
+      - {from: [APPROVED, DISPUTED], to: CANCELLED, guard: "contractor_counter_entry_with_reason (D184 F7, D187 H5)"}
   advance:
     initial: DRAFT
     note: "DRAFT n'existe que côté client (déclaration en ligne uniquement) ; le serveur crée directement DECLARED. RECEIVED = versement confirmé (D126, BR108)."
