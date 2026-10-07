@@ -88,6 +88,8 @@ export default async function ChantierLayout({
         // B022 : le propriétaire lit les journaux publiés (JOURNAL_VIEW,
         // list_published_daily_logs M037), jamais les brouillons.
         { href: `/chantiers/${id}/journal`, label: "Journal" },
+        // B024 : incidents lus par tout membre actif (INCIDENT_VIEW, M038).
+        { href: `/chantiers/${id}/incidents`, label: "Incidents" },
         { href: `/chantiers/${id}/catalogue`, label: "Catalogue" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
       ]
@@ -103,6 +105,7 @@ export default async function ChantierLayout({
         // B021/B022 : journal tenu par l'entreprise et le chef de chantier
         // (M036), journaux publiés lus par tout membre actif (M037).
         ...(role ? [{ href: `/chantiers/${id}/journal`, label: "Journal" }] : []),
+        ...(role ? [{ href: `/chantiers/${id}/incidents`, label: "Incidents" }] : []),
         { href: `/chantiers/${id}/photos`, label: "Photos" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         ...(canSeeFinancials

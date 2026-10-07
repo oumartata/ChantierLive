@@ -85,14 +85,25 @@ machines:
     initial: PENDING
     terminal: [APPROVED, REJECTED, INFO_REQUESTED, CORRECTION_REQUESTED, CANCELLED]
     rule: "reopen creates a new linked approval"
+  # Réalisé par M038 (B024, D159–D166) ; statuts stockés en français.
   incident:
     initial: OPEN
-    states: [OPEN, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED]
+    states: [OPEN, ASSIGNED, IN_PROGRESS, RESOLVED, CLOSED, CANCELLED]
+    stored_as: {OPEN: OUVERT, ASSIGNED: AFFECTE, IN_PROGRESS: EN_COURS, RESOLVED: RESOLU, CLOSED: CLOS, CANCELLED: ANNULE}
+    terminal: [CLOSED, CANCELLED]
+    rules:
+      - "Création directe OPEN en ligne, aucun brouillon serveur (D161)."
+      - "Aucune réouverture d'un incident clos : nouvel incident lié (D165)."
+      - "Changement de responsable possible dans tout état non terminal, sans changer d'état sauf OPEN -> ASSIGNED (D163)."
+      - "Correction des champs par événement avec motif, dans tout état non terminal (D164)."
+      - "Toute autre transition est refusée ; historique incident_events en insertion seule."
     transitions:
-      - {from: OPEN, to: ASSIGNED, guard: "responsible_selected"}
-      - {from: [OPEN, ASSIGNED], to: IN_PROGRESS, guard: "authorized_update"}
-      - {from: IN_PROGRESS, to: RESOLVED, guard: "resolution_entered"}
-      - {from: RESOLVED, to: CLOSED, guard: "authorized_close"}
+      - {from: OPEN, to: ASSIGNED, guard: "responsible_selected_by_contractor_or_owner_primary (D163)"}
+      - {from: [OPEN, ASSIGNED], to: IN_PROGRESS, guard: "authorized_update (D162)"}
+      - {from: IN_PROGRESS, to: RESOLVED, guard: "resolution_entered_by_authorized_update"}
+      - {from: RESOLVED, to: IN_PROGRESS, guard: "authorized_update_with_reason (D165)"}
+      - {from: RESOLVED, to: CLOSED, guard: "authorized_close (D162)"}
+      - {from: OPEN, to: CANCELLED, guard: "authorized_close_with_reason (D165)"}
   sync_item:
     initial: QUEUED
     states: [QUEUED, UPLOADING, SYNCED, FAILED, CONFLICT, CANCELLED]

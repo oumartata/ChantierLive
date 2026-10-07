@@ -92,12 +92,15 @@ forms:
   incident:
     screen: SCR041
     fields:
-      - {id: incident_type, type: choice, required: true}
-      - {id: severity, type: choice, required: true, values: [LOW, MEDIUM, HIGH]}
+      - {id: incident_type, type: choice, required: true, values: [SECURITE, MALFACON, RETARD, MATERIAUX, INTEMPERIES, AUTRE], decision: D160}
+      - {id: severity, type: choice, required: true, values: [FAIBLE, MOYENNE, ELEVEE, URGENTE], decision: D159}
       - {id: occurred_at, type: datetime, required: true, future_allowed: false}
       - {id: description, type: textarea, required: true, min: 5, max: 2000}
-      - {id: media_ids, type: attachments, required: false, max_items: 10}
-      - {id: assigned_to, type: active_member, required: false}
+      - {id: media_ids, type: attachments, required: false, max_items: 10, note: "non réalisé (médias joints hors B024)"}
+      - {id: assigned_to, type: active_member, required: false, note: "désignation séparée, par l'entreprise ou le propriétaire principal (D163)"}
+      - {id: linked_incident_id, type: incident_same_project, required: false, note: "nouvel incident lié à un incident clos (D165)"}
+    # Aucun champ d'étape (D166). En ligne : création directe OUVERT (D161) ;
+    # SAVE_LOCAL reste réservé au futur hors-ligne.
     submit: SAVE_LOCAL_OR_PUBLISH
   document:
     screen: SCR043

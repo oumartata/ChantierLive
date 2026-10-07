@@ -110,6 +110,7 @@ progress:
     - "B025 (compression des photos avant envoi) : réalisée (033aba6), validation du fondateur attendue ; hors compteur tant que non validée"
     - "B021 (brouillon de journal quotidien, M036) : réalisée (ae5d1df), validation du fondateur attendue ; hors compteur tant que non validée"
     - "B022 (publication et correction du journal, « nouvelle version liée », M037) : réalisée (f291171), validation du fondateur attendue ; hors compteur tant que non validée"
+    - "B024 (incidents, M038/M038b/M038c, D159–D167) : réalisée (boucle 11c), validation du fondateur attendue ; hors compteur tant que non validée"
   next_action: "Au 2026-10-06 (pilotage par boucles, PASSATION_CLAUDE_CHAT.md §3 et §8) : 1) D1 faite le 2026-10-07 (sauvegarde F: et push du fondateur jusqu'à 47201d4 ; commits suivants locaux, voir working_branch) ; 2) compléments ESPACES-5 sans migration (menu « Versements clients » vers la présentation entreprise, historique en lecture seule) ; 3) premier lot du backlog choisi en D3 ; 4) proposition ESPACES-4 / B030–B032 sans migration appliquée (D4). Historique : la validation navigateur du lot Avancement (M033) a été faite le 2026-10-04 (PREPARATION_AVANCEMENT_TRAVAUX.md §7) ; écart de droits du brouillon (PHASE_CREATE/PHASE_PUBLISH/PHASE_EDIT_DRAFT, conception plus large que M033) toujours ouvert, restriction à l'entreprise conservée. Aucun push, fusion ni migration distante sans accord explicite du fondateur."
   backlog_revision_2026_09_24:
     status: "APPROUVÉ, appliqué à MVP_BACKLOG.csv et commité pour cohérence documentaire (commit 7d7f918) — 68 tâches, D083-D094 VALIDATED (D093 restait une proposition technique, non validée par l'approbation du backlog (historique ; validée depuis le 2026-09-26, voir DECISIONS.yaml))"
@@ -145,11 +146,11 @@ progress:
       remote_branch: "aucune"
       note: "contenu non examiné ; à traiter dans la décision D1"
   local_migrations:
-    applied: "M001 à M037, 52 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
-    last_applied: "20261007100000_m037_daily_log_publication.sql"
-    recent: ["M035 20261006150000_m035_plan_request_catalog_source.sql", "M036 20261006230000_m036_daily_log_drafts.sql", "M037 20261007100000_m037_daily_log_publication.sql"]
-    local_only: "M029–M037 locales uniquement, jamais déployées"
-    next_migration_id: "M038"
+    applied: "M001 à M038c, 55 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
+    last_applied: "20261007150000_m038c_incident_rights_never_null.sql"
+    recent: ["M037 20261007100000_m037_daily_log_publication.sql", "M038 20261007140000_m038_incidents.sql", "M038b 20261007143000_m038b_incidents_list_types.sql", "M038c 20261007150000_m038c_incident_rights_never_null.sql"]
+    local_only: "M029–M038c locales uniquement, jamais déployées"
+    next_migration_id: "M039"
   pending_decisions:
     - id: "D1"
       subject: "Sauvegarde distante des commits locaux de claude/plans-generator (et sort des branches claude/b014-geoloc-tranche1 et claude/ux-demo-fixes) et des migrations M029–M037"
