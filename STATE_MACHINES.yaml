@@ -58,6 +58,23 @@ machines:
     rule: "Jamais modifiée ni supprimée ; la version remplacée reste lisible dans l'historique (AC058). État dérivé, sans colonne : la version courante est daily_logs.current_version_id, les autres sont SUPERSEDED."
     transitions:
       - {from: PUBLISHED, to: SUPERSEDED, guard: "linked_correction_created_with_reason (supersedes_version_id, D152)"}
+  # Documents tels que réalisés (M039, B028, D169–D176) ; statuts stockés en
+  # français. Le remplacement ne change pas l'état : il ajoute une version
+  # liée (document_versions, insertion seule), la précédente reste lisible.
+  document:
+    initial: DRAFT
+    states: [DRAFT, PUBLISHED, ARCHIVED]
+    stored_as: {DRAFT: BROUILLON, PUBLISHED: PUBLIE, ARCHIVED: ARCHIVE}
+    terminal: [ARCHIVED]
+    rules:
+      - "Brouillon visible par son auteur seul (D170) ; visibilité modifiable seulement en brouillon, figée après publication (D173)."
+      - "Nouvelle version seulement sur un document publié, par la partie qui l'a déposé ; publiée immédiatement (D172, AC112)."
+      - "Archivage motivé par la partie propriétaire ; versions conservées et consultables (D174, BR067)."
+    transitions:
+      - {from: DRAFT, to: PUBLISHED, guard: "author_active_confirmed_visibility (D170, D173)"}
+      - {from: DRAFT, to: ARCHIVED, guard: "author_with_reason (D174)"}
+      - {from: PUBLISHED, to: PUBLISHED, guard: "new_version_by_owning_party (D172)"}
+      - {from: PUBLISHED, to: ARCHIVED, guard: "owning_party_with_reason (D174)"}
   financial_record:
     applies_to: [expense, budget_version]
     initial: DRAFT

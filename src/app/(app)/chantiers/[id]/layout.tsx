@@ -90,6 +90,8 @@ export default async function ChantierLayout({
         { href: `/chantiers/${id}/journal`, label: "Journal" },
         // B024 : incidents lus par tout membre actif (INCIDENT_VIEW, M038).
         { href: `/chantiers/${id}/incidents`, label: "Incidents" },
+        // B028 : documents visibles selon leur visibilité (M039).
+        { href: `/chantiers/${id}/documents`, label: "Documents" },
         { href: `/chantiers/${id}/catalogue`, label: "Catalogue" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
       ]
@@ -106,6 +108,7 @@ export default async function ChantierLayout({
         // (M036), journaux publiés lus par tout membre actif (M037).
         ...(role ? [{ href: `/chantiers/${id}/journal`, label: "Journal" }] : []),
         ...(role ? [{ href: `/chantiers/${id}/incidents`, label: "Incidents" }] : []),
+        ...(role ? [{ href: `/chantiers/${id}/documents`, label: "Documents" }] : []),
         { href: `/chantiers/${id}/photos`, label: "Photos" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         ...(canSeeFinancials

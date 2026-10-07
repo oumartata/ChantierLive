@@ -105,10 +105,10 @@ forms:
   document:
     screen: SCR043
     fields:
-      - {id: file, type: attachment, required: true, max_items: 1}
-      - {id: document_type, type: choice, required: true}
+      - {id: file, type: attachment, required: true, max_items: 1, note: "PDF, JPEG, PNG, WebP, 20 Mo au plus, type réel contrôlé au serveur (D176)"}
+      - {id: document_type, type: choice, required: true, values: [PLAN, DEVIS, CONTRAT, RECU, FACTURE, AUTORISATION, RAPPORT, PROCES_VERBAL, AUTRE], decision: D175}
       - {id: title, type: text, required: true, min: 3, max: 120}
-      - {id: visibility, type: choice, required: true, values: [ALL_PROJECT, PRINCIPALS_ONLY]}
+      - {id: visibility, type: choice, required: true, values: [TOUS, PRINCIPAUX, ENTREPRISE], default: PRINCIPAUX, decision: D169, note: "ENTREPRISE réservé aux dépôts de l'entreprise"}
       - {id: description, type: textarea, required: false, max: 500}
     submit: SAVE_DRAFT_THEN_UPLOAD
   license_payment:

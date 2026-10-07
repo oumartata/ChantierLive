@@ -103,6 +103,19 @@ async function depositCatalog(client, organizationId, itemId) {
   const version = await must(client.rpc("finalize_catalog_item_upload", { p_operation_uuid: op }), "finalize catalog");
   return { id: version.id, key: claim.candidate_key };
 }
+// B028 (M039) : document déposé puis publié, même discipline.
+async function depositDocument(client, projectId, visibility) {
+  const bytes = PDF(`document-${visibility}`);
+  const op = randomUUID();
+  const prep = await must(client.rpc("prepare_document_upload", { p_operation_uuid: op, p_project_id: projectId, p_document_id: null, p_document_type: "CONTRAT", p_title: `B029 — document ${visibility}`, p_description: null, p_visibility: visibility, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" }), "prepare document");
+  const claim = await must(client.rpc("claim_upload_attempt", { p_operation_uuid: op, p_expected_attempt_id: prep.attempt_id }), "claim document");
+  await must(service.storage.from("project-documents").upload(claim.candidate_key, bytes, { contentType: "application/pdf", upsert: false }), "write document");
+  await must(service.rpc("attest_storage_verified", { p_operation_uuid: op, p_attempt_id: claim.attempt_id, p_actual_checksum: sha(bytes), p_actual_size_bytes: bytes.length, p_actual_mime_type: "application/pdf" }), "attest document");
+  const version = await must(client.rpc("finalize_document_upload", { p_operation_uuid: op }), "finalize document");
+  const rev = (await service.from("documents").select("revision").eq("id", version.document_id).single()).data.revision;
+  await must(client.rpc("publish_document", { p_document_id: version.document_id, p_expected_revision: rev }), "publish document");
+  return { id: version.document_id, versionId: version.id, key: claim.candidate_key };
+}
 const objectExists = async (bucket, key) => {
   const { data, error } = await service.storage.from(bucket).download(key);
   return !error && !!data;
@@ -161,6 +174,8 @@ try {
   const mediaDraftSM = await uploadMedia(smA.client, pidA, false);
   const item = await must(contractorA.client.rpc("create_catalog_item", { p_organization_id: orgA, p_label: "B029 — modèle privé" }), "catalog item");
   const catalog = await depositCatalog(contractorA.client, orgA, item.id);
+  const docPrinc = await depositDocument(contractorA.client, pidA, "PRINCIPAUX");
+  const docEnt = await depositDocument(contractorA.client, pidA, "ENTREPRISE");
   // Ex-membre : accès retiré avant les essais.
   await must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", pidA).eq("profile_id", exMember.id), "révocation ex-membre");
   console.log(`Chantier A ${pidA} (organisation ${orgA}) ; chantier B ${pidB} (organisation ${orgB}).`);
@@ -170,6 +185,8 @@ try {
     { bucket: "project-plans", key: published.key, what: "plan publié" },
     { bucket: "advance-receipts", key: receipt.key, what: "justificatif d'acompte" },
     { bucket: "organization-catalog", key: catalog.key, what: "modèle de catalogue" },
+    { bucket: "project-documents", key: docPrinc.key, what: "document PRINCIPAUX" },
+    { bucket: "project-documents", key: docEnt.key, what: "document ENTREPRISE" },
   ];
   for (const f of files) {
     if (!(await objectExists(f.bucket, f.key))) throw new Error(`fixture absente : ${f.bucket}/${f.key}`);
@@ -267,6 +284,23 @@ try {
     record(`Catalogue A (privé de l'entreprise) — ${s.label} : refusé`, !!r.error, errCode(r));
   }
 
+  // Documents (B028, M039).
+  const docKey = (u, versionId) => u.client.rpc("get_document_version_file_key", { p_version_id: versionId });
+  const dkOwner = await docKey(ownerA, docPrinc.versionId);
+  const dkRow = Array.isArray(dkOwner.data) ? dkOwner.data[0] : dkOwner.data;
+  record("Document PRINCIPAUX A — propriétaire : délivré", !dkOwner.error && dkRow?.storage_key === docPrinc.key, dkOwner.error?.message);
+  const dkEnt = await docKey(ownerA, docEnt.versionId);
+  record("Document ENTREPRISE A (privé de l'entreprise) — propriétaire : refusé", dkEnt.error?.message === "not_authorized", dkEnt.error?.message);
+  const dkSm = await docKey(smA, docPrinc.versionId);
+  record("Document PRINCIPAUX A — chef de chantier : refusé (TOUS seulement)", dkSm.error?.message === "not_authorized", dkSm.error?.message);
+  for (const s of [...strangers, anon]) {
+    const l = await s.client.rpc("list_project_documents", { p_project_id: pidA });
+    const k1 = await docKey(s, docPrinc.versionId);
+    const k2 = await docKey(s, docEnt.versionId);
+    const v = await s.client.rpc("list_document_versions", { p_document_id: docPrinc.id });
+    record(`Documents A — ${s.label} : liste, clés et versions refusées`, !!l.error && !!k1.error && !!k2.error && !!v.error, [l, k1, k2, v].map(errCode).join(" / "));
+  }
+
   // ------------------------------------------------------------------------
   // 3. Envoyer / remplacer par le chemin applicatif : préparation refusée,
   //    opération d'autrui jamais revendiquée ni consultée.
@@ -277,7 +311,9 @@ try {
     const p = await s.client.rpc("prepare_project_plan_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
     const r = await s.client.rpc("prepare_advance_receipt_upload", { p_operation_uuid: randomUUID(), p_advance_id: advanceId, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
     const c = await s.client.rpc("prepare_catalog_item_upload", { p_operation_uuid: randomUUID(), p_organization_id: orgA, p_catalog_item_id: item.id, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
-    record(`Envoyer vers A — ${s.label} : photo, plan, justificatif, catalogue refusés`, !!m.error && !!p.error && !!r.error && !!c.error, [m, p, r, c].map(errCode).join(" / "));
+    const d = await s.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_document_id: null, p_document_type: "AUTRE", p_title: "Intrus", p_description: null, p_visibility: "TOUS", p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+    const dv = await s.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_document_id: docPrinc.id, p_document_type: null, p_title: null, p_description: null, p_visibility: null, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+    record(`Envoyer vers A — ${s.label} : photo, plan, justificatif, catalogue, document et nouvelle version refusés`, !!m.error && !!p.error && !!r.error && !!c.error && !!d.error && !!dv.error, [m, p, r, c, d, dv].map(errCode).join(" / "));
   }
   const ownerCat = await ownerA.client.rpc("prepare_catalog_item_upload", { p_operation_uuid: randomUUID(), p_organization_id: orgA, p_catalog_item_id: item.id, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
   record("Envoyer dans le catalogue de l'entreprise — propriétaire du chantier : refusé", !!ownerCat.error, errCode(ownerCat));
@@ -310,6 +346,9 @@ try {
   // d) Fonctions de lecture appelées avec l'identifiant d'un fichier de A par un membre de B.
   const crossKey = await planKey(contractorB, published.id);
   record("Chemin forgé : identifiant de version de plan de A appelé depuis B refusé", crossKey.error?.message === "not_authorized", crossKey.error?.message);
+  // e) Nouvelle version d'un document de A demandée depuis le chantier B.
+  const forgedDoc = await contractorB.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidB, p_document_id: docPrinc.id, p_document_type: null, p_title: null, p_description: null, p_visibility: null, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+  record("Chemin forgé : nouvelle version d'un document de A depuis le chantier B refusée", forgedDoc.error?.message === "not_authorized", forgedDoc.error?.message);
 
   // ------------------------------------------------------------------------
   // 5. URL signée émise avant le retrait d'accès (constat, sans conclusion).
