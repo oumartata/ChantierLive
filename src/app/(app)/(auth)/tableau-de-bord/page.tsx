@@ -1,35 +1,34 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { Card, AlertBanner, StatusChip, EmptyState, Button } from "@/components/ui";
+import { Card, AlertBanner, EmptyState, Button } from "@/components/ui";
 import { createClient, getVerifiedUser } from "@/lib/supabase/server";
+import { dashboardRole, loadContractorCard, loadOwnerCard, loadSiteManagerCard, type ProjectRef } from "@/lib/dashboard/dashboard";
 import { LogoutButton } from "./LogoutButton";
+import { ContractorProjectCard, OwnerProjectCard, SiteManagerProjectCard, stamp, statusOf } from "./DashboardCards";
 
-const STATUS_LABEL: Record<string, { label: string; variant: "neutral" | "info" | "success" | "attention" }> = {
-  DRAFT: { label: "Brouillon", variant: "neutral" },
-  ACTIVE: { label: "Actif", variant: "success" },
-  SUSPENDED: { label: "Suspendu", variant: "attention" },
-  COMPLETED: { label: "Terminé", variant: "info" },
-  ARCHIVED: { label: "Archivé", variant: "neutral" },
-  READ_ONLY: { label: "Lecture seule", variant: "neutral" },
-};
+// B044 (D189 T1 à T7) : une seule page d'accueil, un bloc par rôle détenu,
+// chaque bloc limité aux chantiers de ce rôle et calculé chantier par
+// chantier (aucun total entre chantiers). Les chiffres viennent des
+// fonctions existantes appelées avec la session de l'utilisateur
+// (src/lib/dashboard/dashboard.ts) : le propriétaire n'en reçoit jamais
+// aucune donnée interne (D183), le chef de chantier jamais le budget ni
+// l'alerte (D185). Fraîcheur (T3 A) : heure du serveur à la lecture.
 
-const ROLE_LABEL: Record<string, string> = {
-  OWNER_PRIMARY: "Propriétaire principal",
-  OWNER_CO_OWNER: "Copropriétaire",
-  CONTRACTOR: "Entrepreneur",
-  SITE_MANAGER: "Chef de chantier",
-};
-
-function roleLabel(role: string, ownerProfile: string | null): string {
-  const key = role === "OWNER" ? `OWNER_${ownerProfile}` : role;
-  return ROLE_LABEL[key] ?? role;
-}
+const STATUS_FILTERS = [
+  { value: "", label: "Tous" },
+  { value: "ACTIVE", label: "Actifs" },
+  { value: "DRAFT", label: "Brouillons" },
+  { value: "SUSPENDED", label: "Suspendus" },
+  { value: "COMPLETED", label: "Terminés" },
+];
 
 // Route protégée : revérifie l'identité côté serveur (getUser, pas
 // getSession) avant tout rendu. FR008 : l'état provisional lu ici ne remplace
 // pas les contrôles serveur de chaque action sensible future.
-export default async function TableauDeBordPage() {
+export default async function TableauDeBordPage({ searchParams }: { searchParams: Promise<{ statut?: string }> }) {
+  const { statut } = await searchParams;
+  const statusFilter = STATUS_FILTERS.some((f) => f.value === statut) ? (statut ?? "") : "";
   const user = await getVerifiedUser();
   if (!user) {
     redirect("/connexion");
@@ -46,7 +45,7 @@ export default async function TableauDeBordPage() {
   // révoquées explicitement exclues (jamais affichées comme un chantier actif).
   const { data: memberships } = await supabase
     .from("project_memberships")
-    .select("role, owner_profile, projects(id, name, status)")
+    .select("role, owner_profile, projects(id, name, status, budget)")
     .eq("profile_id", user.id)
     .is("revoked_at", null);
 
@@ -59,6 +58,24 @@ export default async function TableauDeBordPage() {
     .select("id, name")
     .eq("owner_profile_id", user.id)
     .is("archived_at", null);
+
+  // Cartes par rôle, chantier par chantier (T1 A, T7 A).
+  const readAt = new Date();
+  const today = readAt.toISOString().slice(0, 10);
+  const held = (memberships ?? []).flatMap((m) => {
+    const project = Array.isArray(m.projects) ? m.projects[0] : m.projects;
+    const role = dashboardRole(m.role, m.owner_profile);
+    if (!project || !role) return [];
+    const ref: ProjectRef = { id: project.id, name: project.name, status: project.status, budget: project.budget === null || project.budget === undefined ? null : String(project.budget) };
+    return [{ role, ref }];
+  });
+  const [ownerCards, contractorCards, siteManagerCards] = await Promise.all([
+    Promise.all(held.filter((h) => h.role === "OWNER_PRIMARY" || h.role === "CO_OWNER").map((h) => loadOwnerCard(supabase, h.ref, h.role as "OWNER_PRIMARY" | "CO_OWNER"))),
+    Promise.all(held.filter((h) => h.role === "CONTRACTOR").map((h) => loadContractorCard(supabase, h.ref, today))),
+    Promise.all(held.filter((h) => h.role === "SITE_MANAGER").map((h) => loadSiteManagerCard(supabase, h.ref, today))),
+  ]);
+  const portfolioCounts = STATUS_FILTERS.filter((f) => f.value !== "").map((f) => ({ ...f, count: contractorCards.filter((c) => c.project.status === f.value).length })).filter((f) => f.count > 0);
+  const shownContractorCards = statusFilter ? contractorCards.filter((c) => c.project.status === statusFilter) : contractorCards;
 
   // Seul data === false SANS erreur permet "Compte vérifié". Une erreur RPC
   // ou un résultat null/undefined ne doit jamais être traité comme "vérifié"
@@ -95,6 +112,10 @@ export default async function TableauDeBordPage() {
       <h1 className="text-h1 font-bold text-ink">Tableau de bord</h1>
       {banner}
 
+      <p className="text-caption text-muted" data-testid="fraicheur">
+        Données lues sur le serveur le {stamp(readAt.toISOString())}. Chaque indicateur ne montre que ce que votre rôle permet de voir sur le chantier.
+      </p>
+
       {/* Ancre stable ciblée par le lien "Mes chantiers" du menu principal
           (AppShell/SectionNavLink) — scroll-mt compense l'en-tête collant
           (h-14) pour que le titre ne soit pas masqué après le saut. */}
@@ -106,7 +127,7 @@ export default async function TableauDeBordPage() {
           </Link>
         </div>
 
-        {(memberships ?? []).length === 0 ? (
+        {held.length === 0 ? (
           <EmptyState
             title="Aucun chantier pour le moment"
             description="Créez votre premier chantier, ou acceptez une invitation reçue pour en rejoindre un."
@@ -116,31 +137,52 @@ export default async function TableauDeBordPage() {
               </Link>
             }
           />
-        ) : (
-          <div className="flex flex-col gap-3">
-            {(memberships ?? []).map((m, i) => {
-              const project = Array.isArray(m.projects) ? m.projects[0] : m.projects;
-              if (!project) return null;
-              const status = STATUS_LABEL[project.status] ?? { label: project.status, variant: "neutral" as const };
-              return (
-                <Card key={project.id ?? i} className="flex flex-col gap-2 p-5 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-col gap-1">
-                    <p className="text-label font-semibold text-ink">{project.name}</p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatusChip variant={status.variant} label={status.label} />
-                      <span className="text-caption text-muted">{roleLabel(m.role, m.owner_profile)}</span>
-                    </div>
-                  </div>
-                  <Link href={`/chantiers/${project.id}`}>
-                    <Button variant="secondary" size="compact">
-                      Ouvrir
-                    </Button>
-                  </Link>
-                </Card>
-              );
-            })}
+        ) : null}
+
+        {ownerCards.length > 0 ? (
+          <div className="flex flex-col gap-3" data-testid="bloc-proprietaire">
+            <h3 className="text-label font-semibold text-ink">En tant que propriétaire ({ownerCards.length})</h3>
+            <p className="text-caption text-muted">Avancement, décisions, incidents, paiements et activité partagés de vos chantiers.</p>
+            {ownerCards.map((card) => (
+              <OwnerProjectCard key={card.project.id} card={card} />
+            ))}
           </div>
-        )}
+        ) : null}
+
+        {contractorCards.length > 0 ? (
+          <div className="flex flex-col gap-3" data-testid="bloc-entreprise">
+            <h3 className="text-label font-semibold text-ink">En tant qu&apos;entreprise ({contractorCards.length})</h3>
+            <p className="text-caption text-muted">
+              {portfolioCounts.map((f) => `${f.count} ${f.label.toLowerCase()}`).join(", ")}. Aucun montant n&apos;est cumulé entre chantiers.
+            </p>
+            <nav className="flex flex-wrap gap-2" aria-label="Filtrer par statut">
+              {STATUS_FILTERS.map((f) => (
+                <Link
+                  key={f.value || "tous"}
+                  href={f.value ? `/tableau-de-bord?statut=${f.value}#mes-chantiers` : "/tableau-de-bord#mes-chantiers"}
+                  className={`rounded-small border px-3 py-1 text-caption font-semibold ${statusFilter === f.value ? "border-primary text-primary" : "border-muted/40 text-muted"}`}
+                >
+                  {f.label}
+                </Link>
+              ))}
+            </nav>
+            {shownContractorCards.length === 0 ? (
+              <p className="text-body text-muted">Aucun chantier {statusOf(statusFilter).label.toLowerCase()} pour l&apos;instant.</p>
+            ) : (
+              shownContractorCards.map((card) => <ContractorProjectCard key={card.project.id} card={card} />)
+            )}
+          </div>
+        ) : null}
+
+        {siteManagerCards.length > 0 ? (
+          <div className="flex flex-col gap-3" data-testid="bloc-chef">
+            <h3 className="text-label font-semibold text-ink">En tant que chef de chantier ({siteManagerCards.length})</h3>
+            <p className="text-caption text-muted">Saisies du jour, incidents et vos dépenses.</p>
+            {siteManagerCards.map((card) => (
+              <SiteManagerProjectCard key={card.project.id} card={card} />
+            ))}
+          </div>
+        ) : null}
       </section>
 
       {/* Espace entreprise séparé (maquettes fondateur 2026-10-03) :
