@@ -13,6 +13,7 @@ import {
   type MemberOption,
 } from "./IncidentForms";
 import { STATUS, formatDay, formatStamp, roleLabel, severityOf, typeLabel } from "./labels";
+import { getPhaseOptions, phaseLinkLabel } from "@/lib/phases/phaseOptions";
 
 // SCR042 — B024 (M038/M038b/M038c, D159–D167). Lecture par tout membre
 // actif, propriétaires compris (list_project_incidents) ; chaque action
@@ -30,6 +31,8 @@ interface IncidentRow extends IncidentView {
   linked_incident_id: string | null;
   created_at_server: string;
   closed_at_server: string | null;
+  phase_label: string | null;
+  phase_archived: boolean | null;
 }
 
 interface IncidentEvent {
@@ -45,17 +48,18 @@ interface IncidentEvent {
   created_at_server: string;
 }
 
-const FIELD_LABEL: Record<string, string> = { incident_type: "Type", severity: "Gravité", occurred_at: "Date", description: "Description" };
+const FIELD_LABEL: Record<string, string> = { incident_type: "Type", severity: "Gravité", occurred_at: "Date", description: "Description", phase_id: "Étape" };
 
-function fieldValue(field: string, v: unknown): string {
-  if (v === null || v === undefined || v === "") return "—";
+function fieldValue(field: string, v: unknown, phaseLabels?: Map<string, string>): string {
+  if (v === null || v === undefined || v === "") return field === "phase_id" ? "aucune" : "—";
+  if (field === "phase_id") return phaseLinkLabel(String(v), phaseLabels ?? new Map()) ?? "aucune";
   if (field === "incident_type") return typeLabel(String(v));
   if (field === "severity") return severityOf(String(v)).label;
   if (field === "occurred_at") return formatStamp(String(v));
   return String(v);
 }
 
-function EventLine({ e, memberLabel, me }: { e: IncidentEvent; memberLabel: (id: string | null) => string; me: string }) {
+function EventLine({ e, memberLabel, me, phaseLabels }: { e: IncidentEvent; memberLabel: (id: string | null) => string; me: string; phaseLabels: Map<string, string> }) {
   const who = `${roleLabel(e.actor_role, e.actor_owner_profile)}${e.actor_profile_id === me ? " (vous)" : ""}`;
   const changes = e.changes as Record<string, { old: unknown; new: unknown }>;
   let what: string;
@@ -71,7 +75,7 @@ function EventLine({ e, memberLabel, me }: { e: IncidentEvent; memberLabel: (id:
       {e.event_type === "CORRECTION"
         ? Object.entries(changes).map(([k, c]) => (
             <p key={k} className="break-words text-caption text-muted">
-              {FIELD_LABEL[k] ?? k} : {fieldValue(k, c.old)} → {fieldValue(k, c.new)}
+              {FIELD_LABEL[k] ?? k} : {fieldValue(k, c.old, phaseLabels)} → {fieldValue(k, c.new, phaseLabels)}
             </p>
           ))
         : null}
@@ -148,6 +152,8 @@ export default async function IncidentsPage({ params }: { params: Promise<{ id: 
     })
   );
   const now = new Date().toISOString().slice(0, 16);
+  // D182 : étapes proposées (actives, plan publié) et libellés.
+  const { options: phaseOptions, labels: phaseLabels } = await getPhaseOptions(supabase, id);
   const open = rows.filter((r) => !["CLOS", "ANNULE"].includes(r.status)).length;
 
   return (
@@ -203,6 +209,11 @@ export default async function IncidentsPage({ params }: { params: Promise<{ id: 
                   <dd className="inline">{r.due_date ? formatDay(r.due_date) : "aucune"}</dd>
                 </div>
               </dl>
+              {r.phase_id ? (
+                <p className="text-caption text-ink" data-testid="incident-etape">
+                  Étape : <span className="font-semibold">{phaseLinkLabel(r.phase_id, phaseLabels, r.phase_label, r.phase_archived)}</span>
+                </p>
+              ) : null}
               {r.resolution ? <p className="break-words text-body text-ink">Résolution : {r.resolution}</p> : null}
               {r.linked_incident_id ? <p className="text-caption text-muted">Fait suite à un incident clos.</p> : null}
 
@@ -233,7 +244,7 @@ export default async function IncidentsPage({ params }: { params: Promise<{ id: 
               ) : null}
               {r.can_update ? (
                 <Action title="Corriger l'incident">
-                  <CorrectIncidentForm projectId={id} incident={r} now={now} />
+                  <CorrectIncidentForm projectId={id} incident={r} now={now} phases={phaseOptions} />
                 </Action>
               ) : null}
               {r.can_close && r.status === "OUVERT" ? (
@@ -251,7 +262,7 @@ export default async function IncidentsPage({ params }: { params: Promise<{ id: 
                 <summary className="cursor-pointer text-label font-semibold text-primary">Historique ({history.length})</summary>
                 <ol className="mt-3 flex flex-col gap-3">
                   {history.map((e) => (
-                    <EventLine key={e.id} e={e} memberLabel={memberLabel} me={user.id} />
+                    <EventLine key={e.id} e={e} memberLabel={memberLabel} me={user.id} phaseLabels={phaseLabels} />
                   ))}
                 </ol>
               </details>

@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { AlertBanner, Button, ConfirmDialog, TextField } from "@/components/ui";
+import type { PhaseOption } from "@/lib/phases/phaseOptions";
 import {
   archiveDailyLogDraftAction,
   correctDailyLogAction,
@@ -20,6 +21,7 @@ export interface DailyLogDraftView {
   next_actions: string | null;
   revision: number;
   updated_at_server: string;
+  phase_id: string | null;
 }
 
 const FIELDS: { name: "works_done" | "difficulties" | "team" | "next_actions"; label: string }[] = [
@@ -28,6 +30,26 @@ const FIELDS: { name: "works_done" | "difficulties" | "team" | "next_actions"; l
   { name: "team", label: "Équipe présente" },
   { name: "next_actions", label: "Prochaines actions" },
 ];
+
+// D182 : étape facultative (étapes actives d'un plan publié) ; un lien
+// existant vers une étape retirée reste proposé tel quel.
+function PhaseSelect({ phases, defaultValue }: { phases: PhaseOption[]; defaultValue: string | null }) {
+  const known = !defaultValue || phases.some((p) => p.value === defaultValue);
+  return (
+    <label className="flex flex-col gap-1 text-label font-semibold text-ink">
+      Étape concernée (facultative)
+      <select name="phase_id" defaultValue={defaultValue ?? ""} className="h-12 w-full rounded-small border border-muted/40 bg-surface px-4 text-body font-normal text-ink">
+        <option value="">Aucune étape</option>
+        {!known ? <option value={defaultValue ?? ""}>Étape retirée (lien actuel)</option> : null}
+        {phases.map((p) => (
+          <option key={p.value} value={p.value}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 // Zone de texte multiligne : même présentation que TextField (aucun
 // composant multiligne dans src/components/ui).
@@ -48,7 +70,7 @@ function TextArea({ name, label, defaultValue }: { name: string; label: string; 
 
 // Formulaire de création (draft absent) ou de modification d'un brouillon.
 // Aucun champ de contenu obligatoire (AC053) ; la date est requise.
-export function DailyLogForm({ projectId, draft, today }: { projectId: string; draft: DailyLogDraftView | null; today: string }) {
+export function DailyLogForm({ projectId, draft, today, phases }: { projectId: string; draft: DailyLogDraftView | null; today: string; phases: PhaseOption[] }) {
   const [state, formAction, pending] = useActionState<JournalActionState, FormData>(
     draft ? updateDailyLogDraftAction : createDailyLogDraftAction,
     null
@@ -72,6 +94,7 @@ export function DailyLogForm({ projectId, draft, today }: { projectId: string; d
       {FIELDS.map((f) => (
         <TextArea key={f.name} name={f.name} label={f.label} defaultValue={draft?.[f.name] ?? ""} />
       ))}
+      <PhaseSelect phases={phases} defaultValue={draft?.phase_id ?? null} />
       {state && "error" in state ? <AlertBanner variant="error" title="Enregistrement impossible" explanation={state.error} /> : null}
       {saved ? <p className="text-caption text-muted">Brouillon enregistré.</p> : null}
       <div className="flex flex-wrap gap-2">
@@ -123,10 +146,11 @@ export interface PublishedLogView {
   difficulties: string | null;
   team: string | null;
   next_actions: string | null;
+  phase_id: string | null;
 }
 
 // Correction d'un journal publié : nouvelle version liée, motif obligatoire.
-export function CorrectionForm({ projectId, log }: { projectId: string; log: PublishedLogView }) {
+export function CorrectionForm({ projectId, log, phases }: { projectId: string; log: PublishedLogView; phases: PhaseOption[] }) {
   const [state, formAction, pending] = useActionState<JournalActionState, FormData>(correctDailyLogAction, null);
   return (
     <form action={formAction} className="flex flex-col gap-3" data-testid={`correction-${log.daily_log_id}`}>
@@ -137,6 +161,7 @@ export function CorrectionForm({ projectId, log }: { projectId: string; log: Pub
       {FIELDS.map((f) => (
         <TextArea key={f.name} name={f.name} label={f.label} defaultValue={log[f.name] ?? ""} />
       ))}
+      <PhaseSelect phases={phases} defaultValue={log.phase_id} />
       {state && "error" in state ? <AlertBanner variant="error" title="Correction impossible" explanation={state.error} /> : null}
       <p className="text-caption text-muted">La correction est publiée immédiatement ; la version précédente reste lisible dans l&apos;historique.</p>
       <div>

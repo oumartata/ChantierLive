@@ -31,6 +31,8 @@ function mapJournalError(code: string | undefined): string {
       return "Vous avez déjà publié un journal pour cette date sur ce chantier. Corrigez le journal publié au lieu d'en créer un autre.";
     case "daily_log_empty":
       return "Remplissez au moins une rubrique avant de publier.";
+    case "phase_link_invalid":
+      return "Cette étape ne peut pas être choisie (étape retirée, plan non publié ou autre chantier). Choisissez une étape active ou aucune.";
     case "reason_required":
       return "Indiquez le motif de la correction (3 caractères au moins).";
     default:
@@ -51,6 +53,11 @@ function readFields(formData: FormData) {
     difficulties: text(formData, "difficulties"),
     team: text(formData, "team"),
     next: text(formData, "next_actions"),
+    // D182 : étape facultative ; revérifiée en base (phase_link_check).
+    phase: (() => {
+      const v = text(formData, "phase_id");
+      return v && UUID_RE.test(v) ? v : null;
+    })(),
   };
 }
 
@@ -74,6 +81,7 @@ export async function createDailyLogDraftAction(_prev: JournalActionState, formD
     p_difficulties: f.difficulties,
     p_team: f.team,
     p_next_actions: f.next,
+    p_phase_id: f.phase,
   });
   if (error) return { error: mapJournalError(error.message) };
   revalidatePath(`/chantiers/${projectId}/journal`);
@@ -98,6 +106,7 @@ export async function updateDailyLogDraftAction(_prev: JournalActionState, formD
     p_difficulties: f.difficulties,
     p_team: f.team,
     p_next_actions: f.next,
+    p_phase_id: f.phase,
   });
   if (error) return { error: mapJournalError(error.message) };
   revalidatePath(`/chantiers/${projectId}/journal`);
@@ -150,6 +159,7 @@ export async function correctDailyLogAction(_prev: JournalActionState, formData:
     p_difficulties: f.difficulties,
     p_team: f.team,
     p_next_actions: f.next,
+    p_phase_id: f.phase,
   });
   if (error) return { error: mapJournalError(error.message) };
   revalidatePath(`/chantiers/${projectId}/journal`);

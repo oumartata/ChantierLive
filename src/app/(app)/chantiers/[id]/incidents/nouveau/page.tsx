@@ -4,6 +4,7 @@ import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card } from "@/components/ui";
 import { NewIncidentForm } from "../IncidentForms";
 import { formatStamp, typeLabel } from "../labels";
+import { getPhaseOptions } from "@/lib/phases/phaseOptions";
 
 // SCR041 — déclarer un incident (FR101, D159–D161, D165, D166). Tout membre
 // actif ; la liste des incidents clos (pour un nouvel incident lié) vient de
@@ -31,6 +32,7 @@ export default async function NewIncidentPage({ params, searchParams }: { params
     .filter((i) => i.status === "CLOS")
     .map((i) => ({ value: i.id, label: `${typeLabel(i.incident_type)} du ${formatStamp(i.occurred_at)}` }));
   const linkedId = lie && closed.some((c) => c.value === lie) ? lie : null;
+  const { options: phaseOptions } = await getPhaseOptions(supabase, id);
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-6 p-4 sm:p-6">
@@ -42,7 +44,7 @@ export default async function NewIncidentPage({ params, searchParams }: { params
         <p className="text-body text-muted">L&apos;incident est visible par tous les membres du chantier, propriétaire compris, dès son enregistrement.</p>
       </div>
       <Card className="flex flex-col gap-3">
-        <NewIncidentForm projectId={id} now={new Date().toISOString().slice(0, 16)} closedIncidents={closed} linkedId={linkedId} />
+        <NewIncidentForm projectId={id} now={new Date().toISOString().slice(0, 16)} closedIncidents={closed} linkedId={linkedId} phases={phaseOptions} />
       </Card>
     </div>
   );

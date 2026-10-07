@@ -41,6 +41,8 @@ function mapIncidentError(code: string | undefined): string {
       return "Seul un incident clos de ce chantier peut être lié.";
     case "assignee_not_member":
       return "Le responsable doit être un membre actif du chantier.";
+    case "phase_link_invalid":
+      return "Cette étape ne peut pas être choisie (étape retirée, plan non publié ou autre chantier). Choisissez une étape active ou aucune.";
     case "no_change":
       return "Aucune modification à enregistrer.";
     default:
@@ -62,6 +64,12 @@ function readInt(formData: FormData, name: string): number | null {
 function readOccurredAt(formData: FormData): string | null {
   const v = text(formData, "occurred_at");
   return v && DATETIME_RE.test(v) ? `${v}:00Z` : null;
+}
+
+// D182 : étape facultative ; revérifiée en base (phase_link_check).
+function readPhase(formData: FormData): string | null {
+  const v = text(formData, "phase_id");
+  return v && UUID_RE.test(v) ? v : null;
 }
 
 function ids(formData: FormData) {
@@ -88,6 +96,7 @@ export async function createIncidentAction(_prev: IncidentActionState, formData:
     p_occurred_at: occurredAt,
     p_description: text(formData, "description"),
     p_linked_incident_id: linked && UUID_RE.test(linked) ? linked : null,
+    p_phase_id: readPhase(formData),
   });
   if (error) return { error: mapIncidentError(error.message) };
   revalidatePath(`/chantiers/${projectId}/incidents`);
@@ -112,6 +121,7 @@ export async function correctIncidentAction(_prev: IncidentActionState, formData
     p_severity: text(formData, "severity"),
     p_occurred_at: occurredAt,
     p_description: text(formData, "description"),
+    p_phase_id: readPhase(formData),
   });
   if (error) return { error: mapIncidentError(error.message) };
   revalidatePath(`/chantiers/${k.projectId}/incidents`);

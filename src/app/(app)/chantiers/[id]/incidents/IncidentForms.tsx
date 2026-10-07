@@ -10,6 +10,7 @@ import {
   type IncidentActionState,
 } from "./actions";
 import { INCIDENT_TYPES, SEVERITIES, toLocalInput } from "./labels";
+import type { PhaseOption } from "@/lib/phases/phaseOptions";
 
 export interface IncidentView {
   id: string;
@@ -24,6 +25,7 @@ export interface IncidentView {
   can_update: boolean;
   can_close: boolean;
   can_assign: boolean;
+  phase_id: string | null;
 }
 
 export interface MemberOption {
@@ -74,10 +76,14 @@ function Hidden({ projectId, incident }: { projectId: string; incident: Incident
   );
 }
 
-function IncidentFields({ incident, now }: { incident?: IncidentView; now: string }) {
+function IncidentFields({ incident, now, phases }: { incident?: IncidentView; now: string; phases: PhaseOption[] }) {
+  // D182 : étape facultative ; un lien actuel vers une étape retirée reste proposé tel quel.
+  const current = incident?.phase_id ?? null;
+  const phaseOptions = current && !phases.some((p) => p.value === current) ? [{ value: current, label: "Étape retirée (lien actuel)" }, ...phases] : phases;
   return (
     <>
       <Select name="incident_type" label="Type" options={INCIDENT_TYPES} defaultValue={incident?.incident_type} required />
+      <Select name="phase_id" label="Étape concernée (facultative)" options={phaseOptions} defaultValue={current ?? undefined} />
       <Select name="severity" label="Gravité" options={SEVERITIES} defaultValue={incident?.severity} required />
       <TextField label="Date et heure (UTC, heure de Bamako)" name="occurred_at" type="datetime-local" required max={now} defaultValue={incident ? toLocalInput(incident.occurred_at) : now} />
       <TextArea name="description" label="Description" defaultValue={incident?.description} required minLength={5} maxLength={2000} />
@@ -86,12 +92,12 @@ function IncidentFields({ incident, now }: { incident?: IncidentView; now: strin
 }
 
 // SCR041 : création directe OUVERT (D161), aucune étape (D166).
-export function NewIncidentForm({ projectId, now, closedIncidents, linkedId }: { projectId: string; now: string; closedIncidents: { value: string; label: string }[]; linkedId: string | null }) {
+export function NewIncidentForm({ projectId, now, closedIncidents, linkedId, phases }: { projectId: string; now: string; closedIncidents: { value: string; label: string }[]; linkedId: string | null; phases: PhaseOption[] }) {
   const [state, formAction, pending] = useActionState<IncidentActionState, FormData>(createIncidentAction, null);
   return (
     <form action={formAction} className="flex flex-col gap-3" data-testid="nouvel-incident">
       <input type="hidden" name="project_id" value={projectId} />
-      <IncidentFields now={now} />
+      <IncidentFields now={now} phases={phases} />
       {closedIncidents.length > 0 ? (
         <Select name="linked_incident_id" label="Lié à un incident clos (si le problème revient)" options={closedIncidents} defaultValue={linkedId ?? undefined} />
       ) : null}
@@ -107,12 +113,12 @@ export function NewIncidentForm({ projectId, now, closedIncidents, linkedId }: {
 }
 
 // D164 : correction avec motif, ancienne valeur conservée dans l'historique.
-export function CorrectIncidentForm({ projectId, incident, now }: { projectId: string; incident: IncidentView; now: string }) {
+export function CorrectIncidentForm({ projectId, incident, now, phases }: { projectId: string; incident: IncidentView; now: string; phases: PhaseOption[] }) {
   const [state, formAction, pending] = useActionState<IncidentActionState, FormData>(correctIncidentAction, null);
   return (
     <form action={formAction} className="flex flex-col gap-3">
       <Hidden projectId={projectId} incident={incident} />
-      <IncidentFields incident={incident} now={now} />
+      <IncidentFields incident={incident} now={now} phases={phases} />
       <TextField label="Motif de la correction" name="reason" required minLength={3} maxLength={1000} />
       <Feedback state={state} title="Correction impossible" />
       <div>

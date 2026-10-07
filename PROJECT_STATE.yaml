@@ -147,11 +147,11 @@ progress:
       remote_branch: "aucune"
       note: "contenu non examiné ; à traiter dans la décision D1"
   local_migrations:
-    applied: "M001 à M041, 58 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
-    last_applied: "20261007220000_m041_phase_corrections.sql"
-    recent: ["M039 20261007170000_m039_documents.sql", "M040 20261007200000_m040_phase_validation.sql", "M041 20261007220000_m041_phase_corrections.sql"]
-    local_only: "M029–M041 locales uniquement, jamais déployées"
-    next_migration_id: "M042"
+    applied: "M001 à M042, 59 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
+    last_applied: "20261008090000_m042_phase_links.sql"
+    recent: ["M040 20261007200000_m040_phase_validation.sql", "M041 20261007220000_m041_phase_corrections.sql", "M042 20261008090000_m042_phase_links.sql"]
+    local_only: "M029–M042 locales uniquement, jamais déployées"
+    next_migration_id: "M043"
   pending_decisions:
     - id: "D1"
       subject: "Sauvegarde distante des commits locaux de claude/plans-generator (et sort des branches claude/b014-geoloc-tranche1 et claude/ux-demo-fixes) et des migrations M029–M037"

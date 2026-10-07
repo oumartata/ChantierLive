@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, EmptyState, StatusChip } from "@/components/ui";
 import { CorrectionForm, DailyLogForm, type DailyLogDraftView } from "./DailyLogForm";
+import { getPhaseOptions, phaseLinkLabel } from "@/lib/phases/phaseOptions";
 
 // B021 (M036) + B022 (M037, D151–D156). Brouillons : visibles et modifiables
 // par leur auteur SEUL (list_my_daily_log_drafts). Journaux publiés : lus
@@ -24,6 +25,9 @@ interface PublishedLog {
   team: string | null;
   next_actions: string | null;
   can_correct: boolean;
+  phase_id: string | null;
+  phase_label: string | null;
+  phase_archived: boolean | null;
 }
 
 interface LogVersion {
@@ -37,6 +41,7 @@ interface LogVersion {
   published_by_role: string;
   reason: string | null;
   created_at_server: string;
+  phase_id: string | null;
 }
 
 const PAGE_SIZE = 20;
@@ -123,6 +128,8 @@ export default async function JournalPage({
         histories.set(l.daily_log_id, (data ?? []) as LogVersion[]);
       })
   );
+  // D182 : étapes proposées (actives, plan publié) et libellés.
+  const { options: phaseOptions, labels: phaseLabels } = await getPhaseOptions(supabase, id);
   // Date du jour à Bamako (UTC, sans heure d'été) ; seulement une valeur
   // proposée, modifiable.
   const today = new Date().toISOString().slice(0, 10);
@@ -142,7 +149,7 @@ export default async function JournalPage({
         <>
           <Card className="flex flex-col gap-3">
             <h2 className="text-h2 font-semibold text-ink">Nouveau brouillon</h2>
-            <DailyLogForm projectId={project.id} draft={null} today={today} />
+            <DailyLogForm projectId={project.id} draft={null} today={today} phases={phaseOptions} />
           </Card>
 
           <section className="flex flex-col gap-3">
@@ -156,7 +163,7 @@ export default async function JournalPage({
                     <p className="text-label font-semibold text-ink">{formatDay(d.log_date)}</p>
                     <StatusChip variant="neutral" label="Brouillon" />
                   </div>
-                  <DailyLogForm projectId={project.id} draft={d} today={today} />
+                  <DailyLogForm projectId={project.id} draft={d} today={today} phases={phaseOptions} />
                 </Card>
               ))
             )}
@@ -185,6 +192,11 @@ export default async function JournalPage({
                   {l.author_is_me && l.current_version_number === 1 ? " (vous)" : ""} le {formatStamp(l.current_published_at_server)}
                   {l.current_reason ? ` — motif : ${l.current_reason}` : ""}
                 </p>
+                {l.phase_id ? (
+                  <p className="text-caption text-ink" data-testid="journal-etape">
+                    Étape : <span className="font-semibold">{phaseLinkLabel(l.phase_id, phaseLabels, l.phase_label, l.phase_archived)}</span>
+                  </p>
+                ) : null}
                 <Sections v={l} />
                 {history.length > 1 ? (
                   <details className="rounded-small border border-muted/30 px-3 py-2">
@@ -197,6 +209,7 @@ export default async function JournalPage({
                             {v.published_by_profile_id === user.id ? " (vous)" : ""}, le {formatStamp(v.created_at_server)}
                           </p>
                           {v.reason ? <p className="text-caption text-muted">Motif : {v.reason}</p> : null}
+                          <p className="text-caption text-muted">Étape : {phaseLinkLabel(v.phase_id, phaseLabels) ?? "aucune"}</p>
                           <Sections v={v} />
                         </li>
                       ))}
@@ -207,7 +220,7 @@ export default async function JournalPage({
                   <details className="rounded-small border border-muted/30 px-3 py-2">
                     <summary className="cursor-pointer text-label font-semibold text-primary">Corriger ce journal</summary>
                     <div className="mt-3">
-                      <CorrectionForm projectId={project.id} log={l} />
+                      <CorrectionForm projectId={project.id} log={l} phases={phaseOptions} />
                     </div>
                   </details>
                 ) : null}
