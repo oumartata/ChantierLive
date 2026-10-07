@@ -26,7 +26,13 @@ function mapJournalError(code: string | undefined): string {
     case "log_date_required":
       return "Choisissez la date du journal.";
     case "daily_log_invalid":
-      return "Texte trop long (4 000 caractères au plus par rubrique).";
+      return "Texte trop long (4 000 caractères au plus par rubrique, 1 000 pour le motif).";
+    case "daily_log_already_published":
+      return "Vous avez déjà publié un journal pour cette date sur ce chantier. Corrigez le journal publié au lieu d'en créer un autre.";
+    case "daily_log_empty":
+      return "Remplissez au moins une rubrique avant de publier.";
+    case "reason_required":
+      return "Indiquez le motif de la correction (3 caractères au moins).";
     default:
       return "Une erreur est survenue. Réessayez.";
   }
@@ -104,6 +110,47 @@ export async function archiveDailyLogDraftAction(projectId: string, logId: strin
   if (!UUID_RE.test(projectId) || !UUID_RE.test(logId) || !Number.isInteger(revision) || revision < 0) return { error: "Requête invalide." };
   const supabase = await createClient();
   const { error } = await supabase.rpc("archive_daily_log_draft", { p_log_id: logId, p_expected_revision: revision });
+  if (error) return { error: mapJournalError(error.message) };
+  revalidatePath(`/chantiers/${projectId}/journal`);
+  return { ok: true };
+}
+
+// B022 (M037, D151–D156) — publication par l'auteur ; la version publiée
+// est le contenu ENREGISTRÉ du brouillon (révision attendue).
+export async function publishDailyLogDraftAction(projectId: string, logId: string, revision: number): Promise<JournalActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  if (!UUID_RE.test(projectId) || !UUID_RE.test(logId) || !Number.isInteger(revision) || revision < 0) return { error: "Requête invalide." };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("publish_daily_log_draft", { p_log_id: logId, p_expected_revision: revision });
+  if (error) return { error: mapJournalError(error.message) };
+  revalidatePath(`/chantiers/${projectId}/journal`);
+  return { ok: true };
+}
+
+// Correction : nouvelle version liée, publiée immédiatement, motif
+// obligatoire (auteur, ou entreprise sur tous les journaux du chantier).
+export async function correctDailyLogAction(_prev: JournalActionState, formData: FormData): Promise<JournalActionState> {
+  const guard = await requireVerifiedAccount();
+  if (!guard.ok) return { error: guard.message };
+  const projectId = text(formData, "project_id");
+  const logId = text(formData, "log_id");
+  const raw = formData.get("expected_version");
+  const version = typeof raw === "string" && /^\d{1,9}$/.test(raw) ? Number(raw) : null;
+  const reason = text(formData, "reason");
+  const f = readFields(formData);
+  if (!projectId || !UUID_RE.test(projectId) || !logId || !UUID_RE.test(logId) || version === null) return { error: "Requête invalide." };
+  if (!reason || reason.trim().length < 3) return { error: mapJournalError("reason_required") };
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("correct_daily_log", {
+    p_log_id: logId,
+    p_expected_version_number: version,
+    p_reason: reason,
+    p_works_done: f.works,
+    p_difficulties: f.difficulties,
+    p_team: f.team,
+    p_next_actions: f.next,
+  });
   if (error) return { error: mapJournalError(error.message) };
   revalidatePath(`/chantiers/${projectId}/journal`);
   return { ok: true };

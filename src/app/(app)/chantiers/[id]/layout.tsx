@@ -85,6 +85,9 @@ export default async function ChantierLayout({
         { href: `/chantiers/${id}/acomptes`, label: "Versements" },
         { href: `/chantiers/${id}/avancement`, label: "Avancement" },
         { href: `/chantiers/${id}/photos`, label: "Photos et vidéos" },
+        // B022 : le propriétaire lit les journaux publiés (JOURNAL_VIEW,
+        // list_published_daily_logs M037), jamais les brouillons.
+        { href: `/chantiers/${id}/journal`, label: "Journal" },
         { href: `/chantiers/${id}/catalogue`, label: "Catalogue" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
       ]
@@ -97,9 +100,9 @@ export default async function ChantierLayout({
             ]
           : []),
         { href: `/chantiers/${id}/equipe`, label: "Équipe" },
-        // B021 : journal tenu par l'entreprise et le chef de chantier
-        // (JOURNAL_CREATE), revérifié par list_my_daily_log_drafts (M036).
-        ...(role === "CONTRACTOR" || role === "SITE_MANAGER" ? [{ href: `/chantiers/${id}/journal`, label: "Journal" }] : []),
+        // B021/B022 : journal tenu par l'entreprise et le chef de chantier
+        // (M036), journaux publiés lus par tout membre actif (M037).
+        ...(role ? [{ href: `/chantiers/${id}/journal`, label: "Journal" }] : []),
         { href: `/chantiers/${id}/photos`, label: "Photos" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         ...(canSeeFinancials

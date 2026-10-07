@@ -149,6 +149,12 @@ decisions:
   - {id: D148, status: VALIDATED, value: "B021 (J5) — le contenu d'un brouillon est porté par daily_logs tant qu'il est en brouillon ; daily_log_versions (T016) reste réservée aux versions publiées (B022)."}
   - {id: D149, status: VALIDATED, value: "B021 (J6) — aucun rattachement du journal à une phase pour l'instant (FR052 différé ; B019 suspendue)."}
   - {id: D150, status: VALIDATED, value: "B021 (J7) — durée de vie d'un brouillon de journal illimitée (aucune expiration)."}
+  - {id: D151, status: VALIDATED, value: "B022 (K1, fondateur 2026-10-07) — un journal publié est corrigé par son auteur, ou par l'entreprise (CONTRACTOR actif) sur tous les journaux du chantier ; jamais par le chef de chantier sur le journal d'un autre, ni par le propriétaire."}
+  - {id: D152, status: VALIDATED, value: "B022 (K2) — une correction est publiée immédiatement, sous forme de nouvelle version liée, avec motif obligatoire ; la version précédente reste lisible."}
+  - {id: D153, status: VALIDATED, value: "B022 (K3) — un brouillon (ou une correction) n'est publiable que si au moins une rubrique est remplie."}
+  - {id: D154, status: VALIDATED, value: "B022 (K4) — aucun délai de correction d'un journal publié."}
+  - {id: D155, status: VALIDATED, value: "B022 (K5) — après publication, un nouveau brouillon du même auteur, sur le même chantier et la même date, est refusé : il faut corriger le journal publié."}
+  - {id: D156, status: VALIDATED, value: "B022 (K6) — le propriétaire (et tout membre actif, JOURNAL_VIEW) voit la version courante d'un journal publié et son historique complet : motifs, auteurs (rôle), dates ; jamais les brouillons."}
 open:
   - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
   - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}

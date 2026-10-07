@@ -2,7 +2,14 @@
 
 import { useActionState, useEffect, useRef, useState, useTransition } from "react";
 import { AlertBanner, Button, ConfirmDialog, TextField } from "@/components/ui";
-import { archiveDailyLogDraftAction, createDailyLogDraftAction, updateDailyLogDraftAction, type JournalActionState } from "./actions";
+import {
+  archiveDailyLogDraftAction,
+  correctDailyLogAction,
+  createDailyLogDraftAction,
+  publishDailyLogDraftAction,
+  updateDailyLogDraftAction,
+  type JournalActionState,
+} from "./actions";
 
 export interface DailyLogDraftView {
   id: string;
@@ -71,7 +78,71 @@ export function DailyLogForm({ projectId, draft, today }: { projectId: string; d
         <Button type="submit" size="compact" loading={pending}>
           {draft ? "Enregistrer les modifications" : "Créer le brouillon"}
         </Button>
+        {draft ? <PublishButton projectId={projectId} draft={draft} /> : null}
         {draft ? <ArchiveButton projectId={projectId} draft={draft} /> : null}
+      </div>
+    </form>
+  );
+}
+
+// B022 : publie le contenu ENREGISTRÉ du brouillon (pas les saisies non
+// enregistrées) ; la confirmation le dit.
+function PublishButton({ projectId, draft }: { projectId: string; draft: DailyLogDraftView }) {
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+  return (
+    <>
+      <Button type="button" variant="secondary" size="compact" loading={pending} onClick={() => setOpen(true)}>
+        Publier
+      </Button>
+      {error ? <AlertBanner variant="error" title="Publication impossible" explanation={error} /> : null}
+      <ConfirmDialog
+        open={open}
+        title="Publier ce journal ?"
+        consequence="La dernière version enregistrée devient visible par tous les membres du chantier, propriétaire compris, avec votre nom de rôle et l'heure du serveur."
+        permanence="Un journal publié n'est plus modifié : seule une correction motivée, en nouvelle version, reste possible. Enregistrez d'abord vos dernières modifications."
+        confirmLabel="Publier"
+        onCancel={() => setOpen(false)}
+        onConfirm={() => {
+          setOpen(false);
+          startTransition(async () => {
+            const result = await publishDailyLogDraftAction(projectId, draft.id, draft.revision);
+            if (result && "error" in result) setError(result.error);
+          });
+        }}
+      />
+    </>
+  );
+}
+
+export interface PublishedLogView {
+  daily_log_id: string;
+  current_version_number: number;
+  works_done: string | null;
+  difficulties: string | null;
+  team: string | null;
+  next_actions: string | null;
+}
+
+// Correction d'un journal publié : nouvelle version liée, motif obligatoire.
+export function CorrectionForm({ projectId, log }: { projectId: string; log: PublishedLogView }) {
+  const [state, formAction, pending] = useActionState<JournalActionState, FormData>(correctDailyLogAction, null);
+  return (
+    <form action={formAction} className="flex flex-col gap-3" data-testid={`correction-${log.daily_log_id}`}>
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="log_id" value={log.daily_log_id} />
+      <input type="hidden" name="expected_version" value={log.current_version_number} />
+      <TextField label="Motif de la correction" name="reason" required minLength={3} maxLength={1000} />
+      {FIELDS.map((f) => (
+        <TextArea key={f.name} name={f.name} label={f.label} defaultValue={log[f.name] ?? ""} />
+      ))}
+      {state && "error" in state ? <AlertBanner variant="error" title="Correction impossible" explanation={state.error} /> : null}
+      <p className="text-caption text-muted">La correction est publiée immédiatement ; la version précédente reste lisible dans l&apos;historique.</p>
+      <div>
+        <Button type="submit" size="compact" loading={pending}>
+          Publier la correction
+        </Button>
       </div>
     </form>
   );
