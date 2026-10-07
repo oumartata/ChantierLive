@@ -97,6 +97,9 @@ export default async function ChantierLayout({
             ]
           : []),
         { href: `/chantiers/${id}/equipe`, label: "Équipe" },
+        // B021 : journal tenu par l'entreprise et le chef de chantier
+        // (JOURNAL_CREATE), revérifié par list_my_daily_log_drafts (M036).
+        ...(role === "CONTRACTOR" || role === "SITE_MANAGER" ? [{ href: `/chantiers/${id}/journal`, label: "Journal" }] : []),
         { href: `/chantiers/${id}/photos`, label: "Photos" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         ...(canSeeFinancials
