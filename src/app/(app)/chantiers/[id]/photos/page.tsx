@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { AlertBanner, Card, StatusChip, EmptyState } from "@/components/ui";
 import { MediaUploadForm } from "./MediaUploadForm";
 import { PublishButton } from "./PublishButton";
+import { ORIGIN_NOTICE, formatFileSize, mediaKindLabel, originLabel } from "@/lib/media/mediaDisplay";
 
 const BUCKET = "project-media";
 const READ_URL_TTL_SECONDS = 60 * 10;
@@ -24,6 +25,46 @@ function MediaPreview({ url, mimeType, caption }: { url: string; mimeType: strin
   }
   // eslint-disable-next-line @next/next/no-img-element
   return <img src={url} alt={caption ?? "Photo de suivi"} className="max-h-64 rounded-small object-cover" />;
+}
+
+// B027 (FR062, AC062, BR041) : origine d'ajout toujours affichée, avec le
+// libellé exact d'UX_COPY ; jamais « Vérifiée ».
+function OriginChip({ origin }: { origin: string }) {
+  const o = originLabel(origin);
+  return <StatusChip label={o.label} variant={o.known ? "info" : "attention"} data-testid="origine-media" />;
+}
+
+// Heure serveur affichée à l'heure de Bamako (UTC).
+function stamp(ts: string) {
+  return new Date(ts).toLocaleString("fr-FR", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " (UTC)";
+}
+
+// Métadonnées (BR040) : auteur, dates serveur, type réel, taille.
+function MediaMeta({ item, author }: { item: MediaAssetView; author: string }) {
+  return (
+    <dl className="grid grid-cols-1 gap-1 text-caption text-muted sm:grid-cols-2">
+      <div>
+        <dt className="inline font-semibold">Ajoutée par : </dt>
+        <dd className="inline">{author}</dd>
+      </div>
+      <div>
+        <dt className="inline font-semibold">Ajoutée le : </dt>
+        <dd className="inline">{stamp(item.created_at_server)}</dd>
+      </div>
+      {item.published_at_server ? (
+        <div>
+          <dt className="inline font-semibold">Publiée le : </dt>
+          <dd className="inline">{stamp(item.published_at_server)}</dd>
+        </div>
+      ) : null}
+      <div>
+        <dt className="inline font-semibold">Fichier : </dt>
+        <dd className="inline">
+          {mediaKindLabel(item.mime_type)}, {formatFileSize(item.file_size_bytes)}
+        </dd>
+      </div>
+    </dl>
+  );
 }
 
 interface MediaAssetView {
@@ -84,6 +125,19 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
   const drafts = media.filter((m) => m.status === "BROUILLON" && m.uploaded_by_profile_id === user.id);
   const gallery = media.filter((m) => m.status === "PUBLIE");
 
+  // B027 : auteur désigné par son rôle actif (les profils n'ont pas de nom) ;
+  // adhésions lues avec la session de l'utilisateur (RLS, comme Équipe).
+  const { data: memberRows } = await supabase
+    .from("project_memberships")
+    .select("profile_id, role, owner_profile")
+    .eq("project_id", id)
+    .is("revoked_at", null);
+  const authorLabel = (profileId: string) => {
+    const m = (memberRows ?? []).find((r) => r.profile_id === profileId);
+    const base = !m ? "Ancien membre" : m.role === "CONTRACTOR" ? "Entreprise" : m.role === "SITE_MANAGER" ? "Chef de chantier" : m.owner_profile === "CO_OWNER" ? "Copropriétaire" : "Propriétaire";
+    return profileId === user.id ? `${base} (vous)` : base;
+  };
+
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-6 p-6">
       <div>
@@ -114,15 +168,16 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
           <EmptyState title="Aucun brouillon" description="Les photos déposées restent visibles ici avant publication." />
         ) : (
           drafts.map((item) => (
-            <Card key={item.id} className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
+            <Card key={item.id} className="flex flex-col gap-2" data-testid={`brouillon-media-${item.id}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <StatusChip label="Brouillon" variant="neutral" />
-                <span className="text-caption text-muted">{new Date(item.created_at_server).toLocaleString("fr-FR")}</span>
+                <OriginChip origin={item.origin} />
               </div>
               {readUrls.get(item.id) && (
                 <MediaPreview url={readUrls.get(item.id)!} mimeType={item.mime_type} caption={item.caption} />
               )}
-              {item.caption && <p className="text-body text-ink">{item.caption}</p>}
+              {item.caption && <p className="break-words text-body text-ink">{item.caption}</p>}
+              <MediaMeta item={item} author={authorLabel(item.uploaded_by_profile_id)} />
               <PublishButton projectId={id} mediaId={item.id} />
             </Card>
           ))
@@ -131,21 +186,21 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
 
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold text-ink">Galerie de l&apos;équipe</h2>
+        <p className="text-caption text-muted" data-testid="mention-origine">{ORIGIN_NOTICE}</p>
         {gallery.length === 0 ? (
           <EmptyState title="Aucune photo publiée" description="Les photos publiées par l'équipe apparaîtront ici." />
         ) : (
           gallery.map((item) => (
-            <Card key={item.id} className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
+            <Card key={item.id} className="flex flex-col gap-2" data-testid={`media-${item.id}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <StatusChip label="Publié" variant="success" />
-                <span className="text-caption text-muted">
-                  {item.published_at_server ? new Date(item.published_at_server).toLocaleString("fr-FR") : ""}
-                </span>
+                <OriginChip origin={item.origin} />
               </div>
               {readUrls.get(item.id) && (
                 <MediaPreview url={readUrls.get(item.id)!} mimeType={item.mime_type} caption={item.caption} />
               )}
-              {item.caption && <p className="text-body text-ink">{item.caption}</p>}
+              {item.caption && <p className="break-words text-body text-ink">{item.caption}</p>}
+              <MediaMeta item={item} author={authorLabel(item.uploaded_by_profile_id)} />
             </Card>
           ))
         )}

@@ -166,6 +166,7 @@ decisions:
   - {id: D165, status: VALIDATED, value: "B024 (L7 A) — pas de réouverture d'un incident clos : un nouvel incident lié est créé ; RÉSOLU -> EN COURS autorisé avec motif ; annulation motivée seulement depuis OUVERT."}
   - {id: D166, status: VALIDATED, value: "B024 (L8 C) — aucun lien entre incident et étape pour l'instant, par cohérence avec J6 ; à revoir avec D6, journal et incidents ensemble."}
   - {id: D167, status: VALIDATED, value: "B024 (fondateur 2026-10-07) — l'annulation d'un incident (OUVERT -> ANNULE, motif obligatoire, D165) est soumise au droit de clôture (D162) : entreprise, responsable désigné, propriétaire principal sur ses propres incidents ; jamais le copropriétaire."}
+  - {id: D168, status: VALIDATED, value: "Fichiers (fondateur 2026-10-07, constat B029) — une URL signée déjà émise reste valable jusqu'à son expiration (300 à 600 s) après un retrait d'accès ; aucune nouvelle URL n'est émise ; limite connue acceptée pour ne pas pénaliser les connexions lentes."}
 open:
   - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
   - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}
