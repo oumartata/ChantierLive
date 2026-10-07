@@ -31,11 +31,11 @@ SCR029,phase,Détail d'une phase,/chantiers/:projectId/phases/:phaseId,OWNER|CON
 SCR030,media,Ajouter des photos,/chantiers/:projectId/photos/ajouter,CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR060|FR061|FR062|FR063|FR064|FR065
 SCR031,media,Galerie du chantier,/chantiers/:projectId/photos,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR066|FR067|FR068
 SCR032,finance,Synthèse financière,/chantiers/:projectId/finances,OWNER|CONTRACTOR|SITE_MANAGER,project_tab,READ_CACHE,P0,FR069|FR081|FR082|FR083
-SCR033,finance,Budget et versions,/chantiers/:projectId/finances/budget,OWNER|CONTRACTOR,finance_menu,READ_CACHE,P0,FR069|FR070
-SCR034,finance,Nouvelle dépense,/chantiers/:projectId/depenses/nouvelle,OWNER_PRIMARY|CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR071|FR072|FR073|FR074
-SCR035,finance,Liste des dépenses,/chantiers/:projectId/depenses,OWNER|CONTRACTOR|SITE_MANAGER,finance_menu,READ_CACHE,P0,FR075|FR080|FR081
-SCR036,finance,Détail et versions d'une dépense,/chantiers/:projectId/depenses/:expenseId,OWNER|CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR075|FR076|FR078|FR079
-SCR037,finance,Décider sur une dépense,/chantiers/:projectId/depenses/:expenseId/decision,OWNER_PRIMARY|OWNER_CO,action,NO,P0,FR076|FR077
+SCR033,finance,Budget interne et versions (D183),/chantiers/:projectId/finances/budget,CONTRACTOR,finance_menu,READ_CACHE,P0,FR069|FR070
+SCR034,finance,Nouvelle dépense (D183),/chantiers/:projectId/depenses/nouvelle,CONTRACTOR|SITE_MANAGER,add_action,READ_WRITE_QUEUE,P0,FR071|FR072|FR073|FR074
+SCR035,finance,Liste des dépenses (D183),/chantiers/:projectId/depenses,CONTRACTOR|SITE_MANAGER,finance_menu,READ_CACHE,P0,FR075|FR080|FR081
+SCR036,finance,Détail et versions d'une dépense (D183),/chantiers/:projectId/depenses/:expenseId,CONTRACTOR|SITE_MANAGER,list_item,READ_CACHE,P0,FR075|FR076|FR078|FR079
+SCR037,finance,Décider sur une dépense (interne ; D183),/chantiers/:projectId/depenses/:expenseId/decision,CONTRACTOR,action,NO,P0,FR076|FR077
 SCR038,approval,Demandes de décision,/decisions,OWNER|CONTRACTOR|SITE_MANAGER,primary_or_more,READ_CACHE,P0,FR092|FR093|FR099|FR100
 SCR039,approval,Prendre une décision,/decisions/:approvalId,OWNER_PRIMARY|OWNER_CO,notification_link,NO,P0,FR094|FR095|FR096
 SCR040,advance,Acomptes déclarés,/chantiers/:projectId/acomptes,OWNER|CONTRACTOR,finance_menu,READ_CACHE,P0,FR084|FR089|FR090|FR091

@@ -74,9 +74,9 @@ FR072,finance,Contractor|SiteManager,"Saisir montant; date; catégorie; fourniss
 FR073,finance,Contractor|SiteManager,"Joindre un reçu facultatif à une dépense.",MUST,BR048,AC073
 FR074,finance,Contractor|SiteManager,"Créer une dépense en brouillon hors connexion.",MUST,BR036|BR047,AC074
 FR075,finance,Contractor,"Publier une dépense.",MUST,BR049,AC075
-FR076,finance,OwnerPrimary,"Approuver; refuser ou contester une dépense selon les règles du chantier.",MUST,BR050,AC076
+FR076,finance,Contractor,"Approuver; refuser ou contester une dépense publiée (décision interne à l'entreprise, jamais le propriétaire ; D183).",MUST,BR050,AC076
 FR077,finance,AuthorizedMember,"Consulter l'historique d'une dépense et de ses décisions.",MUST,BR038,AC077
-FR078,finance,OwnerPrimary|Contractor,"Corriger une dépense validée par contre-écriture motivée.",MUST,BR051,AC078
+FR078,finance,Contractor,"Corriger une dépense validée par contre-écriture motivée (interne à l'entreprise ; D183).",MUST,BR051,AC078
 FR079,finance,System,"Calculer les totaux sans modifier les écritures sources.",MUST,BR046,AC079
 FR080,finance,System,"Alerter lorsqu'une dépense entraîne un dépassement du budget déclaré.",MUST,BR052,AC080
 FR081,finance,Contractor|SiteManager,"Filtrer les dépenses par date; phase; catégorie et statut.",SHOULD,BR016|BR098,AC081
@@ -91,9 +91,9 @@ FR089,advance,System,"Afficher le statut déclaré; reçu; contesté ou annulé.
 FR090,advance,System,"Afficher que l'enregistrement ne remplace pas la preuve de l'opérateur.",MUST,BR057,AC090
 FR091,advance,System,"Exclure tout bouton ou flux laissant croire que l'application détient les fonds.",MUST,BR057,AC091
 FR092,approval,Contractor|SiteManager,"Créer une demande d'approbation liée à un objet autorisé.",MUST,BR058,AC092
-FR093,approval,OwnerPrimary,"Approuver une demande en ligne.",MUST,BR006|BR058,AC093
-FR094,approval,OwnerPrimary,"Refuser une demande avec motif.",MUST,BR058,AC094
-FR095,approval,OwnerPrimary,"Demander des informations ou une correction.",MUST,BR058,AC095
+FR093,approval,OwnerPrimary,"Approuver une demande en ligne (hors dépenses et budgets internes, décidés par l'entreprise ; D183).",MUST,BR006|BR058,AC093
+FR094,approval,OwnerPrimary,"Refuser une demande avec motif (hors dépenses et budgets internes ; D183).",MUST,BR058,AC094
+FR095,approval,OwnerPrimary,"Demander des informations ou une correction (hors dépenses et budgets internes ; D183).",MUST,BR058,AC095
 FR096,approval,System,"Horodater et attribuer chaque décision.",MUST,BR059,AC096
 FR097,approval,System,"Empêcher la modification silencieuse d'une décision.",MUST,BR059,AC097
 FR098,approval,AuthorizedParty,"Créer une nouvelle demande liée pour rouvrir un sujet décidé.",SHOULD,BR059,AC098
@@ -111,7 +111,7 @@ FR109,document,Uploader,"Définir la visibilité du document parmi les rôles au
 FR110,document,AuthorizedMember,"Consulter ou télécharger un document selon ses droits.",MUST,BR016|BR066,AC110
 FR111,document,AuthorizedUploader,"Archiver un document sans suppression silencieuse.",MUST,BR067,AC111
 FR112,document,System,"Conserver versions et auteur des documents remplacés.",MUST,BR067,AC112
-FR113,dashboard,Owner,"Voir progression; dernière activité; budget; alertes et approbations.",MUST,BR068,AC113
+FR113,dashboard,Owner,"Voir progression; dernière activité; budget indicatif partagé (D143, jamais le budget interne ; D183); alertes et approbations.",MUST,BR068,AC113
 FR114,dashboard,Contractor,"Voir ses chantiers; activités; retards; incidents et demandes.",MUST,BR068,AC114
 FR115,dashboard,SiteManager,"Voir tâches de saisie; incidents et éléments non synchronisés.",MUST,BR068,AC115
 FR116,dashboard,AuthorizedMember,"Ouvrir le détail depuis chaque indicateur du tableau de bord.",SHOULD,BR068,AC116

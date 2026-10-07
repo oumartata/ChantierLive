@@ -60,6 +60,7 @@ release_scope:
     - bambara_and_english
     - native_android_if_needed
     - interactive_3d_plan_viewer
+    - chantiers_en_regie_depenses_refacturables  # piste V2 (option C, D183) : dépenses refacturables visibles du propriétaire, jamais les dépenses internes
     - verified_client_reviews_and_transparent_recommendations
   excluded:
     - construction_money_custody
@@ -166,6 +167,7 @@ progress:
     - id: "D4"
       subject: "ESPACES-4 / B030–B032 (dépenses internes) : proposition à préparer avant toute migration"
       status: "BLOQUÉ SUR DÉCISION"
+      note: "Confidentialité tranchée le 2026-10-07 (D183) ; proposition rédigée : PROPOSITION_D4_FINANCES_INTERNES.md (décisions F1 à F8 attendues)"
     - id: "D5"
       subject: "Lien chantier → organisation pour la consultation du catalogue par le propriétaire (PREPARATION_CATALOGUE_MODIFIABLE.md §8.1)"
       status: "BLOQUÉ SUR DÉCISION"
@@ -176,6 +178,7 @@ progress:
     - id: "D7"
       subject: "Questions ouvertes : forme d'approval_status (bloque B034/M015), processus de suppression de compte"
       status: "BLOQUÉ SUR DÉCISION"
+      note: "Fondateur 2026-10-07 (D183) : approbations de dépenses internes à l'entreprise (chef de chantier saisit, entreprise approuve ou refuse). Reste ouvert : forme générale d'approval_status pour les autres objets, suppression de compte."
     - id: "D8"
       subject: "Dépôt des huit maquettes du 2026-10-03 dans le dépôt (fidélité visuelle ESPACES non vérifiable sans elles)"
       status: "BLOQUÉ SUR DÉCISION"

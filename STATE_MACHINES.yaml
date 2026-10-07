@@ -98,12 +98,12 @@ machines:
     applies_to: [expense, budget_version]
     initial: DRAFT
     states: [DRAFT, PUBLISHED, APPROVED, REJECTED, DISPUTED, SUPERSEDED, CANCELLED]
-    rule: "APPROVED/REJECTED/DISPUTED are never edited in place"
+    rule: "APPROVED/REJECTED/DISPUTED are never edited in place ; approbations internes à l'entreprise, jamais visibles ni décidées par le propriétaire (D183)"
     transitions:
       - {from: DRAFT, to: PUBLISHED, guard: "authorized_and_valid"}
-      - {from: PUBLISHED, to: APPROVED, guard: "authorized_owner_online_verified"}
-      - {from: PUBLISHED, to: REJECTED, guard: "authorized_owner_with_reason"}
-      - {from: [PUBLISHED, APPROVED], to: DISPUTED, guard: "authorized_party_with_reason"}
+      - {from: PUBLISHED, to: APPROVED, guard: "contractor_active_verified (interne ; D183)"}
+      - {from: PUBLISHED, to: REJECTED, guard: "contractor_active_with_reason (interne ; D183)"}
+      - {from: [PUBLISHED, APPROVED], to: DISPUTED, guard: "contractor_active_with_reason (interne ; D183)"}
       - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: SUPERSEDED, guard: "linked_replacement_created"}
       - {from: [PUBLISHED, APPROVED, REJECTED, DISPUTED], to: CANCELLED, guard: "linked_counter_entry_created"}
   advance:

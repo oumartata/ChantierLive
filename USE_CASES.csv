@@ -12,10 +12,10 @@ UC010,Publier un journal en ligne,SiteManager|Contractor,"Adhésion active; chan
 UC011,Préparer un journal hors ligne,SiteManager|Contractor,"Appareil hors ligne","Saisir; capturer; enregistrer","Éléments en file puis synchronisés",FR054|FR060|FR125|FR126|FR128
 UC012,Corriger un journal publié,AuthorizedAuthor,"Journal publié","Créer correction; saisir motif; publier","Nouvelle version liée; original conservé",FR058
 UC013,Ajouter des photos,SiteManager|Contractor,"Journal/phase disponible","Capturer ou importer; consentir localisation; compresser","Média classé par origine et rattaché",FR060|FR061|FR062|FR063|FR064|FR065
-UC014,Déclarer le budget initial,OwnerPrimary|Contractor,"Chantier actif sans budget final","Saisir FCFA; confirmer","Budget versionné consultable",FR069|FR070
+UC014,Déclarer le budget interne initial (D183),Contractor,"Chantier actif sans budget final","Saisir FCFA; confirmer","Budget versionné consultable",FR069|FR070
 UC015,Publier une dépense,SiteManager|Contractor,"Chantier inscriptible","Préparer; joindre reçu; synchroniser; publier","Dépense visible; alerte dépassement possible",FR071|FR072|FR073|FR074|FR075|FR080
-UC016,Statuer sur une dépense,OwnerPrimary,"Dépense publiée; compte vérifié en ligne","Approuver/refuser/contester","Décision figée et notifiée",FR076|FR077|FR100
-UC017,Corriger une dépense validée,OwnerPrimary|Contractor,"Dépense validée erronée","Créer contre-écriture motivée","Totaux recalculés; original visible",FR078|FR079
+UC016,Statuer sur une dépense (interne ; D183),Contractor,"Dépense publiée; compte vérifié en ligne","Approuver/refuser/contester","Décision figée et notifiée",FR076|FR077|FR100
+UC017,Corriger une dépense validée (interne ; D183),Contractor,"Dépense validée erronée","Créer contre-écriture motivée","Totaux recalculés; original visible",FR078|FR079
 UC018,Déclarer et reconnaître un acompte,OwnerPrimary|Contractor,"Deux parties actives","Déclarer; notifier récepteur; reconnaître/contester","Statut déclaratif traçable sans paiement",FR084|FR085|FR086|FR087|FR089|FR090|FR091
 UC019,Annuler un acompte,AuthorizedParty,"Acompte validé","Créer annulation motivée","Contre-écriture; statut annulé",FR088
 UC020,Traiter une approbation,Contractor|OwnerPrimary,"Objet versionné","Demander; décider; notifier","Décision attribuée; sujet rouvrable par nouvelle demande",FR092|FR093|FR094|FR095|FR096|FR097|FR098|FR100
