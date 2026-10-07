@@ -158,7 +158,7 @@ l'entreprise et au chef de chantier.
 | Rapports et exports (B046, FR082) | Périmètre calculé au moment de la génération (BR053) ; aucune donnée interne dans un rapport propriétaire | Test du futur rapport |
 | Notifications (B045) | Aucun événement de dépense notifié au propriétaire | Test de B045 |
 | Historique des étapes (M040) | Les dépenses liées à une étape n'apparaissent jamais dans l'historique ni dans les mesures d'avancement visibles du propriétaire | Test : historique d'étape inchangé après liaison d'une dépense |
-| Journal d'audit | `audit_events` jamais exposé au propriétaire (déjà le cas) | Inchangé |
+| Journal d'audit | **Correction (2026-10-07)** : l'affirmation initiale « déjà le cas » était fausse — la règle de M005 laissait le propriétaire principal lire tout l'audit du chantier (fuite constatée en boucle 23b). Depuis M044 (D186), lecture directe réservée à l'entreprise active ; tout futur historique propriétaire passera par une fonction filtrant les actions autorisées | `test-internal-budget` et `test-file-cross-access` : aucune ligne d'audit pour le propriétaire, le copropriétaire, le chef de chantier, le non-membre et l'ex-membre |
 
 ## 4. Liens avec les étapes (M040) et les documents (M039)
 

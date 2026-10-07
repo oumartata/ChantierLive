@@ -95,7 +95,8 @@ machines:
       - {from: PUBLISHED, to: PUBLISHED, guard: "new_version_by_owning_party (D172)"}
       - {from: PUBLISHED, to: ARCHIVED, guard: "owning_party_with_reason (D174)"}
   financial_record:
-    applies_to: [expense, budget_version]
+    # Budget interne : versions publiées directement par l'entreprise, sans approbation (D185).
+    applies_to: [expense]
     initial: DRAFT
     states: [DRAFT, PUBLISHED, APPROVED, REJECTED, DISPUTED, SUPERSEDED, CANCELLED]
     rule: "APPROVED/REJECTED/DISPUTED are never edited in place ; approbations internes à l'entreprise, jamais visibles ni décidées par le propriétaire (D183)"

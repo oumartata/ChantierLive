@@ -351,6 +351,17 @@ try {
   record("Chemin forgé : nouvelle version d'un document de A depuis le chantier B refusée", forgedDoc.error?.message === "not_authorized", forgedDoc.error?.message);
 
   // ------------------------------------------------------------------------
+  // 4b. Audit (D186, M044) : les traces des fichiers privés (documents
+  //     ENTREPRISE, brouillons) ne se lisent pas par l'audit hors entreprise.
+  // ------------------------------------------------------------------------
+  const auditA = await contractorA.client.from("audit_events").select("action").eq("project_id", pidA);
+  record("Audit A — entreprise : lisible (témoin), dont le dépôt du document ENTREPRISE", !auditA.error && auditA.data.some((e) => e.action === "DOCUMENT_DRAFT_CREATE"), errCode(auditA));
+  for (const s of [ownerA, smA, contractorB, exMember, outsider]) {
+    const r = await s.client.from("audit_events").select("id, action, context").eq("project_id", pidA);
+    record(`Audit A — ${s.label} : aucune ligne`, !r.error && r.data.length === 0, r.error?.message ?? `${r.data.length} ligne(s)`);
+  }
+
+  // ------------------------------------------------------------------------
   // 5. URL signée émise avant le retrait d'accès (constat, sans conclusion).
   // ------------------------------------------------------------------------
   const smList = await mediaIds(smA);

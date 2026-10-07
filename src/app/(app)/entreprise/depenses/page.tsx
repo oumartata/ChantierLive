@@ -4,10 +4,10 @@ import { AlertBanner } from "@/components/ui";
 
 // Dépenses internes — fonctionnalité non construite (aucune table expenses/
 // expense_categories/receipts en base, conception seule dans
-// DATABASE_TABLES.csv T024-T027). Confidentialité déjà actée (D086/D090/
-// BR098/BR099) pour le jour où elle sera construite — voir
-// PREPARATION_ESPACES_PROPRIETAIRE_ENTREPRISE.md §3.3. Cette page indique
-// clairement l'indisponibilité, n'affiche aucun montant ni journal inventé.
+// DATABASE_TABLES.csv T024-T027). Confidentialité absolue actée (D183 :
+// aucune exception de seuil ni d'activation ; BR098/BR099 révisées) — voir
+// PROPOSITION_D4_FINANCES_INTERNES.md. Cette page indique clairement
+// l'indisponibilité, n'affiche aucun montant ni journal inventé.
 export default async function EntrepriseDepensesPage() {
   const user = await getVerifiedUser();
   if (!user) {
@@ -20,7 +20,7 @@ export default async function EntrepriseDepensesPage() {
       <AlertBanner
         variant="information"
         title="Fonctionnalité pas encore disponible"
-        explanation="Le suivi des dépenses internes et des justificatifs n'est pas encore construit. Une proposition séparée (modèle de données, permissions, migrations) doit être validée avant toute mise en service. Privé par défaut envers le client dès sa construction (BR098), avec l'exception déjà prévue (seuil configurable ou activation explicite du chantier, BR050)."
+        explanation="Le suivi des dépenses internes et des justificatifs n'est pas encore construit ; il arrive par étapes (le budget interne de chaque chantier est déjà disponible dans le chantier, menu « Budget interne »). Les dépenses, budgets et justificatifs internes ne seront jamais visibles du propriétaire, sans aucune exception."
       />
     </div>
   );

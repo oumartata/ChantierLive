@@ -110,6 +110,7 @@ progress:
   awaiting_validation:
     - "B019 (modèles simples et étapes, sur la base de M033 ; D179) : réalisée et prouvée (boucle 20 : copie du modèle par défaut de 6 étapes depuis l'écran sur le chantier DÉMO ÉTAPES 2026-10-07, 6 étapes en brouillon en base ; scripts/test-project-phases.mjs n° 1), validation du fondateur attendue ; hors compteur tant que non validée"
     - "B020 (publier, corriger et valider une étape ; M040/M041 ; « Avancement validé » distinct) : réalisée et prouvée (boucle 20 : historique par étape, état précédent -> nouvel état, rôle, date, motif, visible et en lecture seule pour l'entreprise et le propriétaire ; scripts/test-phase-history.mjs 12/12, scripts/test-phase-validation.mjs 56/56), validation du fondateur attendue ; hors compteur tant que non validée"
+    - "B030 (budget prévisionnel interne, M043 ; fuite d'audit fermée par M044, D186) : réalisée (boucle 23c, scripts/test-internal-budget.mjs 30/30, test-file-cross-access 271/271), validation du fondateur attendue ; hors compteur tant que non validée"
   next_action: "Au 2026-10-06 (pilotage par boucles, PASSATION_CLAUDE_CHAT.md §3 et §8) : 1) D1 faite le 2026-10-07 (sauvegarde F: et push du fondateur jusqu'à 47201d4 ; commits suivants locaux, voir working_branch) ; 2) compléments ESPACES-5 sans migration (menu « Versements clients » vers la présentation entreprise, historique en lecture seule) ; 3) premier lot du backlog choisi en D3 ; 4) proposition ESPACES-4 / B030–B032 sans migration appliquée (D4). Historique : la validation navigateur du lot Avancement (M033) a été faite le 2026-10-04 (PREPARATION_AVANCEMENT_TRAVAUX.md §7) ; écart de droits du brouillon (PHASE_CREATE/PHASE_PUBLISH/PHASE_EDIT_DRAFT, conception plus large que M033) toujours ouvert, restriction à l'entreprise conservée. Aucun push, fusion ni migration distante sans accord explicite du fondateur."
   backlog_revision_2026_09_24:
     status: "APPROUVÉ, appliqué à MVP_BACKLOG.csv et commité pour cohérence documentaire (commit 7d7f918) — 68 tâches, D083-D094 VALIDATED (D093 restait une proposition technique, non validée par l'approbation du backlog (historique ; validée depuis le 2026-09-26, voir DECISIONS.yaml))"
@@ -148,11 +149,11 @@ progress:
       remote_branch: "aucune"
       note: "contenu non examiné ; à traiter dans la décision D1"
   local_migrations:
-    applied: "M001 à M042, 59 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
-    last_applied: "20261008090000_m042_phase_links.sql"
-    recent: ["M040 20261007200000_m040_phase_validation.sql", "M041 20261007220000_m041_phase_corrections.sql", "M042 20261008090000_m042_phase_links.sql"]
-    local_only: "M029–M042 locales uniquement, jamais déployées"
-    next_migration_id: "M043"
+    applied: "M001 à M044, 61 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
+    last_applied: "20261008110000_m044_audit_owner_read_closed.sql"
+    recent: ["M042 20261008090000_m042_phase_links.sql", "M043 20261008100000_m043_internal_budget.sql", "M044 20261008110000_m044_audit_owner_read_closed.sql"]
+    local_only: "M029–M044 locales uniquement, jamais déployées"
+    next_migration_id: "M045"
   pending_decisions:
     - id: "D1"
       subject: "Sauvegarde distante des commits locaux de claude/plans-generator (et sort des branches claude/b014-geoloc-tranche1 et claude/ux-demo-fixes) et des migrations M029–M037"

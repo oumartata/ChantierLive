@@ -119,6 +119,9 @@ export default async function ChantierLayout({
               { href: `/chantiers/${id}/finances`, label: "Synthèse" },
             ]
           : []),
+        // B030 : budget interne, entreprise seule (D183, D185) ; jamais dans
+        // le menu du propriétaire ni du chef de chantier.
+        ...(isContractor ? [{ href: `/chantiers/${id}/finances/budget`, label: "Budget interne" }] : []),
       ];
 
   return (
