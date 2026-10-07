@@ -155,6 +155,7 @@ decisions:
   - {id: D154, status: VALIDATED, value: "B022 (K4) — aucun délai de correction d'un journal publié."}
   - {id: D155, status: VALIDATED, value: "B022 (K5) — après publication, un nouveau brouillon du même auteur, sur le même chantier et la même date, est refusé : il faut corriger le journal publié."}
   - {id: D156, status: VALIDATED, value: "B022 (K6) — le propriétaire (et tout membre actif, JOURNAL_VIEW) voit la version courante d'un journal publié et son historique complet : motifs, auteurs (rôle), dates ; jamais les brouillons."}
+  - {id: D157, status: VALIDATED, value: "B022 (fondateur 2026-10-07) — la date d'un journal publié n'est pas corrigeable ; une erreur de date se signale par une correction motivée (le motif l'indique), jamais par un changement de date de la version publiée."}
 open:
   - {id: O001, due: "avant commercialisation", topic: "vérifications officielles ChantierLive: OAPI, nom commercial, domaines et réseaux sociaux"}
   - {id: O002, due: "avant bêta", topic: "fournisseur OTP SMS et tarifs réels"}

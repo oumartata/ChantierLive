@@ -26,6 +26,35 @@ machines:
       - {from: DRAFT, to: PUBLISHED, guard: "authorized_and_valid"}
       - {from: PUBLISHED, to: SUPERSEDED, guard: "replacement_with_reason"}
       - {from: PUBLISHED, to: ARCHIVED, guard: "authorized_archive"}
+  # Journal quotidien tel que réalisé (M036/M037, B021/B022). Détaille
+  # « record » pour le journal ; statuts stockés en français dans
+  # daily_logs.status (BROUILLON, PUBLIE, ARCHIVE). PUBLISHED -> ARCHIVED
+  # (machine record) n'est ni décidé ni réalisé pour le journal.
+  daily_log:
+    initial: DRAFT
+    states: [DRAFT, PUBLISHED, ARCHIVED]
+    stored_as: {DRAFT: BROUILLON, PUBLISHED: PUBLIE, ARCHIVED: ARCHIVE}
+    terminal: [ARCHIVED]
+    rules:
+      - "Un seul journal actif (brouillon ou publié) par auteur, chantier et date (D146, D155)."
+      - "Brouillon visible et modifiable par son auteur seul (D144, D145) ; jamais supprimé physiquement."
+      - "Un journal publié n'est plus modifié : contenu, date et état figés ; seule la version courante change (D152, D157)."
+      - "Lecture des journaux publiés et de tout l'historique par tout membre actif, propriétaires compris ; jamais un brouillon (D156)."
+      - "Après publication, nouveau brouillon même auteur, chantier et date refusé : passer par une correction (D155)."
+      - "Aucun délai de correction (D154)."
+    transitions:
+      - {from: DRAFT, to: DRAFT, guard: "author_active_contractor_or_site_manager_expected_revision (modification, D145)"}
+      - {from: DRAFT, to: ARCHIVED, guard: "author_active_expected_revision_audited (D147)"}
+      - {from: DRAFT, to: PUBLISHED, guard: "author_active_expected_revision_and_at_least_one_section (D153) ; crée la version 1, heure serveur, audit"}
+      - {from: PUBLISHED, to: PUBLISHED, guard: "correction : author_or_active_contractor (D151), reason_required, expected_version, at_least_one_section ; nouvelle version liée publiée immédiatement (D152), audit avec motif"}
+  # Versions publiées d'un journal (daily_log_versions, insertion seule).
+  daily_log_version:
+    initial: PUBLISHED
+    states: [PUBLISHED, SUPERSEDED]
+    terminal: [SUPERSEDED]
+    rule: "Jamais modifiée ni supprimée ; la version remplacée reste lisible dans l'historique (AC058). État dérivé, sans colonne : la version courante est daily_logs.current_version_id, les autres sont SUPERSEDED."
+    transitions:
+      - {from: PUBLISHED, to: SUPERSEDED, guard: "linked_correction_created_with_reason (supersedes_version_id, D152)"}
   financial_record:
     applies_to: [expense, budget_version]
     initial: DRAFT
