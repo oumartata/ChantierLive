@@ -49,6 +49,8 @@ tranche ; l'agent s'arrête et signale.
   simples).
 - **R10** Brouillons : jamais remplacés sans confirmation explicite ;
   possibilités de récupération préservées.
+- **R14** Langue : bilans, messages et documents toujours en français
+  (fondateur, 2026-10-07).
 
 ### Métier, sécurité, interface
 - **R11** Séparation métier : le propriétaire voit prix convenu,
