@@ -83,13 +83,21 @@ try {
     const r = await declare(u, p1);
     record(`${u.label} : déclaration « terminée » refusée`, r.error?.message === "not_authorized", err(r));
   }
+  // D180 (M041) : 100 % déclarés exigés, sans modification automatique.
+  const at0 = await declare(contractor, p1);
+  await contractor.client.rpc("update_phase_progress", { p_project_id: pid, p_phase_id: p1, p_progression: 99.5, p_expected_revision: await rev() });
+  const at99 = await declare(contractor, p1);
+  const d1b = (await details()).data.find((p) => p.phase_id === p1);
+  record("D180 : déclaration refusée à 0 % et à 99,5 % (progression_incomplete), étape inchangée, progression non modifiée", at0.error?.message === "progression_incomplete" && at99.error?.message === "progression_incomplete" && d1b.status === "PUBLIEE" && Number(d1b.progression) === 99.5, `${err(at0)} / ${err(at99)}`);
+  await contractor.client.rpc("update_phase_progress", { p_project_id: pid, p_phase_id: p1, p_progression: 100, p_expected_revision: await rev() });
+  const globalBefore = Number(one(await contractor.client.rpc("get_project_phase_plan", { p_project_id: pid })).global_progress);
   const declared = await declare(contractor, p1);
   const d2 = (await details()).data.find((p) => p.phase_id === p1);
-  record("Entreprise : déclare l'étape terminée (TERMINEE, date réelle automatique)", !declared.error && d2.status === "TERMINEE" && !!d2.declared_completed_at, err(declared));
+  record("Entreprise : déclare l'étape terminée à 100 % (TERMINEE, date réelle automatique)", !declared.error && d2.status === "TERMINEE" && !!d2.declared_completed_at && Number(d2.progression) === 100, err(declared));
   const again = await declare(contractor, p1);
   record("Déclarer à nouveau une étape déjà déclarée : transition invalide", again.error?.message === "invalid_transition", err(again));
-  const globalBefore = Number(one(await contractor.client.rpc("get_project_phase_plan", { p_project_id: pid })).global_progress);
-  record("Déclarer terminée ne change pas l'avancement déclaré (deux mesures distinctes)", globalBefore === 0, String(globalBefore));
+  const globalAfter = Number(one(await contractor.client.rpc("get_project_phase_plan", { p_project_id: pid })).global_progress);
+  record("Déclarer terminée ne change pas l'avancement déclaré (deux mesures distinctes)", globalBefore === 40 && globalAfter === globalBefore, `${globalBefore} -> ${globalAfter}`);
 
   // 3. Décision (propriétaire principal seul, D179).
   for (const u of [contractor, coOwner, sm, outsider]) {
@@ -131,18 +139,49 @@ try {
   record("Étape validée : libellé non modifiable par restructuration", restructRename.error?.message === "phase_validated_immutable", err(restructRename));
   const restructDrop = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [{ phase_id: p2, position: 1, label: "Gros œuvre", weight: 60 }, { phase_id: p3, position: 2, label: "Finitions", weight: 40 }], p_reason: "Retrait", p_expected_revision: await rev() });
   record("Étape validée : jamais retirée (archivage refusé)", restructDrop.error?.message === "phase_validated_immutable", err(restructDrop));
-  // Nouvelle étape ajoutée en FIN de liste : l'insertion au milieu échoue
-  // dans restructure_phase_plan (M033, défaut antérieur à M040, signalé).
-  const restructOk = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [
-    { phase_id: p1, position: 1, label: "Fondations", weight: 40 },
-    { phase_id: p2, position: 2, label: "Gros œuvre", weight: 30 },
-    { phase_id: p3, position: 3, label: "Finitions", weight: 20 },
-    { position: 4, label: "Toiture", weight: 10 },
+  // M041 : insertion avant une étape existante (en tête et au milieu),
+  // y compris avant l'étape validée ; contenu validé et historique intacts.
+  const snap = async () => (await service.from("project_phase_events").select("event_seq, event_type, previous_value, new_value, reason, computed_global_progress").eq("project_id", pid).order("event_seq")).data;
+  const frozen = async () => (await service.from("project_phases").select("label, weight, progression, status, validated_at, planned_start, planned_end, archived_at").eq("id", p1).single()).data;
+  const p1Before = await frozen();
+  const evBefore = await snap();
+  const head = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [
+    { position: 1, label: "Implantation", weight: 10 },
+    { phase_id: p1, position: 2, label: "Fondations", weight: 40 },
+    { phase_id: p2, position: 3, label: "Gros œuvre", weight: 30 },
+    { phase_id: p3, position: 4, label: "Finitions", weight: 20 },
+  ], p_reason: "Ajout de l'implantation en tête", p_expected_revision: await rev() });
+  const dh = (await details()).data;
+  record("Insertion EN TÊTE avant l'étape validée : acceptée, positions 1 à 4 dans l'ordre voulu", !head.error && dh.map((p) => p.label).join("|") === "Implantation|Fondations|Gros œuvre|Finitions" && dh.map((p) => p.position).join() === "1,2,3,4", err(head));
+  const mid = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [
+    { phase_id: dh[0].phase_id, position: 1, label: "Implantation", weight: 10 },
+    { phase_id: p1, position: 2, label: "Fondations", weight: 40 },
+    { position: 3, label: "Toiture", weight: 10 },
+    { phase_id: p2, position: 4, label: "Gros œuvre", weight: 20 },
+    { phase_id: p3, position: 5, label: "Finitions", weight: 20 },
   ], p_reason: "Ajout de la toiture", p_expected_revision: await rev() });
-  const d5 = (await details()).data;
-  record("Étape publiée modifiée par l'entreprise avec motif ; étape validée intacte ; nouvelle étape PUBLIEE", !restructOk.error && d5.find((p) => p.phase_id === p1).status === "VALIDEE" && d5.find((p) => p.label === "Toiture").status === "PUBLIEE", err(restructOk));
+  const dm = (await details()).data;
+  record("Insertion AU MILIEU : acceptée, nouvelle étape PUBLIEE à la position 3", !mid.error && dm.map((p) => p.label).join("|") === "Implantation|Fondations|Toiture|Gros œuvre|Finitions" && dm.find((p) => p.label === "Toiture").status === "PUBLIEE", err(mid));
+  const swap = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [
+    { phase_id: dm[0].phase_id, position: 1, label: "Implantation", weight: 10 },
+    { phase_id: p1, position: 2, label: "Fondations", weight: 40 },
+    { phase_id: dm[2].phase_id, position: 3, label: "Toiture", weight: 10 },
+    { phase_id: p3, position: 4, label: "Finitions", weight: 20 },
+    { phase_id: p2, position: 5, label: "Gros œuvre", weight: 20 },
+  ], p_reason: "Inversion gros œuvre / finitions", p_expected_revision: await rev() });
+  const ds = (await details()).data;
+  record("Inversion de deux étapes (permutation) : acceptée", !swap.error && ds.map((p) => p.label).join("|") === "Implantation|Fondations|Toiture|Finitions|Gros œuvre", err(swap));
+  const p1After = await frozen();
+  record("Étape validée : contenu inchangé (libellé, poids, progression, statut, dates), seule sa position a changé", JSON.stringify(p1Before) === JSON.stringify(p1After) && ds.find((p) => p.phase_id === p1).position === 2);
+  const evAfter = await snap();
+  record("Historique : événements antérieurs identiques, 3 événements STRUCTURE_CHANGED ajoutés", JSON.stringify(evAfter.slice(0, evBefore.length)) === JSON.stringify(evBefore) && evAfter.length === evBefore.length + 3 && evAfter.slice(evBefore.length).every((e) => e.event_type === "STRUCTURE_CHANGED"));
+  const dup = await contractor.client.rpc("restructure_phase_plan", { p_project_id: pid, p_phases: [
+    { phase_id: p1, position: 1, label: "Fondations", weight: 50 },
+    { phase_id: p1, position: 2, label: "Fondations", weight: 50 },
+  ], p_reason: "Doublon", p_expected_revision: await rev() });
+  record("Même étape présente deux fois dans la liste : refusée", dup.error?.message === "phase_invalid_position", err(dup));
   const v3 = one(await validated());
-  record("Avancement validé recalculé : 1/4 = 25 %", Number(v3.validated_progress) === 25 && v3.applicable_count === 4);
+  record("Avancement validé recalculé : 1/5 = 20 %", Number(v3.validated_progress) === 20 && v3.applicable_count === 5);
 
   // 5. Dates prévues après publication : motif et trace ; dates réelles automatiques.
   const sNo = await schedule(contractor, p2, "2026-11-01", "2026-11-30", " ");
@@ -167,7 +206,9 @@ try {
   record("Étape jamais supprimée (même service_role)", del.error?.message === "phase_immutable", err(del));
 
   // 7. Lecture : copropriétaire en lecture ; drapeaux d'action ; non-membre, ex-membre, sans session.
-  await declare(contractor, p2);
+  await contractor.client.rpc("update_phase_progress", { p_project_id: pid, p_phase_id: p2, p_progression: 100, p_expected_revision: await rev() });
+  const p2Declared = await declare(contractor, p2);
+  record("Entreprise : déclare une autre étape à 100 %", !p2Declared.error, err(p2Declared));
   const coD = await details(coOwner);
   const coV = await validated(coOwner);
   record("Copropriétaire : lit étapes et avancement validé, sans aucune action", !coD.error && !coV.error && coD.data.every((p) => !p.can_declare && !p.can_decide && !p.can_edit_schedule), `${err(coD)} / ${err(coV)}`);

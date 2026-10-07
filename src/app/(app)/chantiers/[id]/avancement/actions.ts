@@ -41,6 +41,8 @@ function mapPhaseError(message: string | undefined): string {
       return "Cette étape est validée par le propriétaire : elle ne peut plus être modifiée.";
     case "invalid_transition":
       return "Cette action n'est pas possible dans l'état actuel de l'étape.";
+    case "progression_incomplete":
+      return "Pour déclarer cette étape terminée, sa progression déclarée doit d'abord être de 100 %. Mettez la progression à jour, puis recommencez.";
     case "decision_invalid":
       return "Décision invalide.";
     case "no_change":
