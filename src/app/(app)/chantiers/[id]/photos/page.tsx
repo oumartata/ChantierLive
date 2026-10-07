@@ -132,6 +132,14 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
     .select("profile_id, role, owner_profile")
     .eq("project_id", id)
     .is("revoked_at", null);
+  // D099 / PERMISSIONS MEDIA_UPLOAD et MEDIA_PUBLISH : envoi et brouillons
+  // réservés à l'entreprise et au chef de chantier actifs. Rôle RÉEL lu ici,
+  // côté serveur, dans l'adhésion active de la session — jamais un
+  // paramètre du navigateur. Le serveur refuse de toute façon l'envoi
+  // (prepare_media_upload) : ceci n'ajoute aucun droit, il retire seulement
+  // un formulaire inutilisable pour le propriétaire.
+  const myRole = (memberRows ?? []).find((r) => r.profile_id === user.id)?.role ?? null;
+  const canUpload = myRole === "CONTRACTOR" || myRole === "SITE_MANAGER";
   const authorLabel = (profileId: string) => {
     const m = (memberRows ?? []).find((r) => r.profile_id === profileId);
     const base = !m ? "Ancien membre" : m.role === "CONTRACTOR" ? "Entreprise" : m.role === "SITE_MANAGER" ? "Chef de chantier" : m.owner_profile === "CO_OWNER" ? "Copropriétaire" : "Propriétaire";
@@ -160,9 +168,10 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
         <AlertBanner variant="error" title="Lecture indisponible" explanation="Réessayez plus tard." />
       )}
 
-      <MediaUploadForm projectId={id} />
+      {canUpload ? <MediaUploadForm projectId={id} /> : null}
 
-      <section className="flex flex-col gap-3">
+      {canUpload ? (
+      <section className="flex flex-col gap-3" data-testid="mes-brouillons">
         <h2 className="text-h2 font-semibold text-ink">Mes brouillons</h2>
         {drafts.length === 0 ? (
           <EmptyState title="Aucun brouillon" description="Les photos déposées restent visibles ici avant publication." />
@@ -183,6 +192,7 @@ export default async function PhotosPage({ params }: { params: Promise<{ id: str
           ))
         )}
       </section>
+      ) : null}
 
       <section className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold text-ink">Galerie de l&apos;équipe</h2>
