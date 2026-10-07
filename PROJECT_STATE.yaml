@@ -39,6 +39,7 @@ release_scope:
     - dashboards_audit_notifications
     - offline_queue_and_conflict_detection
     - manual_mobile_money_activation
+    - declared_weighted_progress  # « Avancement déclaré par l'entreprise » (M033, D177) ; l'« Avancement validé » (BR034) reste à livrer avec la validation des phases
   v1:
     - videos
     - architect_controller
@@ -54,7 +55,6 @@ release_scope:
   v2:
     - voice_messages
     - advanced_inventory
-    - weighted_progress
     - marketplace
     - partner_api
     - bambara_and_english
