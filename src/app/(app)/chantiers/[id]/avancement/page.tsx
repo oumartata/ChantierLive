@@ -5,6 +5,38 @@ import { AlertBanner, Card, StatusChip } from "@/components/ui";
 import type { StatusChipVariant } from "@/components/ui/StatusChip";
 import { DecisionForm, DeclareCompleteForm, DraftEditor, ProgressForm, RestructureToggle, ScheduleForm, DEFAULT_ROWS, type Row } from "./PhasePlanForms";
 import { formatPercent } from "./phasePlanDiff";
+import { FIELD_LABEL, KIND_LABEL, buildPhaseHistories, formatHistoryValue, type PhaseHistoryEntry } from "./phaseHistory";
+
+// B020 : versions antérieures visibles — chaque modification d'une étape,
+// état précédent -> nouvel état, rôle, date et motif ; lecture seule, pour
+// tout membre actif (même source que l'historique général).
+function PhaseHistory({ entries }: { entries: PhaseHistoryEntry[] }) {
+  if (entries.length === 0) return null;
+  return (
+    <details className="rounded-small border border-muted/30 px-3 py-2" data-testid="historique-etape">
+      <summary className="cursor-pointer text-label font-semibold text-primary">Historique de l&apos;étape ({entries.length})</summary>
+      <ol className="mt-3 flex flex-col gap-3">
+        {[...entries].reverse().map((h) => (
+          <li key={h.seq} className="flex flex-col gap-1 border-l-2 border-muted/30 pl-3">
+            <p className="text-caption font-semibold text-ink">
+              {KIND_LABEL[h.kind]} — par {ACTOR_LABEL[h.actorRole] ?? h.actorRole}, le {stamp(h.at)}
+            </p>
+            {h.changes.length > 0 ? (
+              <ul className="flex flex-col gap-0.5">
+                {h.changes.map((c) => (
+                  <li key={c.field} className="break-words text-caption text-muted">
+                    {FIELD_LABEL[c.field]} : {formatHistoryValue(c.field, c.before)} → {formatHistoryValue(c.field, c.after)}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {h.reason ? <p className="break-words text-caption text-muted">Motif : {h.reason}</p> : null}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
 
 interface PlanView {
   plan_id: string | null;
@@ -46,6 +78,8 @@ interface EventRow {
   event_type: keyof typeof EVENT_LABEL;
   phase_id: string | null;
   phase_label: string | null;
+  previous_value: unknown;
+  new_value: unknown;
   actor_role: "CONTRACTOR" | "SITE_MANAGER" | "OWNER";
   reason: string | null;
   computed_global_progress: string | number;
@@ -142,6 +176,7 @@ export default async function AvancementPage({ params }: { params: Promise<{ id:
   // déclaration, d'une décision du propriétaire ou d'un changement de dates.
   const lastDeclared = [...events].reverse().find((e) => e.event_type === "PLAN_PUBLISHED" || e.event_type === "PROGRESSION_UPDATED" || e.event_type === "STRUCTURE_CHANGED");
   const lastValidated = [...events].reverse().find((e) => e.event_type === "PHASE_VALIDATED");
+  const histories = buildPhaseHistories(events);
 
   const toRows = (): Row[] =>
     phases.map((p) => ({
@@ -269,6 +304,7 @@ export default async function AvancementPage({ params }: { params: Promise<{ id:
                       <ScheduleForm projectId={id} phaseId={p.phase_id} expectedRevision={revision} plannedStart={p.planned_start} plannedEnd={p.planned_end} />
                     </Action>
                   ) : null}
+                  <PhaseHistory entries={histories.get(p.phase_id) ?? []} />
                 </div>
               );
             })}
