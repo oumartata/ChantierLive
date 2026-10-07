@@ -3,11 +3,14 @@
 import { useActionState } from "react";
 import { AlertBanner, Button, TextField } from "@/components/ui";
 import {
+  attachExpenseReceiptAction,
   cancelExpenseAction,
   correctExpenseAction,
   decideExpenseAction,
   saveExpenseDraftAction,
+  setReceiptPolicyAction,
   submitExpenseAction,
+  withdrawExpenseReceiptAction,
   type ExpenseActionState,
 } from "./actions";
 import { CATEGORIES } from "./labels";
@@ -36,6 +39,9 @@ export interface ExpenseView {
   can_dispute: boolean;
   can_correct: boolean;
   can_cancel: boolean;
+  no_receipt_reason: string | null;
+  receipt_count: number;
+  can_attach_receipt: boolean;
 }
 
 const FIELD = "w-full rounded-small border border-muted/40 bg-surface px-4 py-2 text-body font-normal text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
@@ -73,7 +79,7 @@ function Hidden({ projectId, expense }: { projectId: string; expense?: ExpenseVi
   );
 }
 
-function ExpenseFields({ expense, today, phases }: { expense?: ExpenseView; today: string; phases: PhaseOption[] }) {
+function ExpenseFields({ expense, today, phases, justificationRequired }: { expense?: ExpenseView; today: string; phases: PhaseOption[]; justificationRequired: boolean }) {
   // F10 : étape facultative ; un lien actuel vers une étape retirée reste proposé tel quel.
   const current = expense?.phase_id ?? null;
   const phaseOptions = current && !phases.some((p) => p.value === current) ? [{ value: current, label: "Étape retirée (lien actuel)" }, ...phases] : phases;
@@ -85,17 +91,24 @@ function ExpenseFields({ expense, today, phases }: { expense?: ExpenseView; toda
       <TextField label="Fournisseur (facultatif)" name="supplier" maxLength={200} defaultValue={expense?.supplier ?? ""} />
       <TextField label="Note (facultative)" name="note" maxLength={1000} defaultValue={expense?.note ?? ""} />
       <Select name="phase_id" label="Étape concernée (facultative)" options={phaseOptions} defaultValue={current ?? undefined} />
+      <TextField
+        label={justificationRequired ? "Justification si aucun reçu n'est joint" : "Justification si aucun reçu (facultative)"}
+        name="no_receipt_reason"
+        maxLength={1000}
+        defaultValue={expense?.no_receipt_reason ?? ""}
+      />
+      {justificationRequired ? <p className="text-caption text-muted">Ce chantier exige un reçu ou une justification écrite de son absence pour envoyer la dépense.</p> : null}
     </>
   );
 }
 
 // Nouveau brouillon ou modification d'un brouillon (auteur seul, D187 H1).
-export function ExpenseDraftForm({ projectId, today, phases, expense }: { projectId: string; today: string; phases: PhaseOption[]; expense?: ExpenseView }) {
+export function ExpenseDraftForm({ projectId, today, phases, expense, justificationRequired }: { projectId: string; today: string; phases: PhaseOption[]; expense?: ExpenseView; justificationRequired: boolean }) {
   const [state, formAction, pending] = useActionState<ExpenseActionState, FormData>(saveExpenseDraftAction, null);
   return (
     <form action={formAction} className="flex flex-col gap-3" data-testid={expense ? `brouillon-form-${expense.id}` : "nouvelle-depense"}>
       <Hidden projectId={projectId} expense={expense} />
-      <ExpenseFields expense={expense} today={today} phases={phases} />
+      <ExpenseFields expense={expense} today={today} phases={phases} justificationRequired={justificationRequired} />
       <p className="text-caption text-muted">Le brouillon n&apos;est visible que par vous, jusqu&apos;à son envoi.</p>
       <Feedback state={state} title="Brouillon non enregistré" okText={expense ? undefined : "Brouillon enregistré."} />
       <div>
@@ -150,12 +163,12 @@ export function DecideExpenseForm({ projectId, expense, decision }: { projectId:
 }
 
 // Correction liée (F7) : nouvelle version motivée ; l'ancienne reste dans l'historique.
-export function CorrectExpenseForm({ projectId, expense, today, phases }: { projectId: string; expense: ExpenseView; today: string; phases: PhaseOption[] }) {
+export function CorrectExpenseForm({ projectId, expense, today, phases, justificationRequired }: { projectId: string; expense: ExpenseView; today: string; phases: PhaseOption[]; justificationRequired: boolean }) {
   const [state, formAction, pending] = useActionState<ExpenseActionState, FormData>(correctExpenseAction, null);
   return (
     <form action={formAction} className="flex flex-col gap-3">
       <Hidden projectId={projectId} expense={expense} />
-      <ExpenseFields expense={expense} today={today} phases={phases} />
+      <ExpenseFields expense={expense} today={today} phases={phases} justificationRequired={justificationRequired} />
       <TextField label="Motif de la correction" name="reason" required minLength={3} maxLength={1000} />
       <p className="text-caption text-muted">La version corrigée remplace l&apos;actuelle dans les totaux ; l&apos;actuelle reste consultable dans l&apos;historique.</p>
       <Feedback state={state} title="Correction impossible" />
@@ -180,6 +193,63 @@ export function CancelExpenseForm({ projectId, expense }: { projectId: string; e
       <div>
         <Button type="submit" size="compact" variant="danger" loading={pending}>
           Annuler la dépense
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// B032 : reçu facultatif (PDF, JPEG, PNG, WebP ; 10 Mo) ; type réel contrôlé par le serveur.
+export function AttachReceiptForm({ projectId, expense }: { projectId: string; expense: ExpenseView }) {
+  const [state, formAction, pending] = useActionState<ExpenseActionState, FormData>(attachExpenseReceiptAction, null);
+  return (
+    <form action={formAction} className="flex flex-col gap-2" data-testid={`joindre-recu-${expense.id}`}>
+      <Hidden projectId={projectId} expense={expense} />
+      <label className="flex flex-col gap-1 text-label font-semibold text-ink">
+        Fichier du reçu
+        <input type="file" name="file" required accept="application/pdf,image/jpeg,image/png,image/webp" className="text-body font-normal text-ink" />
+      </label>
+      <p className="text-caption text-muted">PDF, JPEG, PNG ou WebP, 10 Mo au plus. Visible de l&apos;entreprise et du chef de chantier seulement.</p>
+      <Feedback state={state} title="Reçu non joint" okText="Reçu joint." />
+      <div>
+        <Button type="submit" size="compact" variant="secondary" loading={pending}>
+          Joindre le reçu
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// Retrait motivé : le reçu reste listé, son fichier est conservé mais n'est plus délivré.
+export function WithdrawReceiptForm({ projectId, receiptId }: { projectId: string; receiptId: string }) {
+  const [state, formAction, pending] = useActionState<ExpenseActionState, FormData>(withdrawExpenseReceiptAction, null);
+  return (
+    <form action={formAction} className="flex flex-col gap-2">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="receipt_id" value={receiptId} />
+      <TextField label="Motif du retrait" name="reason" required minLength={3} maxLength={1000} />
+      <Feedback state={state} title="Retrait impossible" />
+      <div>
+        <Button type="submit" size="compact" variant="danger" loading={pending}>
+          Retirer le reçu
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+// F5 C : réglage du chantier, désactivé par défaut, entreprise seule.
+export function ReceiptPolicyForm({ projectId, required, revision }: { projectId: string; required: boolean; revision: number }) {
+  const [state, formAction, pending] = useActionState<ExpenseActionState, FormData>(setReceiptPolicyAction, null);
+  return (
+    <form action={formAction} className="flex flex-col gap-2" data-testid="reglage-justification">
+      <input type="hidden" name="project_id" value={projectId} />
+      <input type="hidden" name="expected_revision" value={revision} />
+      <input type="hidden" name="required" value={required ? "0" : "1"} />
+      <Feedback state={state} title="Réglage non enregistré" />
+      <div>
+        <Button type="submit" size="compact" variant="secondary" loading={pending}>
+          {required ? "Rendre la justification facultative" : "Exiger une justification sans reçu"}
         </Button>
       </div>
     </form>

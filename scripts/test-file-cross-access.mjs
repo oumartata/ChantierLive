@@ -116,6 +116,19 @@ async function depositDocument(client, projectId, visibility) {
   await must(client.rpc("publish_document", { p_document_id: version.document_id, p_expected_revision: rev }), "publish document");
   return { id: version.document_id, versionId: version.id, key: claim.candidate_key };
 }
+// B032 (M046) : dépense interne approuvée de l'entreprise et son reçu, même discipline.
+async function attachExpenseReceipt(client, projectId) {
+  const draft = await must(client.rpc("save_expense_draft", { p_project_id: projectId, p_expense_id: null, p_expected_revision: null, p_amount_fcfa: "250000", p_expense_date: new Date().toISOString().slice(0, 10), p_category: "MATERIAUX", p_supplier: null, p_note: null, p_phase_id: null, p_no_receipt_reason: null }), "expense draft");
+  const expense = await must(client.rpc("submit_expense", { p_expense_id: draft.id, p_expected_revision: draft.revision }), "expense publish");
+  const bytes = PDF("recu-depense");
+  const op = randomUUID();
+  const prep = await must(client.rpc("prepare_expense_receipt_upload", { p_operation_uuid: op, p_expense_id: expense.id, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" }), "prepare expense receipt");
+  const claim = await must(client.rpc("claim_upload_attempt", { p_operation_uuid: op, p_expected_attempt_id: prep.attempt_id }), "claim expense receipt");
+  await must(service.storage.from("expense-receipts").upload(claim.candidate_key, bytes, { contentType: "application/pdf", upsert: false }), "write expense receipt");
+  await must(service.rpc("attest_storage_verified", { p_operation_uuid: op, p_attempt_id: claim.attempt_id, p_actual_checksum: sha(bytes), p_actual_size_bytes: bytes.length, p_actual_mime_type: "application/pdf" }), "attest expense receipt");
+  const receipt = await must(client.rpc("finalize_expense_receipt_upload", { p_operation_uuid: op }), "finalize expense receipt");
+  return { expenseId: expense.id, id: receipt.id, key: claim.candidate_key };
+}
 const objectExists = async (bucket, key) => {
   const { data, error } = await service.storage.from(bucket).download(key);
   return !error && !!data;
@@ -176,6 +189,7 @@ try {
   const catalog = await depositCatalog(contractorA.client, orgA, item.id);
   const docPrinc = await depositDocument(contractorA.client, pidA, "PRINCIPAUX");
   const docEnt = await depositDocument(contractorA.client, pidA, "ENTREPRISE");
+  const expReceipt = await attachExpenseReceipt(contractorA.client, pidA);
   // Ex-membre : accès retiré avant les essais.
   await must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", pidA).eq("profile_id", exMember.id), "révocation ex-membre");
   console.log(`Chantier A ${pidA} (organisation ${orgA}) ; chantier B ${pidB} (organisation ${orgB}).`);
@@ -187,6 +201,7 @@ try {
     { bucket: "organization-catalog", key: catalog.key, what: "modèle de catalogue" },
     { bucket: "project-documents", key: docPrinc.key, what: "document PRINCIPAUX" },
     { bucket: "project-documents", key: docEnt.key, what: "document ENTREPRISE" },
+    { bucket: "expense-receipts", key: expReceipt.key, what: "reçu de dépense interne" },
   ];
   for (const f of files) {
     if (!(await objectExists(f.bucket, f.key))) throw new Error(`fixture absente : ${f.bucket}/${f.key}`);
@@ -301,6 +316,20 @@ try {
     record(`Documents A — ${s.label} : liste, clés et versions refusées`, !!l.error && !!k1.error && !!k2.error && !!v.error, [l, k1, k2, v].map(errCode).join(" / "));
   }
 
+  // Reçus de dépenses internes (B032, M046 ; D183) : entreprise et chef de chantier seulement.
+  const erKey = (u) => u.client.rpc("get_expense_receipt_file_key", { p_receipt_id: expReceipt.id });
+  for (const u of [contractorA, smA]) {
+    const r = await erKey(u);
+    record(`Reçu de dépense A — ${u.label} : délivré`, !r.error && (Array.isArray(r.data) ? r.data[0] : r.data)?.storage_key === expReceipt.key, r.error?.message);
+  }
+  for (const s of [ownerA, ...strangers]) {
+    const k = await erKey(s);
+    const l = await s.client.rpc("list_expense_receipts", { p_expense_id: expReceipt.expenseId });
+    record(`Reçu de dépense A (interne) — ${s.label} : clé et liste refusées`, k.error?.message === "not_authorized" && l.error?.message === "not_authorized" && !k.data && !l.data, `${errCode(k)} / ${errCode(l)}`);
+  }
+  const anonEr = await erKey(anon);
+  record("Reçu de dépense A — visiteur sans session : refusé", !!anonEr.error && !anonEr.data, errCode(anonEr));
+
   // ------------------------------------------------------------------------
   // 3. Envoyer / remplacer par le chemin applicatif : préparation refusée,
   //    opération d'autrui jamais revendiquée ni consultée.
@@ -314,6 +343,10 @@ try {
     const d = await s.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_document_id: null, p_document_type: "AUTRE", p_title: "Intrus", p_description: null, p_visibility: "TOUS", p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
     const dv = await s.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_document_id: docPrinc.id, p_document_type: null, p_title: null, p_description: null, p_visibility: null, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
     record(`Envoyer vers A — ${s.label} : photo, plan, justificatif, catalogue, document et nouvelle version refusés`, !!m.error && !!p.error && !!r.error && !!c.error && !!d.error && !!dv.error, [m, p, r, c, d, dv].map(errCode).join(" / "));
+  }
+  for (const s of [ownerA, ...strangers, anon]) {
+    const er = await s.client.rpc("prepare_expense_receipt_upload", { p_operation_uuid: randomUUID(), p_expense_id: expReceipt.expenseId, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+    record(`Envoyer un reçu sur une dépense de A — ${s.label} : refusé`, !!er.error && !er.data, errCode(er));
   }
   const ownerCat = await ownerA.client.rpc("prepare_catalog_item_upload", { p_operation_uuid: randomUUID(), p_organization_id: orgA, p_catalog_item_id: item.id, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
   record("Envoyer dans le catalogue de l'entreprise — propriétaire du chantier : refusé", !!ownerCat.error, errCode(ownerCat));
@@ -349,6 +382,15 @@ try {
   // e) Nouvelle version d'un document de A demandée depuis le chantier B.
   const forgedDoc = await contractorB.client.rpc("prepare_document_upload", { p_operation_uuid: randomUUID(), p_project_id: pidB, p_document_id: docPrinc.id, p_document_type: null, p_title: null, p_description: null, p_visibility: null, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
   record("Chemin forgé : nouvelle version d'un document de A depuis le chantier B refusée", forgedDoc.error?.message === "not_authorized", forgedDoc.error?.message);
+
+  // f) Reçu de dépense de A : préparation et clé demandées depuis le chantier B.
+  const forgedEr = await contractorB.client.rpc("prepare_expense_receipt_upload", { p_operation_uuid: randomUUID(), p_expense_id: expReceipt.expenseId, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+  const forgedErKey = await erKey(contractorB);
+  record("Chemin forgé : reçu de dépense de A demandé depuis le chantier B (envoi et clé) refusé", forgedEr.error?.message === "not_authorized" && forgedErKey.error?.message === "not_authorized", `${errCode(forgedEr)} / ${errCode(forgedErKey)}`);
+  // g) Jeton d'envoi signé émis pour B, réutilisé vers le dossier du reçu de A.
+  const erForgedPath = `${prefixOf(expReceipt.key)}/force-${randomUUID()}`;
+  const erForgedUp = await contractorB.client.storage.from("expense-receipts").uploadToSignedUrl(erForgedPath, signedB.token, PDF("intrus"), { contentType: "application/pdf", upsert: true });
+  record("Chemin forgé : jeton d'envoi du chantier B vers le dossier d'un reçu de A refusé", !!erForgedUp.error && !(await objectExists("expense-receipts", erForgedPath)), errCode(erForgedUp));
 
   // ------------------------------------------------------------------------
   // 4b. Audit (D186, M044) : les traces des fichiers privés (documents

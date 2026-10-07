@@ -1,15 +1,19 @@
 import type { ReactNode } from "react";
 import { notFound, redirect } from "next/navigation";
 import { getVerifiedUser, createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/service";
 import { AlertBanner, Card, EmptyState, StatusChip } from "@/components/ui";
 import { formatFcfa } from "@/lib/entreprise/chantierSummary";
 import { getPhaseOptions } from "@/lib/phases/phaseOptions";
 import {
+  AttachReceiptForm,
   CancelExpenseForm,
   CorrectExpenseForm,
   DecideExpenseForm,
   ExpenseDraftForm,
+  ReceiptPolicyForm,
   SubmitExpenseForm,
+  WithdrawReceiptForm,
   type ExpenseView,
 } from "./ExpenseForms";
 import { DECISION_LABEL, STATUS, categoryLabel, roleLabel } from "./labels";
@@ -20,6 +24,13 @@ import { DECISION_LABEL, STATUS, categoryLabel, roleLabel } from "./labels";
 // fonction en base refuse et la page est introuvable (aucun chiffre, aucun
 // indice). Le chef de chantier voit les dépenses et leurs totaux, jamais le
 // budget ni l'alerte de dépassement (D185, D187 H3).
+//
+// B032 (M046 ; D184 F5 C, F6 A) : reçus lus par qui voit la dépense ; l'URL
+// signée (300 s) n'est émise qu'après get_expense_receipt_file_key, qui
+// revérifie le droit à chaque affichage ; un reçu retiré reste listé, son
+// fichier est conservé mais n'est plus délivré.
+
+const RECEIPT_URL_TTL_SECONDS = 300;
 
 interface Totals {
   engaged_fcfa: number | string;
@@ -36,6 +47,20 @@ interface BudgetAlert {
   engaged_fcfa: number | string;
   over_budget: boolean;
   overrun_fcfa: number | string;
+}
+interface ReceiptRow {
+  id: string;
+  mime_type: string;
+  file_size_bytes: number;
+  attached_to_version_number: number | null;
+  created_by_role: string;
+  author_is_me: boolean;
+  created_at_server: string;
+  withdrawn: boolean;
+  withdrawn_at_server: string | null;
+  withdrawn_by_role: string | null;
+  withdraw_reason: string | null;
+  can_withdraw: boolean;
 }
 interface HistoryEntry {
   kind: string;
@@ -101,6 +126,29 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
         histories.set(r.id, (data ?? []) as HistoryEntry[]);
       })
   );
+  // Reçus de chaque dépense visible ; URL signée seulement après le contrôle en base.
+  const service = createServiceClient();
+  const receipts = new Map<string, (ReceiptRow & { url: string | null })[]>();
+  await Promise.all(
+    rows.map(async (r) => {
+      const { data } = await supabase.rpc("list_expense_receipts", { p_expense_id: r.id });
+      const items = (data ?? []) as ReceiptRow[];
+      const withUrls = await Promise.all(
+        items.map(async (rc) => {
+          if (rc.withdrawn) return { ...rc, url: null };
+          const { data: keyData } = await supabase.rpc("get_expense_receipt_file_key", { p_receipt_id: rc.id });
+          const key = Array.isArray(keyData) ? keyData[0] : keyData;
+          if (!key?.storage_key) return { ...rc, url: null };
+          const { data: signed } = await service.storage.from(key.bucket).createSignedUrl(key.storage_key, RECEIPT_URL_TTL_SECONDS);
+          return { ...rc, url: signed?.signedUrl ?? null };
+        })
+      );
+      receipts.set(r.id, withUrls);
+    })
+  );
+  const { data: policyData } = await supabase.rpc("get_expense_receipt_policy", { p_project_id: id });
+  const policy = (Array.isArray(policyData) ? policyData[0] : policyData) as { require_no_receipt_justification: boolean; revision: number; can_change: boolean } | null;
+  const justificationRequired = policy?.require_no_receipt_justification === true;
   const { options: phases } = await getPhaseOptions(supabase, id);
   const today = new Date().toISOString().slice(0, 10);
 
@@ -176,9 +224,19 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
         </p>
       </Card>
 
+      <Card className="flex flex-col gap-2" data-testid="reglage-recus">
+        <h2 className="text-h2 font-semibold text-ink">Reçus</h2>
+        <p className="text-body text-muted">
+          {justificationRequired
+            ? "Sur ce chantier, une dépense sans reçu doit être justifiée par écrit avant son envoi."
+            : "Sur ce chantier, le reçu et la justification de son absence sont facultatifs."}
+        </p>
+        {policy?.can_change ? <ReceiptPolicyForm projectId={id} required={justificationRequired} revision={policy.revision} /> : null}
+      </Card>
+
       <Card className="flex flex-col gap-3">
         <h2 className="text-h2 font-semibold text-ink">Nouvelle dépense</h2>
-        <ExpenseDraftForm projectId={id} today={today} phases={phases} />
+        <ExpenseDraftForm projectId={id} today={today} phases={phases} justificationRequired={justificationRequired} />
       </Card>
 
       {rows.length === 0 ? <EmptyState title="Aucune dépense" description="Les dépenses enregistrées sur ce chantier apparaîtront ici." /> : null}
@@ -236,9 +294,17 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
                     </p>
                   ) : null}
 
+                  {r.no_receipt_reason ? (
+                    <p className="break-words text-caption text-ink">
+                      <span className="font-semibold">Justification sans reçu : </span>
+                      {r.no_receipt_reason}
+                    </p>
+                  ) : null}
+                  <ReceiptList projectId={id} expense={r} items={receipts.get(r.id) ?? []} />
+
                   {r.can_edit_draft ? (
                     <Fold title="Modifier le brouillon">
-                      <ExpenseDraftForm projectId={id} today={today} phases={phases} expense={r} />
+                      <ExpenseDraftForm projectId={id} today={today} phases={phases} expense={r} justificationRequired={justificationRequired} />
                     </Fold>
                   ) : null}
                   {r.can_submit ? <SubmitExpenseForm projectId={id} expense={r} isContractor={isContractor} /> : null}
@@ -257,7 +323,7 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
                   ) : null}
                   {r.can_correct ? (
                     <Fold title="Corriger la dépense">
-                      <CorrectExpenseForm projectId={id} expense={r} today={today} phases={phases} />
+                      <CorrectExpenseForm projectId={id} expense={r} today={today} phases={phases} justificationRequired={justificationRequired} />
                     </Fold>
                   ) : null}
                   {r.can_cancel ? (
@@ -290,6 +356,51 @@ export default async function ExpensesPage({ params }: { params: Promise<{ id: s
             })}
           </section>
         ))}
+    </div>
+  );
+}
+
+function ReceiptList({ projectId, expense, items }: { projectId: string; expense: ExpenseView; items: (ReceiptRow & { url: string | null })[] }) {
+  const n = expense.receipt_count;
+  return (
+    <div className="flex flex-col gap-2" data-testid={`recus-${expense.id}`}>
+      <p className="text-caption font-semibold text-muted">{n === 0 ? "Aucun reçu joint" : `${n} reçu${n > 1 ? "s" : ""} joint${n > 1 ? "s" : ""}`}</p>
+      {items.length > 0 ? (
+        <ul className="flex flex-col gap-2">
+          {items.map((rc, i) => (
+            <li key={rc.id} className="flex flex-col gap-1 border-l-2 border-muted/30 pl-3" data-testid={`recu-${rc.id}`}>
+              <p className="break-words text-caption text-ink">
+                {rc.url ? (
+                  <a href={rc.url} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline">
+                    Reçu {i + 1} ({rc.mime_type === "application/pdf" ? "PDF" : "image"}, {Math.max(1, Math.round(rc.file_size_bytes / 1024))} Ko)
+                  </a>
+                ) : (
+                  <span className="font-semibold">Reçu {i + 1}</span>
+                )}
+                {" — joint par "}
+                {rc.author_is_me ? "vous" : roleLabel(rc.created_by_role)}, le {stamp(rc.created_at_server)}
+                {rc.attached_to_version_number ? ` (version ${rc.attached_to_version_number})` : " (brouillon)"}
+              </p>
+              {rc.withdrawn ? (
+                <p className="break-words text-caption text-muted">
+                  Retiré par {rc.withdrawn_by_role ? roleLabel(rc.withdrawn_by_role) : "—"}
+                  {rc.withdrawn_at_server ? `, le ${stamp(rc.withdrawn_at_server)}` : ""} — motif : {rc.withdraw_reason}. Fichier conservé, plus affiché.
+                </p>
+              ) : null}
+              {rc.can_withdraw ? (
+                <Fold title="Retirer ce reçu">
+                  <WithdrawReceiptForm projectId={projectId} receiptId={rc.id} />
+                </Fold>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {expense.can_attach_receipt ? (
+        <Fold title="Joindre un reçu" testId={`joindre-${expense.id}`}>
+          <AttachReceiptForm projectId={projectId} expense={expense} />
+        </Fold>
+      ) : null}
     </div>
   );
 }

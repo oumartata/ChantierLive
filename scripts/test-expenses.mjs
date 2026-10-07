@@ -78,10 +78,10 @@ try {
   const foreignPhase = (await service.from("project_phases").select("id").eq("project_id", otherPid).order("position").limit(1).single()).data.id;
 
   const save = (u, { id = null, rev = null, amount, date = "2026-10-05", category = "MATERIAUX", supplier = null, note = null, phaseId = null }) =>
-    u.client.rpc("save_expense_draft", { p_project_id: pid, p_expense_id: id, p_expected_revision: rev, p_amount_fcfa: amount, p_expense_date: date, p_category: category, p_supplier: supplier, p_note: note, p_phase_id: phaseId });
+    u.client.rpc("save_expense_draft", { p_project_id: pid, p_expense_id: id, p_expected_revision: rev, p_amount_fcfa: amount, p_expense_date: date, p_category: category, p_supplier: supplier, p_note: note, p_phase_id: phaseId, p_no_receipt_reason: null });
   const submit = (u, e) => u.client.rpc("submit_expense", { p_expense_id: e.id, p_expected_revision: e.revision });
   const decide = (u, e, decision, reason = null) => u.client.rpc("decide_expense", { p_expense_id: e.id, p_expected_revision: e.revision, p_decision: decision, p_reason: reason });
-  const correct = (u, e, reason, amount, extra = {}) => u.client.rpc("correct_expense", { p_expense_id: e.id, p_expected_revision: e.revision, p_reason: reason, p_amount_fcfa: amount, p_expense_date: extra.date ?? "2026-10-05", p_category: extra.category ?? "MATERIAUX", p_supplier: extra.supplier ?? null, p_note: extra.note ?? null, p_phase_id: extra.phaseId ?? null });
+  const correct = (u, e, reason, amount, extra = {}) => u.client.rpc("correct_expense", { p_expense_id: e.id, p_expected_revision: e.revision, p_reason: reason, p_amount_fcfa: amount, p_expense_date: extra.date ?? "2026-10-05", p_category: extra.category ?? "MATERIAUX", p_supplier: extra.supplier ?? null, p_note: extra.note ?? null, p_phase_id: extra.phaseId ?? null, p_no_receipt_reason: null });
   const cancel = (u, e, reason) => u.client.rpc("cancel_expense", { p_expense_id: e.id, p_expected_revision: e.revision, p_reason: reason });
   const list = (u) => u.client.rpc("list_project_expenses", { p_project_id: pid });
   const history = (u, e) => u.client.rpc("get_expense_history", { p_expense_id: e.id });
@@ -244,6 +244,22 @@ try {
   const { data: auditRows } = await service.from("audit_events").select("action").eq("project_id", pid).like("action", "EXPENSE_%");
   const actions = new Set((auditRows ?? []).map((r) => r.action));
   record("Audit : soumission, publication, approbation, refus, contestation, correction, annulation tracées", ["EXPENSE_SUBMITTED", "EXPENSE_PUBLISHED_APPROVED", "EXPENSE_APPROUVEE", "EXPENSE_REFUSEE", "EXPENSE_CONTESTEE", "EXPENSE_CORRECTED", "EXPENSE_CANCELLED"].every((a) => actions.has(a)), [...actions].join(", "));
+
+  // 8b. B034 « décision vise version exacte » : la décision porte la version présentée ;
+  //     une décision préparée sur une version remplacée entre-temps est refusée.
+  const { data: aDecisions } = await service.from("expense_decisions").select("decision, version_id").eq("expense_id", aDraft.id);
+  record("B034 : l'approbation porte exactement la version présentée (version 1)", aDecisions?.some((d) => d.decision === "APPROUVEE" && d.version_id === aSub.data.current_version_id), JSON.stringify(aDecisions));
+  const xPub = (await submit(contractor, (await save(contractor, { amount: "123000", category: "TRANSPORT" })).data)).data;
+  const xSeen = await fresh(xPub);
+  const xCorr = await correct(contractor, xSeen, "Montant rectifié", "124000", { category: "TRANSPORT" });
+  const xStaleDispute = await decide(contractor, xSeen, "CONTESTEE", "Basée sur l'ancienne version");
+  const xStaleCancel = await cancel(contractor, xSeen, "Basée sur l'ancienne version");
+  const { data: xDec1 } = await service.from("expense_decisions").select("decision").eq("expense_id", xPub.id);
+  record("B034 : décision sur une version remplacée entre-temps refusée (revision_conflict), rien d'enregistré", xStaleDispute.error?.message === "revision_conflict" && xStaleCancel.error?.message === "revision_conflict" && !xDec1.some((d) => d.decision === "CONTESTEE" || d.decision === "ANNULEE"), `${err(xStaleDispute)} / ${err(xStaleCancel)}`);
+  const xNow = await fresh(xPub);
+  const xDispute = await decide(contractor, xNow, "CONTESTEE", "Vérification de la version 2");
+  const { data: xDec2 } = await service.from("expense_decisions").select("decision, version_id").eq("expense_id", xPub.id).eq("decision", "CONTESTEE");
+  record("B034 : la décision reprise sur la version en vigueur vise la version 2", !xCorr.error && !xDispute.error && xDec2?.length === 1 && xDec2[0].version_id === xCorr.data.id, err(xDispute));
 
   // 9. Confidentialité : fonctions.
   await service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", pid).eq("profile_id", exMember.id);

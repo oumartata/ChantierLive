@@ -112,6 +112,7 @@ progress:
     - "B020 (publier, corriger et valider une étape ; M040/M041 ; « Avancement validé » distinct) : réalisée et prouvée (boucle 20 : historique par étape, état précédent -> nouvel état, rôle, date, motif, visible et en lecture seule pour l'entreprise et le propriétaire ; scripts/test-phase-history.mjs 12/12, scripts/test-phase-validation.mjs 56/56), validation du fondateur attendue ; hors compteur tant que non validée"
     - "B030 (budget prévisionnel interne, M043 ; fuite d'audit fermée par M044, D186) : réalisée (boucle 23c, scripts/test-internal-budget.mjs 30/30, test-file-cross-access 271/271), validation du fondateur attendue ; hors compteur tant que non validée"
     - "B031 (dépenses internes, avec les décisions de B034 et les contre-écritures de B035 ; M045 ; D187 H1-H5) : réalisée (boucle 24b, scripts/test-expenses.mjs 65/65, écran /chantiers/:id/depenses), validation du fondateur attendue ; hors compteur tant que non validée ; reçus : lot suivant"
+    - "B032 (reçus des dépenses internes ; M046, corrective M046b ; D188) : réalisée (boucle 25b, scripts/test-expense-receipts.mjs 50/50, test-file-cross-access 321/321 étendu à expense-receipts), validation du fondateur attendue ; hors compteur tant que non validée. B034 et B035 réalisées avec M045 (boucle 24b ; test B034 « version exacte » ajouté en 25b), validation du fondateur attendue"
   next_action: "Au 2026-10-06 (pilotage par boucles, PASSATION_CLAUDE_CHAT.md §3 et §8) : 1) D1 faite le 2026-10-07 (sauvegarde F: et push du fondateur jusqu'à 47201d4 ; commits suivants locaux, voir working_branch) ; 2) compléments ESPACES-5 sans migration (menu « Versements clients » vers la présentation entreprise, historique en lecture seule) ; 3) premier lot du backlog choisi en D3 ; 4) proposition ESPACES-4 / B030–B032 sans migration appliquée (D4). Historique : la validation navigateur du lot Avancement (M033) a été faite le 2026-10-04 (PREPARATION_AVANCEMENT_TRAVAUX.md §7) ; écart de droits du brouillon (PHASE_CREATE/PHASE_PUBLISH/PHASE_EDIT_DRAFT, conception plus large que M033) toujours ouvert, restriction à l'entreprise conservée. Aucun push, fusion ni migration distante sans accord explicite du fondateur."
   backlog_revision_2026_09_24:
     status: "APPROUVÉ, appliqué à MVP_BACKLOG.csv et commité pour cohérence documentaire (commit 7d7f918) — 68 tâches, D083-D094 VALIDATED (D093 restait une proposition technique, non validée par l'approbation du backlog (historique ; validée depuis le 2026-09-26, voir DECISIONS.yaml))"
@@ -150,11 +151,11 @@ progress:
       remote_branch: "aucune"
       note: "contenu non examiné ; à traiter dans la décision D1"
   local_migrations:
-    applied: "M001 à M045, 62 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
-    last_applied: "20261008120000_m045_expenses.sql"
-    recent: ["M043 20261008100000_m043_internal_budget.sql", "M044 20261008110000_m044_audit_owner_read_closed.sql", "M045 20261008120000_m045_expenses.sql"]
-    local_only: "M029–M045 locales uniquement, jamais déployées"
-    next_migration_id: "M046"
+    applied: "M001 à M046b, 64 fichiers dans supabase/migrations, tous appliqués sur l'instance locale (npx supabase migration list --local, 2026-10-07)"
+    last_applied: "20261008133000_m046b_list_expense_receipts_fix.sql"
+    recent: ["M045 20261008120000_m045_expenses.sql", "M046 20261008130000_m046_expense_receipts.sql", "M046b 20261008133000_m046b_list_expense_receipts_fix.sql"]
+    local_only: "M029–M046b locales uniquement, jamais déployées"
+    next_migration_id: "M047"
   pending_decisions:
     - id: "D1"
       subject: "Sauvegarde distante des commits locaux de claude/plans-generator (et sort des branches claude/b014-geoloc-tranche1 et claude/ux-demo-fixes) et des migrations M029–M037"
