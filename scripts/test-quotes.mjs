@@ -13,6 +13,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { callWhileLocked } from "./lib/real-lock.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -62,19 +63,11 @@ function psql(sql) {
     proc.stdin.end();
   });
 }
-const holdAdvisory = (projectId, seconds) =>
-  psql(`begin;\nselect pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint);\nselect pg_sleep(${seconds});\ncommit;\n`);
+// Boucle 33 : verrou réel tenu jusqu'à la relâche, attente CONSTATÉE en base
+// (scripts/lib/real-lock.mjs) ; plus de délai fixe. Durée minimale tenue :
+// 3 s (les contrôles exigent toujours >= 2,5 s).
 async function callDuringRealWait(projectId, rpcCall, mutateDuringWait) {
-  const blocker = holdAdvisory(projectId, 4);
-  await sleep(700);
-  const start = Date.now();
-  const pending = rpcCall().then((r) => r);
-  await sleep(1000);
-  await mutateDuringWait();
-  const res = await pending;
-  const elapsed = Date.now() - start;
-  await blocker;
-  return { res, elapsed };
+  return callWhileLocked({ lockSql: `select pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint)`, call: rpcCall, duringWait: mutateDuringWait, minElapsedMs: 3000 });
 }
 
 async function must(res, what) {
@@ -260,7 +253,7 @@ async function main() {
     () => setVerified(owner.id, false));
   await setVerified(owner.id, true);
   record("11. Compte provisoire pendant l'attente — décision refusée, version toujours PROPOSED",
-    w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await versionRow(e4.id)).status === "PROPOSED", `${w1.elapsed}ms ${err(w1.res)}`);
+    w1.waited && w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await versionRow(e4.id)).status === "PROPOSED", `${w1.elapsed}ms ${err(w1.res)}`);
 
   // 12. Échec d'audit -> décision, montant et révision annulés.
   const revAudit = await rev(owner.client, pid);
@@ -342,7 +335,7 @@ create trigger b065_fail_audit before insert on public.audit_events for each row
     async () => { await must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("id", membership.id), "revoke"); });
   const countO = (await service.from("quote_versions").select("id").eq("project_id", otherPid)).data.length;
   record("15. Adhésion révoquée pendant l'attente — estimation refusée, aucune version créée",
-    w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && countO === 1, `${w2.elapsed}ms ${err(w2.res)}`);
+    w2.waited && w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && countO === 1, `${w2.elapsed}ms ${err(w2.res)}`);
 
   const passed = results.filter(Boolean).length;
   console.log(`\n${passed}/${results.length} tests réussis.`);

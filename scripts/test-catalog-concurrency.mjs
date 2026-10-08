@@ -16,7 +16,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
-import { spawn } from "node:child_process";
+import { callWhileLocked } from "./lib/real-lock.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -104,25 +104,9 @@ async function depositVersion(ownerClient, organizationId, catalogItemId, bytes)
   return { version, operationUuid };
 }
 
-// Tient un verrou FOR UPDATE réel sur une ligne, depuis une connexion psql
-// SÉPARÉE (docker exec — même mécanisme que l'application des migrations
-// dans cette session), pendant holdSeconds, puis COMMIT (relâche le verrou).
-// Retourne une promesse résolue quand la connexion se termine (verrou relâché).
-function holdLock(table, id, holdSeconds) {
-  const sql = `begin;\nselect * from public.${table} where id = '${id}' for update;\nselect pg_sleep(${holdSeconds});\ncommit;\n`;
-  return new Promise((resolve, reject) => {
-    const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-U", "postgres", "-d", "postgres"], { stdio: ["pipe", "pipe", "pipe"] });
-    let stderr = "";
-    proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`holdLock(${table},${id}) exit ${code}: ${stderr}`))));
-    proc.stdin.write(sql);
-    proc.stdin.end();
-  });
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
+// Verrous réels : scripts/lib/real-lock.mjs (boucle 33) — verrou FOR UPDATE
+// tenu par une connexion psql SÉPARÉE jusqu'à la relâche, attente de l'appel
+// constatée en base (pg_blocking_pids), aucun délai fixe.
 
 async function main() {
   const owner = await createTestUser("owner");
@@ -152,20 +136,25 @@ async function main() {
     p_actual_checksum: checksumOf(writtenBytes1), p_actual_size_bytes: writtenBytes1.length, p_actual_mime_type: "application/pdf",
   });
   if (attest1Err) throw new Error(`attest1: ${attest1Err.message}`);
-  // Fenêtre d'expiration COURTE et réelle : 2 secondes.
-  const { error: shortWindowErr } = await service.from("private_object_uploads").update({ attempt_expires_at: new Date(Date.now() + 2000).toISOString() }).eq("operation_uuid", opUuid1);
-  if (shortWindowErr) throw new Error(`shortWindow: ${shortWindowErr.message}`);
-
-  const blocker1 = holdLock("organizations", org1, 5).catch((e) => { throw e; });
-  await sleep(700); // laisse le blocker acquérir réellement son verrou avant l'appel bloqué.
-  const t1Start = Date.now();
-  const { error: finErr1 } = await owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: opUuid1 });
-  const t1Elapsed = Date.now() - t1Start;
-  await blocker1;
+  // Boucle 33 : verrou réel tenu jusqu'à la relâche (scripts/lib/real-lock.mjs) ;
+  // la fenêtre d'expiration COURTE et réelle (2 secondes) est posée une fois le
+  // verrou RÉELLEMENT obtenu ; l'attente de finalize est constatée en base ;
+  // verrou tenu au moins 4 s (le contrôle exige toujours >= 3,5 s).
+  const w1 = await callWhileLocked({
+    lockSql: `select * from public.organizations where id = '${org1}' for update`,
+    beforeCall: async () => {
+      const { error: shortWindowErr } = await service.from("private_object_uploads").update({ attempt_expires_at: new Date(Date.now() + 2000).toISOString() }).eq("operation_uuid", opUuid1);
+      if (shortWindowErr) throw new Error(`shortWindow: ${shortWindowErr.message}`);
+    },
+    call: () => owner.client.rpc("finalize_catalog_item_upload", { p_operation_uuid: opUuid1 }),
+    minElapsedMs: 4000,
+  });
+  const finErr1 = w1.res.error;
+  const t1Elapsed = w1.elapsed;
   record(
     "Attente réelle (organizations, ~5s) — finalize bloque RÉELLEMENT (>= 3.5s), pas un succès immédiat",
-    t1Elapsed >= 3500,
-    `${t1Elapsed}ms`
+    w1.waited && t1Elapsed >= 3500,
+    `attente ${w1.waited ? "constatée" : "NON constatée"}, ${t1Elapsed}ms`
   );
   record(
     "Expiration pendant l'attente réelle — finalize refuse attempt_expired (fenêtre de 2s dépassée pendant les ~5s de blocage)",
@@ -189,21 +178,24 @@ async function main() {
   const { data: submission2, error: sub2Err } = await owner.client.rpc("submit_catalog_item_version_for_validation", { p_version_id: v2.id, p_designation_id: designation2Id });
   if (sub2Err) throw new Error(`sub2: ${sub2Err.message}`);
 
-  const blocker2 = holdLock("plan_engineer_designations", designation2Id, 4).catch((e) => { throw e; });
-  await sleep(700);
-  // Mutation RÉELLE d'une ligne DIFFÉRENTE (profile_identifiers), PENDANT le blocage.
-  await sleep(600);
-  const { error: unverify2Err } = await service.from("profile_identifiers").update({ verified_at_server: null }).eq("profile_id", engineer2.id).eq("kind", "EMAIL");
-  if (unverify2Err) throw new Error(`unverify2: ${unverify2Err.message}`);
-
-  const t2Start = Date.now();
-  const { error: decideErr2 } = await engineer2.client.rpc("decide_catalog_item_validation", { p_validation_id: submission2.id, p_decision: "VALIDATED", p_note: null });
-  const t2Elapsed = Date.now() - t2Start;
-  await blocker2;
+  // Verrou réel (boucle 33) ; mutation RÉELLE d'une ligne DIFFÉRENTE
+  // (profile_identifiers) PENDANT le blocage, avant l'appel ; attente
+  // constatée ; verrou tenu au moins 3 s (le contrôle exige toujours >= 2,5 s).
+  const w2 = await callWhileLocked({
+    lockSql: `select * from public.plan_engineer_designations where id = '${designation2Id}' for update`,
+    beforeCall: async () => {
+      const { error: unverify2Err } = await service.from("profile_identifiers").update({ verified_at_server: null }).eq("profile_id", engineer2.id).eq("kind", "EMAIL");
+      if (unverify2Err) throw new Error(`unverify2: ${unverify2Err.message}`);
+    },
+    call: () => engineer2.client.rpc("decide_catalog_item_validation", { p_validation_id: submission2.id, p_decision: "VALIDATED", p_note: null }),
+    minElapsedMs: 3000,
+  });
+  const decideErr2 = w2.res.error;
+  const t2Elapsed = w2.elapsed;
   record(
     "Attente réelle (désignation, ~4s) — decide bloque RÉELLEMENT (>= 2.5s)",
-    t2Elapsed >= 2500,
-    `${t2Elapsed}ms`
+    w2.waited && t2Elapsed >= 2500,
+    `attente ${w2.waited ? "constatée" : "NON constatée"}, ${t2Elapsed}ms`
   );
   record(
     "Perte de vérification PENDANT l'attente réelle — decide refuse account_provisional (compte devenu provisoire alors que decide attendait le verrou)",
@@ -229,20 +221,22 @@ async function main() {
   const { data: submission3, error: sub3Err } = await owner.client.rpc("submit_catalog_item_version_for_validation", { p_version_id: v3.id, p_designation_id: designation3Id });
   if (sub3Err) throw new Error(`sub3: ${sub3Err.message}`);
 
-  const blocker3 = holdLock("plan_engineer_designations", designation3Id, 4).catch((e) => { throw e; });
-  await sleep(700);
-  await sleep(600);
-  const { error: unverify3Err } = await service.from("profile_identifiers").update({ verified_at_server: null }).eq("profile_id", engineer3.id).eq("kind", "EMAIL");
-  if (unverify3Err) throw new Error(`unverify3: ${unverify3Err.message}`);
-
-  const t3Start = Date.now();
-  const { data: fileKey3, error: fileKeyErr3 } = await engineer3.client.rpc("get_catalog_item_validation_file_key", { p_validation_id: submission3.id });
-  const t3Elapsed = Date.now() - t3Start;
-  await blocker3;
+  const w3 = await callWhileLocked({
+    lockSql: `select * from public.plan_engineer_designations where id = '${designation3Id}' for update`,
+    beforeCall: async () => {
+      const { error: unverify3Err } = await service.from("profile_identifiers").update({ verified_at_server: null }).eq("profile_id", engineer3.id).eq("kind", "EMAIL");
+      if (unverify3Err) throw new Error(`unverify3: ${unverify3Err.message}`);
+    },
+    call: () => engineer3.client.rpc("get_catalog_item_validation_file_key", { p_validation_id: submission3.id }),
+    minElapsedMs: 3000,
+  });
+  const fileKey3 = w3.res.data;
+  const fileKeyErr3 = w3.res.error;
+  const t3Elapsed = w3.elapsed;
   record(
     "Attente réelle (désignation, ~4s) — get_catalog_item_validation_file_key bloque RÉELLEMENT (>= 2.5s)",
-    t3Elapsed >= 2500,
-    `${t3Elapsed}ms`
+    w3.waited && t3Elapsed >= 2500,
+    `attente ${w3.waited ? "constatée" : "NON constatée"}, ${t3Elapsed}ms`
   );
   record(
     "Perte de vérification PENDANT l'attente réelle — accès fichier refusé account_provisional",

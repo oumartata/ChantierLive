@@ -15,6 +15,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { callWhileLocked } from "./lib/real-lock.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -58,17 +59,6 @@ async function setVerified(profileId, verified) {
   if (error) throw new Error(`setVerified: ${error.message}`);
 }
 
-function holdLock(lockSql, holdSeconds) {
-  const sql = `begin;\n${lockSql};\nselect pg_sleep(${holdSeconds});\ncommit;\n`;
-  return new Promise((resolve, reject) => {
-    const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"], { stdio: ["pipe", "pipe", "pipe"] });
-    let stderr = "";
-    proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`holdLock exit ${code}: ${stderr}`))));
-    proc.stdin.write(sql);
-    proc.stdin.end();
-  });
-}
 // Exécute du SQL de test (création/suppression d'un déclencheur d'échec) sur
 // la base locale, par une connexion psql séparée.
 function runSql(sql) {
@@ -86,17 +76,11 @@ const advisoryLockSql = (projectId) => `select pg_advisory_xact_lock(hashtext('i
 
 // L'appel est ENVOYÉ (then) pendant qu'une autre connexion tient le verrou ;
 // la mutation concurrente n'intervient qu'ensuite, pendant l'attente.
+// Boucle 33 : verrou réel tenu jusqu'à la relâche, attente CONSTATÉE en base
+// (scripts/lib/real-lock.mjs) ; plus de délai fixe. Durée minimale tenue :
+// 3 s (les contrôles exigent toujours >= 2,5 s).
 async function callDuringRealWait(lockSql, rpcCall, mutateDuringWait) {
-  const blocker = holdLock(lockSql, 4);
-  await sleep(700);
-  const start = Date.now();
-  const pending = rpcCall().then((r) => r);
-  await sleep(1000);
-  await mutateDuringWait();
-  const res = await pending;
-  const elapsed = Date.now() - start;
-  await blocker;
-  return { res, elapsed };
+  return callWhileLocked({ lockSql, call: rpcCall, duringWait: mutateDuringWait, minElapsedMs: 3000 });
 }
 
 async function createDraftProject(client, role, label) {
@@ -307,7 +291,7 @@ async function main() {
     () => setVerified(engineer.id, false));
   await setVerified(engineer.id, true);
   record("6. Compte provisoire pendant l'attente — decide refusé account_provisional, demande toujours PENDING",
-    w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await validation(valOwner.id)).status === "PENDING", `${w1.elapsed}ms ${err(w1.res)}`);
+    w1.waited && w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await validation(valOwner.id)).status === "PENDING", `${w1.elapsed}ms ${err(w1.res)}`);
 
   const w2 = await callDuringRealWait(advisoryLockSql(pid),
     () => engineer.client.rpc("decide_plan_validation", { p_validation_id: valOwner.id, p_decision: "VALIDATED", p_note: null }),
@@ -316,7 +300,7 @@ async function main() {
       if (error) throw new Error(`revoke: ${error.message}`);
     });
   record("6. Révocation pendant l'attente — decide refusé not_authorized, demande toujours PENDING",
-    w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && (await validation(valOwner.id)).status === "PENDING", `${w2.elapsed}ms ${err(w2.res)}`);
+    w2.waited && w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && (await validation(valOwner.id)).status === "PENDING", `${w2.elapsed}ms ${err(w2.res)}`);
 
   const engFileAfterRevoke = await engineer.client.rpc("get_plan_validation_file", { p_validation_id: validatedContractor.id });
   record("6. Révocation — l'ingénieur perd l'accès au fichier (D097)", engFileAfterRevoke.error?.message === "not_authorized", err(engFileAfterRevoke));
@@ -336,7 +320,7 @@ async function main() {
   await setVerified(contractor.id, true);
   const rowsAfterWait = (await service.from("plan_validations").select("id").eq("project_plan_version_id", vOwner.id)).data.length;
   record("6. Attente réelle sur l'ancienne désignation, compte devenu provisoire — resoumission refusée, ancienne demande PENDING, aucune nouvelle",
-    w5.elapsed >= 2500 && w5.res.error?.message === "account_provisional" && (await validation(valOwner.id)).status === "PENDING" && rowsAfterWait === rowsBeforeWait,
+    w5.waited && w5.elapsed >= 2500 && w5.res.error?.message === "account_provisional" && (await validation(valOwner.id)).status === "PENDING" && rowsAfterWait === rowsBeforeWait,
     `${w5.elapsed}ms ${err(w5.res)}`);
   const historyWithDesignation = await contractor.client.rpc("list_project_plan_validations", { p_project_id: pid });
   record("6. Liste — la demande orpheline est signalée avec une désignation inactive (designation_active = false)",
@@ -367,7 +351,7 @@ async function main() {
     () => setVerified(contractor.id, false));
   await setVerified(contractor.id, true);
   record("7. Compte provisoire pendant l'attente — publication refusée, aucun pointeur ni journal",
-    w4.elapsed >= 2500 && w4.res.error?.message === "account_provisional" && (await project(pid)).published_plan_version_id === null && (await publications(pid)).length === 0, `${w4.elapsed}ms ${err(w4.res)}`);
+    w4.waited && w4.elapsed >= 2500 && w4.res.error?.message === "account_provisional" && (await project(pid)).published_plan_version_id === null && (await publications(pid)).length === 0, `${w4.elapsed}ms ${err(w4.res)}`);
 
   const ok1 = await publish(contractor.client, pid, vContractor.id);
   const pubs1 = await publications(pid);

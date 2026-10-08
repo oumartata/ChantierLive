@@ -13,6 +13,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { callWhileLocked, gateKeyOf, openGate, openLock, waitForBlockedBy } from "./lib/real-lock.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -64,19 +65,56 @@ function psql(sql) {
 }
 // Exécute un SQL privilégié et renvoie le message d'erreur (chaîne vide si succès).
 const psqlError = (sql) => psql(sql).then(() => "", (e) => e.message);
-const holdAdvisory = (projectId, seconds) =>
-  psql(`begin;\nselect pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint);\nselect pg_sleep(${seconds});\ncommit;\n`);
+// Boucle 33 : verrous réels sans délai fixe (scripts/lib/real-lock.mjs).
+const advisoryLockSql = (projectId) => `select pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint)`;
+// Verrou tenu jusqu'à la relâche ; attente constatée ; au moins 3 s (le contrôle exige >= 2 s).
 async function callDuringRealWait(projectId, rpcCall, mutateDuringWait) {
-  const blocker = holdAdvisory(projectId, 4);
-  await sleep(700);
-  const start = Date.now();
-  const pending = rpcCall().then((r) => r);
-  await sleep(1000);
-  await mutateDuringWait();
-  const res = await pending;
-  const elapsed = Date.now() - start;
-  await blocker;
-  return { res, elapsed };
+  return callWhileLocked({ lockSql: advisoryLockSql(projectId), call: rpcCall, duringWait: mutateDuringWait, minElapsedMs: 3000 });
+}
+// Plusieurs appels lancés pendant que le verrou est tenu : on constate que
+// TOUS l'attendent réellement avant de le relâcher.
+async function callsWhileLocked(projectId, calls) {
+  const lock = openLock(advisoryLockSql(projectId));
+  try {
+    const pid = await lock.locked;
+    if (process.env.REAL_LOCK_SABOTAGE === "1") await lock.release();
+    const pending = [];
+    for (const call of calls) {
+      pending.push(Promise.resolve(call()).then((r) => r));
+      if (process.env.REAL_LOCK_SABOTAGE !== "1") await waitForBlockedBy(pid, pending.length);
+    }
+    const waited = process.env.REAL_LOCK_SABOTAGE === "1" ? 0 : (await waitForBlockedBy(pid, calls.length)).length;
+    await lock.release();
+    return { results: await Promise.all(pending), waited };
+  } finally {
+    await lock.release().catch(() => {});
+  }
+}
+// Rivale arrêtée à une PORTE (verrou consultatif tenu par le test) au lieu
+// d'un pg_sleep : la rivale est constatée à la porte, l'appel testé est
+// constaté bloqué par la rivale, la durée minimale est tenue, puis la porte
+// est relâchée (la rivale valide ou échoue selon le déclencheur).
+async function withRivalAtGate(name, { install, startRival, startCall, duringWait, minElapsedMs }) {
+  const key = gateKeyOf(`${name}-${randomUUID()}`);
+  const gate = openGate(key);
+  try {
+    const gatePid = await gate.locked;
+    await install(key);
+    if (gate.sabotage) await gate.release();
+    const pRival = Promise.resolve(startRival()).then((r) => r);
+    const rivalPid = gate.sabotage ? null : ((await waitForBlockedBy(gatePid, 1))[0] ?? null);
+    const t0 = Date.now();
+    const pCall = Promise.resolve(startCall()).then((r) => r);
+    const waited = rivalPid !== null && (await waitForBlockedBy(rivalPid, 1)).length >= 1;
+    if (duringWait) await duringWait();
+    while (!gate.sabotage && Date.now() - t0 < minElapsedMs) await sleep(50);
+    await gate.release();
+    const rCall = await pCall;
+    const elapsed = Date.now() - t0;
+    return { rRival: await pRival, rCall, elapsed, waited };
+  } finally {
+    await gate.release().catch(() => {});
+  }
 }
 
 async function must(res, what) {
@@ -164,13 +202,14 @@ async function readyProject(tag, extra) {
   if (c.error) throw new Error(`confirm: ${c.error.message}`);
   return { ...P, advanceId: d.row.advance_id };
 }
-// Retarde (ou fait échouer) l'audit d'une action sur un chantier donné :
-// la transaction reste ouverte, ses écritures non validées.
-const installDelayOn = (name, table, cond, seconds, fail = false) =>
-  psql(`create or replace function public.${name}() returns trigger language plpgsql as $f$ begin if ${cond} then perform pg_sleep(${seconds}); ${fail ? "raise exception 'forced_failure';" : ""} end if; return new; end $f$;
+// Arrête (puis éventuellement fait échouer) une transaction à une PORTE
+// tenue par le test (boucle 33 : verrou consultatif, plus de pg_sleep) :
+// la transaction reste ouverte, ses écritures non validées, jusqu'à la relâche.
+const installGateOn = (name, table, cond, gateKey, fail = false) =>
+  psql(`create or replace function public.${name}() returns trigger language plpgsql as $f$ begin if ${cond} then perform pg_advisory_xact_lock(${Number(gateKey)}); ${fail ? "raise exception 'forced_failure';" : ""} end if; return new; end $f$;
 create trigger ${name} after insert on public.${table} for each row execute function public.${name}();\n`);
-const installDelay = (name, action, pid, seconds, fail = false) =>
-  installDelayOn(name, "audit_events", `new.action = '${action}' and new.project_id = '${pid}'`, seconds, fail);
+const installGate = (name, action, pid, gateKey, fail = false) =>
+  installGateOn(name, "audit_events", `new.action = '${action}' and new.project_id = '${pid}'`, gateKey, fail);
 const dropDelay = (name, table = "audit_events") => psql(`drop trigger if exists ${name} on public.${table}; drop function if exists public.${name}();\n`);
 
 async function main() {
@@ -221,7 +260,8 @@ async function main() {
   // 3. Échec d'audit forcé : rollback complet, puis même opération réussie avec le numéro suivant.
   const before3 = await footprint(pid);
   const op3 = randomUUID();
-  await installDelay("b067_fail_audit", "WORK_START_AUTHORIZE", pid, 0, true);
+  // Porte que personne ne tient : obtenue aussitôt, puis échec forcé (comme pg_sleep(0)).
+  await installGate("b067_fail_audit", "WORK_START_AUTHORIZE", pid, gateKeyOf("b067_fail_audit-libre"), true);
   let fail3;
   try { fail3 = await authorize(contractor.client, pid, await rev(pid), op3); } finally { await dropDelay("b067_fail_audit"); }
   const after3 = await footprint(pid);
@@ -322,18 +362,16 @@ async function main() {
   const f10 = await footprint(R.pid);
   const w10 = await callDuringRealWait(R.pid, () => authorize(R.contractor.client, R.pid, f10.ledger.revision), () => revoke(R.pid, R.contractor.id));
   record("10. Adhésion révoquée pendant l'attente (≥ 2 s) — not_authorized, aucune écriture",
-    w10.res.error?.message === "not_authorized" && w10.elapsed >= 2000 && noTrace(await footprint(R.pid)), `${err(w10.res)} ${w10.elapsed} ms`);
+    w10.waited && w10.res.error?.message === "not_authorized" && w10.elapsed >= 2000 && noTrace(await footprint(R.pid)), `attente ${w10.waited ? "constatée" : "NON constatée"}, ${err(w10.res)} ${w10.elapsed} ms`);
 
   // 11. Deux autorisations parallèles sur le même chantier (UUID distincts).
   const Q = await readyProject("parallel");
   const r11 = await ledger(Q.pid);
-  const blocker = holdAdvisory(Q.pid, 3);
-  await sleep(700);
-  const [a11, b11] = await Promise.all([authorize(Q.contractor.client, Q.pid, r11.revision), authorize(Q.contractor.client, Q.pid, r11.revision)]);
-  await blocker;
+  const c11 = await callsWhileLocked(Q.pid, [() => authorize(Q.contractor.client, Q.pid, r11.revision), () => authorize(Q.contractor.client, Q.pid, r11.revision)]);
+  const [a11, b11] = c11.results;
   const codes11 = [a11.error?.message ?? "OK", b11.error?.message ?? "OK"].sort();
   record("11. Deux autorisations concurrentes — un succès, un refus, un seul figement, séquence contiguë",
-    (same(codes11, ["OK", "work_start_already_authorized"]) || same(codes11, ["OK", "advance_conflict"])) && (await frozenEvents(Q.pid)).length === 1 && contiguous(await seqs(Q.pid)), JSON.stringify(codes11));
+    c11.waited === 2 && (same(codes11, ["OK", "work_start_already_authorized"]) || same(codes11, ["OK", "advance_conflict"])) && (await frozenEvents(Q.pid)).length === 1 && contiguous(await seqs(Q.pid)), `${c11.waited}/2 en attente constatée, ${JSON.stringify(codes11)}`);
 
   // 12. Même operation_uuid sur deux chantiers concurrents — collision sur
   // work_start_authorizations pendant que la rivale n'est pas validée.
@@ -341,19 +379,22 @@ async function main() {
   const C = await readyProject("collide-c");
   const U = randomUUID();
   const fC = await footprint(C.pid);
-  await installDelay("b067_delay_b", "WORK_START_AUTHORIZE", B.pid, 3);
-  let rB, rC;
+  let rB, rC, w12;
   try {
-    const pB = authorize(B.contractor.client, B.pid, await rev(B.pid), U).then((r) => r);
-    await sleep(1000);
-    const t12 = Date.now();
-    rC = await authorize(C.contractor.client, C.pid, fC.ledger.revision, U);
-    rC.elapsed = Date.now() - t12;
-    rB = await pB;
+    const revB = await rev(B.pid);
+    w12 = await withRivalAtGate("b067_delay_b", {
+      install: (k) => installGate("b067_delay_b", "WORK_START_AUTHORIZE", B.pid, k),
+      startRival: () => authorize(B.contractor.client, B.pid, revB, U),
+      startCall: () => authorize(C.contractor.client, C.pid, fC.ledger.revision, U),
+      minElapsedMs: 2000,
+    });
+    rB = w12.rRival;
+    rC = w12.rCall;
+    rC.elapsed = w12.elapsed;
   } finally { await dropDelay("b067_delay_b"); }
   const fC2 = await footprint(C.pid);
   record("12. Même UUID, deux chantiers concurrents — un succès, l'autre operation_conflict (pas d'erreur d'unicité brute)",
-    !rB.error && rC.error?.message === "operation_conflict" && rC.elapsed >= 1500, `${err(rB)} / ${err(rC)} (attente ${rC.elapsed} ms sur l'insertion rivale non validée)`);
+    w12.waited && !rB.error && rC.error?.message === "operation_conflict" && rC.elapsed >= 1500, `${err(rB)} / ${err(rC)} (attente ${w12.waited ? "constatée" : "NON constatée"}, ${rC.elapsed} ms sur l'insertion rivale non validée)`);
   record("12. Transaction perdante sans aucune mutation (compteur, révision, événement, autorisation, audit)",
     noTrace(fC2) && same(fC2.seqs, fC.seqs) && fC2.ledger.revision === fC.ledger.revision, JSON.stringify(fC2.seqs));
   const replayB = await authorize(B.contractor.client, B.pid, 0, U);
@@ -362,32 +403,41 @@ async function main() {
   // 13. Rivale annulée : la seconde s'insère normalement.
   const D = await readyProject("collide-d");
   const U2 = randomUUID();
-  await installDelay("b067_fail_d", "WORK_START_AUTHORIZE", D.pid, 3, true);
-  let rD, rC2;
+  let rD, rC2, w13;
   try {
-    const pD = authorize(D.contractor.client, D.pid, await rev(D.pid), U2).then((r) => r);
-    await sleep(1000);
-    rC2 = await authorize(C.contractor.client, C.pid, await rev(C.pid), U2);
-    rD = await pD;
+    const revD = await rev(D.pid);
+    const revC = await rev(C.pid);
+    w13 = await withRivalAtGate("b067_fail_d", {
+      install: (k) => installGate("b067_fail_d", "WORK_START_AUTHORIZE", D.pid, k, true),
+      startRival: () => authorize(D.contractor.client, D.pid, revD, U2),
+      startCall: () => authorize(C.contractor.client, C.pid, revC, U2),
+      minElapsedMs: 0,
+    });
+    rD = w13.rRival;
+    rC2 = w13.rCall;
   } finally { await dropDelay("b067_fail_d"); }
   record("13. Rivale annulée (échec forcé) — l'autre chantier réussit avec le même UUID, la rivale sans trace",
-    rD.error?.message === "forced_failure" && !rC2.error && (await wsRow(C.pid))?.operation_uuid === U2 && noTrace(await footprint(D.pid)), `${err(rD)} / ${err(rC2)}`);
+    w13.waited && rD.error?.message === "forced_failure" && !rC2.error && (await wsRow(C.pid))?.operation_uuid === U2 && noTrace(await footprint(D.pid)), `attente ${w13.waited ? "constatée" : "NON constatée"}, ${err(rD)} / ${err(rC2)}`);
 
   // 14. Collision avec une commande d'acompte concurrente (table d'opérations).
   const U3 = randomUUID();
   const fD = await footprint(D.pid);
   // Retard APRÈS l'insertion de l'opération de la déclaration (non validée).
-  await installDelayOn("b067_delay_decl", "advance_operations", `new.operation_uuid = '${U3}'`, 3);
-  let rDecl, rD2;
+  let rDecl, rD2, w14;
   try {
-    const pDecl = declare(B.owner.client, B.pid, "5000", await rev(B.pid), U3).then((r) => r);
-    await sleep(1000);
-    rD2 = await authorize(D.contractor.client, D.pid, fD.ledger.revision, U3);
-    rDecl = await pDecl;
+    const revB14 = await rev(B.pid);
+    w14 = await withRivalAtGate("b067_delay_decl", {
+      install: (k) => installGateOn("b067_delay_decl", "advance_operations", `new.operation_uuid = '${U3}'`, k),
+      startRival: () => declare(B.owner.client, B.pid, "5000", revB14, U3),
+      startCall: () => authorize(D.contractor.client, D.pid, fD.ledger.revision, U3),
+      minElapsedMs: 0,
+    });
+    rDecl = w14.rRival;
+    rD2 = w14.rCall;
   } finally { await dropDelay("b067_delay_decl", "advance_operations"); }
   const fD2 = await footprint(D.pid);
   record("14. UUID pris par une déclaration concurrente — operation_conflict, autorisation annulée sans trace",
-    !rDecl.error && rD2.error?.message === "operation_conflict" && noTrace(fD2) && same(fD2.seqs, fD.seqs) && fD2.ledger.revision === fD.ledger.revision, `${err(rDecl)} / ${err(rD2)}`);
+    w14.waited && !rDecl.error && rD2.error?.message === "operation_conflict" && noTrace(fD2) && same(fD2.seqs, fD.seqs) && fD2.ledger.revision === fD.ledger.revision, `attente ${w14.waited ? "constatée" : "NON constatée"}, ${err(rDecl)} / ${err(rD2)}`);
 
   // 15. Divergence de plan (D135).
   const V = await readyProject("divergence");
@@ -413,53 +463,51 @@ async function main() {
   // 16. Contestation concurrente de l'autorisation : résultat cohérent quel que soit l'ordre.
   const X = await readyProject("race-dispute");
   const r16 = await rev(X.pid);
-  const blk = holdAdvisory(X.pid, 3);
-  await sleep(700);
-  const pDisp = dispute(X.contractor.client, X.advanceId, r16).then((r) => r);
-  await sleep(300);
-  const pAuth = authorize(X.contractor.client, X.pid, r16).then((r) => r);
-  const [x1, x2] = [await pDisp, await pAuth];
-  await blk;
+  const c16 = await callsWhileLocked(X.pid, [() => dispute(X.contractor.client, X.advanceId, r16), () => authorize(X.contractor.client, X.pid, r16)]);
+  const [x1, x2] = c16.results;
   const wsX = await wsRow(X.pid);
   const evX = (await service.from("advance_events").select("kind, event_seq").eq("project_id", X.pid).order("event_seq")).data;
   const coherent = wsX
     ? Number(wsX.advance_recognized_fcfa) >= Number(wsX.advance_required_fcfa)
     : x2.error?.message === "advance_not_fully_recognized" || x2.error?.message === "advance_conflict";
   record("16. Contestation et autorisation concurrentes — état cohérent (jamais d'autorisation sous une avance non reconnue)",
-    coherent && contiguous(evX.map((e) => Number(e.event_seq))), `${err(x1)} / ${err(x2)} / ${evX.map((e) => e.kind).join(",")}`);
+    c16.waited === 2 && coherent && contiguous(evX.map((e) => Number(e.event_seq))), `${c16.waited}/2 en attente constatée, ${err(x1)} / ${err(x2)} / ${evX.map((e) => e.kind).join(",")}`);
 
   // 17-18. Rivale tenant le même UUID, B067 réellement bloqué, compte devenu
   // provisoire pendant l'attente, puis rollback de la rivale : refus sans trace.
   const E17 = await readyProject("provisional-wait");
-  async function provisionalDuringRivalWait(label, startRival, dropRival) {
+  async function provisionalDuringRivalWait(label, installRival, startRival, dropRival) {
     const fE = await footprint(E17.pid);
     const u = randomUUID();
-    let rRival, rE, elapsed;
+    let rRival, rE, elapsed, waited;
     try {
-      const pRival = startRival(u);
-      await sleep(1000);
-      const t0 = Date.now();
-      const pE = authorize(E17.contractor.client, E17.pid, fE.ledger.revision, u).then((r) => r);
-      await sleep(800);
-      await setVerified(E17.contractor.id, false);
-      rE = await pE;
-      elapsed = Date.now() - t0;
-      rRival = await pRival;
+      const w = await withRivalAtGate(label, {
+        install: (k) => installRival(u, k),
+        startRival: () => startRival(u),
+        startCall: () => authorize(E17.contractor.client, E17.pid, fE.ledger.revision, u),
+        duringWait: () => setVerified(E17.contractor.id, false),
+        minElapsedMs: 2000,
+      });
+      ({ rRival, rCall: rE, elapsed, waited } = w);
     } finally { await dropRival(); await setVerified(E17.contractor.id, true); }
     const fE2 = await footprint(E17.pid);
     record(`${label} — rivale annulée (forced_failure), B067 bloqué ${elapsed} ms puis refus account_provisional`,
-      rRival.error?.message === "forced_failure" && rE.error?.message === "account_provisional" && elapsed >= 1500, `${err(rRival)} / ${err(rE)}`);
+      waited && rRival.error?.message === "forced_failure" && rE.error?.message === "account_provisional" && elapsed >= 1500, `attente ${waited ? "constatée" : "NON constatée"}, ${err(rRival)} / ${err(rE)}`);
     record(`${label} — aucune trace (autorisation, figement, événement, audit, opération, compteur, révision)`,
       noTrace(fE2) && same(fE2.seqs, fE.seqs) && fE2.ledger.revision === fE.ledger.revision && (await opRow(u)) === null &&
       (await service.from("work_start_authorizations").select("id").eq("operation_uuid", u)).data.length === 0);
   }
   // Point d'attente 1 : UUID tenu dans work_start_authorizations par une autorisation rivale (chantier D).
+  const revD17 = await rev(D.pid);
   await provisionalDuringRivalWait("17. UUID tenu par une autorisation rivale",
-    async (u) => { await installDelay("b067_rival_ws", "WORK_START_AUTHORIZE", D.pid, 3, true); return authorize(D.contractor.client, D.pid, await rev(D.pid), u).then((r) => r); },
+    (u, k) => installGate("b067_rival_ws", "WORK_START_AUTHORIZE", D.pid, k, true),
+    (u) => authorize(D.contractor.client, D.pid, revD17, u),
     () => dropDelay("b067_rival_ws"));
   // Point d'attente 2 : UUID tenu dans advance_operations par une déclaration d'acompte rivale (chantier B).
+  const revB18 = await rev(B.pid);
   await provisionalDuringRivalWait("18. UUID tenu par une opération d'acompte rivale",
-    async (u) => { await installDelayOn("b067_rival_op", "advance_operations", `new.operation_uuid = '${u}'`, 3, true); return declare(B.owner.client, B.pid, "5000", await rev(B.pid), u); },
+    (u, k) => installGateOn("b067_rival_op", "advance_operations", `new.operation_uuid = '${u}'`, k, true),
+    (u) => declare(B.owner.client, B.pid, "5000", revB18, u),
     () => dropDelay("b067_rival_op", "advance_operations"));
   const ok18 = await authorize(E17.contractor.client, E17.pid, await rev(E17.pid));
   record("18. Compte revérifié — l'autorisation réussit ensuite normalement", !ok18.error, err(ok18));
@@ -492,29 +540,28 @@ async function main() {
   async function b033BlockedDeclare(label, makeProvisional) {
     const before = await advFootprint(E17.pid);
     const u = randomUUID();
-    let rRival, rDecl, elapsed;
-    await installDelayOn("b067_rival_b033", "advance_operations", `new.operation_uuid = '${u}' and new.project_id = '${B.pid}'`, 3, true);
+    let rRival, rDecl, elapsed, waited;
     try {
-      const pRival = declare(B.owner.client, B.pid, "5000", await rev(B.pid), u);
-      await sleep(1000);
-      const t0 = Date.now();
-      const pDecl = declare(E17.owner.client, E17.pid, "7000", before.revision, u);
-      await sleep(800);
-      if (makeProvisional) await setVerified(E17.owner.id, false);
-      rDecl = await pDecl;
-      elapsed = Date.now() - t0;
-      rRival = await pRival;
+      const revB20 = await rev(B.pid);
+      const w = await withRivalAtGate(`b067_rival_b033-${label}`, {
+        install: (k) => installGateOn("b067_rival_b033", "advance_operations", `new.operation_uuid = '${u}' and new.project_id = '${B.pid}'`, k, true),
+        startRival: () => declare(B.owner.client, B.pid, "5000", revB20, u),
+        startCall: () => declare(E17.owner.client, E17.pid, "7000", before.revision, u),
+        duringWait: makeProvisional ? () => setVerified(E17.owner.id, false) : undefined,
+        minElapsedMs: 2000,
+      });
+      ({ rRival, rCall: rDecl, elapsed, waited } = w);
     } finally { await dropDelay("b067_rival_b033", "advance_operations"); await setVerified(E17.owner.id, true); }
-    return { before, after: await advFootprint(E17.pid), rRival, rDecl, elapsed, op: await opRow(u) };
+    return { before, after: await advFootprint(E17.pid), rRival, rDecl, elapsed, waited, op: await opRow(u) };
   }
   const neg = await b033BlockedDeclare("provisoire", true);
   record(`20. B033 declare bloqué ${neg.elapsed} ms (UUID tenu par une rivale annulée), compte rendu provisoire pendant l'attente — account_provisional`,
-    neg.rRival.error?.message === "forced_failure" && neg.rDecl.error?.message === "account_provisional" && neg.elapsed >= 1500, `${err(neg.rRival)} / ${err(neg.rDecl)}`);
+    neg.waited && neg.rRival.error?.message === "forced_failure" && neg.rDecl.error?.message === "account_provisional" && neg.elapsed >= 1500, `attente ${neg.waited ? "constatée" : "NON constatée"}, ${err(neg.rRival)} / ${err(neg.rDecl)}`);
   record("20. Aucune mutation persistée (versement, événement, audit, opération, compteur, révision)",
     same(neg.after, neg.before) && neg.op === null, JSON.stringify({ before: neg.before, after: neg.after }));
   const pos = await b033BlockedDeclare("vérifié", false);
   record(`20. Contrôle positif — compte toujours vérifié, même scénario, bloqué ${pos.elapsed} ms puis déclaration réussie après le rollback rival`,
-    pos.rRival.error?.message === "forced_failure" && !pos.rDecl.error && pos.rDecl.row.replayed === false && pos.elapsed >= 1500 &&
+    pos.waited && pos.rRival.error?.message === "forced_failure" && !pos.rDecl.error && pos.rDecl.row.replayed === false && pos.elapsed >= 1500 &&
     pos.after.advances === pos.before.advances + 1 && pos.after.seqs.length === pos.before.seqs.length + 1 && contiguous(pos.after.seqs) &&
     pos.after.audits === pos.before.audits + 1 && pos.op?.project_id === E17.pid && pos.op?.command === "DECLARE", `${err(pos.rRival)} / ${err(pos.rDecl)}`);
 
