@@ -10,6 +10,8 @@
 // Usage : node --env-file=.env.local scripts/test-admin-console.mjs
 
 import { createClient } from "@supabase/supabase-js";
+import { revokeTestAdmin } from "./lib/platform-admin.mjs";
+import { makeScanner } from "./lib/private-scan.mjs";
 import { createHash, randomUUID } from "node:crypto";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
@@ -51,8 +53,8 @@ const M = {
   budget: "727272727",
   document: `DOCUMENT-SECRET-${tag}`,
 };
-const PRIVATE_BUCKETS = /project-media|project-documents|expense-receipts|advance-receipts|project-plans|organization-catalog/;
 
+let designatedAdmin = null;
 try {
   const contractor = await user("entreprise");
   const owner = await user("proprietaire");
@@ -62,6 +64,7 @@ try {
   const admin = await user("administrateur");
   const anon = { label: "visiteur sans session", client: createClient(SUPABASE_URL, ANON_KEY, { auth: { persistSession: false } }) };
   await must(service.rpc("designate_platform_admin", { p_profile_id: admin.id, p_note: "test M050" }), "désignation");
+  designatedAdmin = admin;
 
   // Chantier semé de contenus privés repérables.
   const pid = one(await must(contractor.client.rpc("create_draft_project", { p_name: M.name, p_country: "ML", p_role: "CONTRACTOR" }), "projet")).project_id;
@@ -96,12 +99,7 @@ try {
 
   // Scanner : toute trace de contenu privé, d'identité de membre ou de fichier privé.
   const forbidden = [...Object.values(M), contractor.email, owner.email, coOwner.email, sm.email, contractor.id, owner.id, coOwner.id, sm.id, admin.id, admin.email, pid];
-  const scan = (payload) => {
-    const txt = JSON.stringify(payload ?? null);
-    const hits = forbidden.filter((x) => txt.includes(x));
-    if (PRIVATE_BUCKETS.test(txt) || txt.includes("_private/")) hits.push("chemin de fichier privé");
-    return hits;
-  };
+  const scan = makeScanner(forbidden);
 
   // R15 : le scanner détecte bien ces marqueurs là où ils sont légitimement présents.
   const ownerView = await Promise.all([
@@ -189,8 +187,8 @@ try {
   record("Licences à vérifier : sans contenu privé", !review.error && scan(review.data).length === 0, scan(review.data).join(", ") || "rien");
   const proof = await admin.client.rpc("get_license_proof_file_key_for_admin", { p_payment_id: payment.id });
   const proofRow = one(proof.data);
-  const { storage_key: proofKey, ...proofRest } = proofRow ?? {};
-  record("Preuve de licence (L5) : seule la clé du compartiment license-proofs, aucun autre contenu privé", !proof.error && proofRow?.bucket === "license-proofs" && proofKey?.includes("/license_proof/") && scan(proofRest).length === 0, err(proof));
+  const { storage_key: proofKey, bucket: proofBucket, ...proofRest } = proofRow ?? {};
+  record("Preuve de licence (L5) : seule la clé du compartiment license-proofs, aucun autre contenu privé", !proof.error && proofBucket === "license-proofs" && proofKey?.includes("/license_proof/") && scan(proofRest).length === 0, err(proof));
   const rejected = await admin.client.rpc("reject_license_payment", { p_payment_id: payment.id, p_reason: "Test M050 : référence introuvable" });
   record("Rejet par l'administrateur : réponse sans contenu privé", !rejected.error && scan(rejected.data).length === 0, scan(rejected.data).join(", ") || err(rejected));
 
@@ -202,6 +200,13 @@ try {
 } catch (e) {
   console.error("ERREUR:", e.message);
   results.push(false);
+} finally {
+  // Décision du fondateur (boucle 35) : la désignation de test est retirée.
+  if (designatedAdmin) {
+    const r = await revokeTestAdmin(service, designatedAdmin.id, "Fin du test M050 : désignation de test retirée.");
+    const still = await designatedAdmin.client.rpc("is_platform_admin");
+    record("Fin de test : désignation d'administrateur retirée et tracée, le compte n'est plus administrateur", r.ok && still.data === false, r.error ?? "");
+  }
 }
 
 const passed = results.filter(Boolean).length;

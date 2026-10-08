@@ -21,6 +21,9 @@ const ACTION: Record<string, string> = {
   LICENSE_PROOF_VIEWED: "Preuve de licence consultée",
   ADMIN_ACCOUNT_LOOKUP: "Recherche de compte",
   LICENSE_OFFER_CHANGED: "Prix de la licence modifié",
+  PLATFORM_ADMIN_REVOKED: "Désignation d'administrateur retirée",
+  SUPPORT_REQUEST_TAKEN: "Demande d'aide prise en charge",
+  SUPPORT_ACCESS_DENIED: "Lecture support refusée",
 };
 const stamp = (ts: string) =>
   new Date(ts).toLocaleString("fr-FR", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " (UTC)";

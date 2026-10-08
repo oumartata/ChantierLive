@@ -96,6 +96,8 @@ export default async function ChantierLayout({
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         // B048 (D193) : état de la licence pour tout membre actif.
         { href: `/chantiers/${id}/licence`, label: "Licence" },
+        // B051 (D197 S2) : aide et accès support, parties principales seulement.
+        ...(isOwnerPrimary ? [{ href: `/chantiers/${id}/support`, label: "Aide et support" }] : []),
       ]
     : [
         { href: `/chantiers/${id}`, label: "Chantier" },
@@ -129,7 +131,15 @@ export default async function ChantierLayout({
         ...(isContractor || role === "SITE_MANAGER" ? [{ href: `/chantiers/${id}/depenses`, label: "Dépenses" }] : []),
         // B048 (D193) : état de la licence pour tout membre actif.
         ...(role ? [{ href: `/chantiers/${id}/licence`, label: "Licence" }] : []),
+        ...(isContractor ? [{ href: `/chantiers/${id}/support`, label: "Aide et support" }] : []),
       ];
+
+  // B051 (D197 S9) : bandeau pendant un accès support ouvert, pour les deux
+  // parties principales (mêmes destinataires que le journal d'accès, S8).
+  const activeSupport =
+    isContractor || isOwnerPrimary
+      ? (((await supabase.rpc("support_active_access", { p_project_id: id })).data ?? []) as { expires_at_server: string; modules: string[] }[])
+      : [];
 
   return (
     <div className="flex flex-col">
@@ -164,6 +174,18 @@ export default async function ChantierLayout({
           ))}
         </nav>
       </div>
+      {activeSupport.length > 0 ? (
+        <div className="border-b border-attention/40 bg-attention/10 px-4 py-2" role="status" data-testid="bandeau-acces-support">
+          <p className="mx-auto max-w-3xl text-caption font-semibold text-ink">
+            Accès support en cours jusqu&apos;à{" "}
+            {new Date(activeSupport[0].expires_at_server).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} (UTC){" "}
+            (lecture seule : {activeSupport[0].modules.length} module(s)).{" "}
+            <Link href={`/chantiers/${id}/support`} className="text-primary underline">
+              Voir ou arrêter
+            </Link>
+          </p>
+        </div>
+      ) : null}
       {children}
     </div>
   );

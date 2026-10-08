@@ -15,6 +15,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { randomUUID, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { callWhileLocked } from "./lib/real-lock.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -37,7 +38,6 @@ function record(name, pass, detail) {
 }
 const err = (res) => res.error?.message ?? "aucune erreur";
 const sha = (b) => createHash("sha256").update(b).digest("hex");
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 async function createTestUser(label) {
@@ -66,20 +66,17 @@ function psql(sql) {
 }
 // Exécute un SQL privilégié et renvoie le message d'erreur (chaîne vide si succès).
 const psqlError = (sql) => psql(sql).then(() => "", (e) => e.message);
-const holdAdvisory = (projectId, seconds) =>
-  psql(`begin;\nselect pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint);\nselect pg_sleep(${seconds});\ncommit;\n`);
-async function callDuringRealWait(projectId, rpcCall, mutateDuringWait) {
-  const blocker = holdAdvisory(projectId, 4);
-  await sleep(700);
-  const start = Date.now();
-  const pending = rpcCall().then((r) => r);
-  await sleep(1000);
-  await mutateDuringWait();
-  const res = await pending;
-  const elapsed = Date.now() - start;
-  await blocker;
-  return { res, elapsed };
-}
+// Verrou réel (scripts/lib/real-lock.mjs ; boucle 35, comme la boucle 33) :
+// tenu jusqu'à la relâche, attente de l'appel constatée en base
+// (pg_blocking_pids), mutation pendant l'attente, durée minimale de 2,5 s
+// conservée. Aucun pg_sleep, aucun délai supposé.
+const callDuringRealWait = (projectId, rpcCall, mutateDuringWait) =>
+  callWhileLocked({
+    lockSql: `select pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint)`,
+    call: rpcCall,
+    duringWait: mutateDuringWait,
+    minElapsedMs: 2500,
+  });
 
 async function must(res, what) {
   const r = await res;
@@ -295,7 +292,7 @@ commit;\n`);
   const w1 = await callDuringRealWait(pid, () => decide(owner.client, a2.id, "ACCEPTED", revA), () => setVerified(owner.id, false));
   await setVerified(owner.id, true);
   record("11. Compte provisoire pendant l'attente — décision refusée, version toujours PROPOSED",
-    w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await verRow(a2.id)).status === "PROPOSED", `${w1.elapsed}ms ${err(w1.res)}`);
+    w1.waited && w1.elapsed >= 2500 && w1.res.error?.message === "account_provisional" && (await verRow(a2.id)).status === "PROPOSED", `attente constatée ${w1.waited}, ${w1.elapsed}ms ${err(w1.res)}`);
 
   // 12. Échec d'audit -> tout est annulé.
   await psql(`create or replace function public.b066_fail_audit() returns trigger language plpgsql as $f$ begin if new.action = 'CHANGE_ORDER_ACCEPTED' then raise exception 'audit_test_failure'; end if; return new; end $f$;
@@ -420,8 +417,8 @@ commit;\n`);
     () => draft(Q.contractor.client, Q.pid, o1.change_order_id, [line("p", "1", "1")], oRev),
     async () => { await must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("id", qMembership.id), "revoke"); });
   record("18. Adhésion révoquée pendant l'attente — version refusée, aucune version créée",
-    w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && (await service.from("change_order_versions").select("id").eq("change_order_id", o1.change_order_id)).data.length === 1,
-    `${w2.elapsed}ms ${err(w2.res)}`);
+    w2.waited && w2.elapsed >= 2500 && w2.res.error?.message === "not_authorized" && (await service.from("change_order_versions").select("id").eq("change_order_id", o1.change_order_id)).data.length === 1,
+    `attente constatée ${w2.waited}, ${w2.elapsed}ms ${err(w2.res)}`);
 
   // 19. Audit final : événements attendus, jamais de brouillon.
   const audits = await coAudits(pid);

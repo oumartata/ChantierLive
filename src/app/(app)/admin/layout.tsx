@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/admin/licences", label: "Licences" },
   { href: "/admin/chantiers", label: "Chantiers" },
   { href: "/admin/comptes", label: "Comptes" },
+  { href: "/admin/support", label: "Support" },
   { href: "/admin/journal", label: "Journal" },
 ];
 

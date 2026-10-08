@@ -157,8 +157,8 @@ FR155,admin,PlatformAdmin,"Gérer statuts de comptes; licences et paramètres gl
 FR156,admin,PlatformAdmin,"Suspendre un compte ou chantier avec motif et notification (reporté avant le pilote, avec la notification, D195 E1).",MUST,BR090,AC156
 FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support (avec l'accès support, B051 ; D195 E1).",MUST,BR088,AC157
 FR158,admin,PlatformAdmin,"Révoquer une session compromise (reporté avant le pilote, D195 E1).",MUST,BR008|BR088,AC158
-FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel.",MUST,BR089,AC159
-FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable.",MUST,BR089,AC160
+FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel (choisis par la partie principale qui accorde, 15/30/60 min et modules ; l'administrateur prend en charge avec un motif, D197 S1, S7).",MUST,BR089,AC159
+FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable (MVP : journal d'accès et bandeau pour les deux parties principales ; e-mail et notification interne avec B045, D197 S8, S9).",MUST,BR089,AC160
 FR161,commercial,OrganizationOwner,"Déposer, faire valider techniquement et publier un modèle au catalogue de son agence.",MUST,BR091|BR092,AC161
 FR162,commercial,Contractor,"Déposer un plan fourni par le client pour un chantier.",MUST,BR091,AC162
 FR163,commercial,DesignatedEngineer,"Valider techniquement un plan, de catalogue ou de chantier, avant sa publication ; habilitation active vérifiée à chaque décision, identité, version examinée et décision enregistrées.",MUST,BR092|BR100,AC163

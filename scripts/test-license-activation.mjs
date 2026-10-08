@@ -5,6 +5,7 @@
 // Usage : node --env-file=.env.local scripts/test-license-activation.mjs
 
 import { createClient } from "@supabase/supabase-js";
+import { revokeTestAdmin } from "./lib/platform-admin.mjs";
 import { createHash, randomUUID } from "node:crypto";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
@@ -51,6 +52,7 @@ async function declare(u, pid, reference) {
   return { ...payment, key: claim.candidate_key, bytes };
 }
 
+let designatedAdmin = null;
 try {
   const contractor = await user("entreprise");
   const owner = await user("proprietaire");
@@ -75,6 +77,7 @@ try {
   const memberDesignated = await service.rpc("designate_platform_admin", { p_profile_id: owner.id, p_note: "membre" });
   record("A2 : désignation refusée pour un compte membre d'un chantier", memberDesignated.error?.message === "admin_has_project_membership", err(memberDesignated));
   await must(service.rpc("designate_platform_admin", { p_profile_id: admin.id, p_note: "test M049" }), "désignation");
+  designatedAdmin = admin;
   record("Opération serveur : désignation d'un compte sans adhésion ; il est reconnu administrateur", (await admin.client.rpc("is_platform_admin")).data === true);
   const adminJoins = await service.from("project_memberships").insert({ project_id: pid, profile_id: admin.id, role: "SITE_MANAGER", owner_profile: null });
   const adminCreates = await admin.client.rpc("create_draft_project", { p_name: "Projet de l'administrateur", p_country: "ML", p_role: "CONTRACTOR" });
@@ -192,6 +195,13 @@ try {
 } catch (e) {
   console.error("ERREUR:", e.message);
   results.push(false);
+} finally {
+  // Décision du fondateur (boucle 35) : la désignation de test est retirée.
+  if (designatedAdmin) {
+    const r = await revokeTestAdmin(service, designatedAdmin.id, "Fin du test M049 : désignation de test retirée.");
+    const still = await designatedAdmin.client.rpc("is_platform_admin");
+    record("Fin de test : désignation d'administrateur retirée et tracée, le compte n'est plus administrateur", r.ok && still.data === false, r.error ?? "");
+  }
 }
 
 const passed = results.filter(Boolean).length;

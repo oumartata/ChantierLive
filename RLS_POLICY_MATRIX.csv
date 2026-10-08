@@ -23,6 +23,6 @@ R021,report_exports,"générateur et membres autorisés","utilisateur autorisé 
 R022,share_links,"créateur et rôles autorisés",SERVER_RPC,"révocation via RPC",DENY,"lien expiré ou révoqué refuse le fichier"
 R023,sync_operations,"acteur de l'opération; support technique minimal","acteur authentifié membre du chantier",SERVER_ONLY,DENY,"même operation_uuid retourne le même résultat"
 R024,sync_conflicts,"acteur et rôles autorisés",SERVER_ONLY,"résolution via RPC",DENY,"conflit financier ne peut être écrasé"
-R025,audit_events,"OWNER principal; CONTRACTOR; délégué limité; support exceptionnel",SERVER_ONLY,DENY,DENY,"aucun rôle métier ne modifie ou supprime l'audit"
+R025,audit_events,"CONTRACTOR actif seulement (D186) ; jamais le support, même pendant un accès exceptionnel (D195 E6, D197)",SERVER_ONLY,DENY,DENY,"aucun rôle métier ne modifie ou supprime l'audit"
 R026,support_access_grants,"demandeur concerné et admin autorisé",SERVER_RPC,SERVER_RPC,DENY,"accès expire automatiquement et reste audité"
 R027,storage_objects,"membre actif + visibilité + chemin project_id","uploader autorisé + chemin contrôlé","brouillon propriétaire seulement",DENY,"URL ou chemin copié d'un autre chantier échoue"
