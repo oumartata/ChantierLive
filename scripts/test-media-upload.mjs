@@ -11,6 +11,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
+import { readAllRpc } from "./lib/paginated-rpc.mjs";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -57,6 +58,9 @@ if (!SERVICE_KEY || !ANON_KEY) {
 }
 
 const service = createClient(URL, SERVICE_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+// Boucle 27 : lectures des listes de nettoyage COMPLÈTES (paginées, ordonnées) ;
+// une lecture simple est plafonnée à 1 000 lignes par PostgREST.
+const readAll = (fn, args = {}) => readAllRpc(service, fn, args).then((data) => ({ data, error: null }), (error) => ({ data: null, error }));
 
 const results = [];
 function record(name, pass, detail) {
@@ -693,7 +697,7 @@ async function main() {
     await service.from("private_object_uploads")
       .update({ attempt_expires_at: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString() })
       .eq("id", finalizedRow.data.id);
-    const { data: expiredList } = await service.rpc("list_expired_media_uploads", { p_older_than: "0 seconds" });
+    const { data: expiredList } = await readAll("list_expired_media_uploads", { p_older_than: "0 seconds" });
     record("Nettoyage — ligne FINALIZED jamais listée comme expirée", !(expiredList ?? []).some((r) => r.id === finalizedRow.data.id));
     const { data: abandonedFinalized } = await service.rpc("abandon_expired_media_upload", { p_id: finalizedRow.data.id, p_older_than: "0 seconds" });
     record("Nettoyage — abandon refusé sur une ligne FINALIZED, même appelé directement", abandonedFinalized === false);
@@ -732,7 +736,7 @@ async function main() {
     const { error: staleKeysUserErr } = await author.client.rpc("list_stale_media_keys", {});
     record("Nettoyage (clés tracées) refusé pour un client authentifié", !!staleKeysUserErr, staleKeysUserErr?.message);
 
-    const { data: staleKeys } = await service.rpc("list_stale_media_keys");
+    const { data: staleKeys } = await readAll("list_stale_media_keys");
     const candidateTrace = (staleKeys ?? []).find((k) => k.storage_key === orphanClaim.candidate_key);
     const sourceTrace = (staleKeys ?? []).find((k) => k.storage_key === orphanSourceKey);
     record("Nettoyage — candidate ET source tracées avant suppression", !!candidateTrace && !!sourceTrace);
@@ -768,7 +772,7 @@ async function main() {
       .update({ attempt_expires_at: new Date(Date.now() - 60_000).toISOString() })
       .eq("operation_uuid", raceOpId);
     const { data: raceRow } = await service.from("private_object_uploads").select("id").eq("operation_uuid", raceOpId).single();
-    const { data: raceListedBefore } = await service.rpc("list_expired_media_uploads", { p_older_than: "0 seconds" });
+    const { data: raceListedBefore } = await readAll("list_expired_media_uploads", { p_older_than: "0 seconds" });
     const staleListedAsEligible = (raceListedBefore ?? []).some((r) => r.id === raceRow.id);
 
     // Une reprise survient APRÈS cette sélection périmée, avant l'abandon.
@@ -938,7 +942,7 @@ async function main() {
     await service.from("private_object_uploads").update({ attempt_expires_at: new Date(Date.now() - 60_000).toISOString() }).eq("operation_uuid", lateOpId);
     const { data: lateRow } = await service.from("private_object_uploads").select("id").eq("operation_uuid", lateOpId).single();
     await service.rpc("abandon_expired_media_upload", { p_id: lateRow.id, p_older_than: "0 seconds" });
-    const { data: lateStaleKeys } = await service.rpc("list_stale_media_keys");
+    const { data: lateStaleKeys } = await readAll("list_stale_media_keys");
     const lateCandidateTrace = (lateStaleKeys ?? []).find((k) => k.storage_key === lateClaim.candidate_key);
     const { data: lateClaimed } = await service.rpc("claim_stale_key_for_cleanup", { p_id: lateCandidateTrace.id });
     await service.storage.from(BUCKET).remove([lateClaimed[0].storage_key]);
@@ -958,7 +962,7 @@ async function main() {
     // Signature sans fenêtre de temps depuis la revue v3, §3 (voir §13
     // ci-dessous pour le test dédié de non-perte au-delà de l'ancienne
     // fenêtre de 24h) — appel sans paramètre.
-    const { data: recentlyCleaned } = await service.rpc("list_recently_cleaned_media_keys");
+    const { data: recentlyCleaned } = await readAll("list_recently_cleaned_media_keys");
     const detected = (recentlyCleaned ?? []).find((k) => k.storage_key === lateClaim.candidate_key);
     record("Réconciliation — clé recréée après nettoyage détectée par list_recently_cleaned_media_keys", !!detected);
 
@@ -1006,7 +1010,7 @@ async function main() {
     const { data: outageRow } = await service.from("private_object_uploads").select("id").eq("operation_uuid", outageOpId).single();
     // Nettoyage complet A → B (fonctions réellement utilisées).
     await service.rpc("abandon_expired_media_upload", { p_id: outageRow.id, p_older_than: "0 seconds" });
-    const { data: outageStaleKeys } = await service.rpc("list_stale_media_keys");
+    const { data: outageStaleKeys } = await readAll("list_stale_media_keys");
     const outageTrace = (outageStaleKeys ?? []).find((k) => k.storage_key === outageClaim.candidate_key);
     const { data: outageClaimed } = await service.rpc("claim_stale_key_for_cleanup", { p_id: outageTrace.id });
     await service.storage.from(BUCKET).remove([outageClaimed[0].storage_key]);
@@ -1023,7 +1027,7 @@ async function main() {
     await service.storage.from(BUCKET).upload(outageClaim.candidate_key, Buffer.from("LATE-WRITE-DURING-OUTAGE-1"), { upsert: true, contentType: "image/jpeg" });
 
     // Phase C, fonction réellement utilisée — plus aucun paramètre de fenêtre.
-    const { data: afterOutage, error: afterOutageErr } = await service.rpc("list_recently_cleaned_media_keys");
+    const { data: afterOutage, error: afterOutageErr } = await readAll("list_recently_cleaned_media_keys");
     record("Réconciliation durable — signature sans fenêtre de temps (aucun paramètre)", !afterOutageErr, afterOutageErr?.message);
     const stillDetected = (afterOutage ?? []).find((k) => k.storage_key === outageClaim.candidate_key);
     record("Réconciliation durable — clé cleaned_at vieille de 48h toujours détectée (aucune perte)", !!stillDetected);
@@ -1038,7 +1042,7 @@ async function main() {
 
     // CORRIGÉ (revue v3.1, §2) : marquer reconciled_at NE l'exclut PLUS des
     // sélections suivantes — vérification RÉCURRENTE, pas ponctuelle.
-    const { data: afterFirstReconcile } = await service.rpc("list_recently_cleaned_media_keys");
+    const { data: afterFirstReconcile } = await readAll("list_recently_cleaned_media_keys");
     const stillSelectable = (afterFirstReconcile ?? []).find((k) => k.storage_key === outageClaim.candidate_key);
     record("Réconciliation récurrente — clé réconciliée reste sélectionnée au passage suivant (aucune exclusion définitive)", !!stillSelectable);
 
@@ -1048,7 +1052,7 @@ async function main() {
     const { data: beforeCycle2 } = await service.storage.from(BUCKET).download(outageClaim.candidate_key);
     record("Réconciliation récurrente — deuxième écriture tardive bien recréée (préalable du test)", !!beforeCycle2);
 
-    const { data: cycle2Detected } = await service.rpc("list_recently_cleaned_media_keys");
+    const { data: cycle2Detected } = await readAll("list_recently_cleaned_media_keys");
     const detectedAgain = (cycle2Detected ?? []).find((k) => k.storage_key === outageClaim.candidate_key);
     record("Réconciliation récurrente — deuxième recréation également détectée (contrôle non ponctuel)", !!detectedAgain);
     const { error: removeCycle2Err } = await service.storage.from(BUCKET).remove([outageClaim.candidate_key]);

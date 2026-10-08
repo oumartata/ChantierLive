@@ -42,7 +42,13 @@
 // Local uniquement. Usage :
 //   node scripts/cleanup_media_candidates.mjs --dry-run   (lecture seule, RIEN n'est muté)
 //   node scripts/cleanup_media_candidates.mjs             (nettoyage réel)
+//
+// CORRIGÉ (boucle 27) : chaque sélection est lue EN ENTIER, page par page,
+// dans un ordre stable (scripts/lib/paginated-rpc.mjs). Une lecture simple
+// était plafonnée par PostgREST à 1 000 lignes, sans erreur : au-delà, des
+// clés n'étaient ni supprimées (phase B) ni revérifiées (phase C).
 import { createClient } from "@supabase/supabase-js";
+import { readAllRpc } from "./lib/paginated-rpc.mjs";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -87,8 +93,7 @@ async function phaseAbandon() {
 }
 
 async function phaseAbandonDomain({ label, listFn, abandonFn, describeRow }) {
-  const { data: expired, error: listError } = await service.rpc(listFn, { p_older_than: "1 hour" });
-  if (listError) throw new Error(`${listFn}: ${listError.message}`);
+  const expired = await readAllRpc(service, listFn, { p_older_than: "1 hour" });
 
   console.log(`Phase A (${label}) — sélection : ${expired?.length ?? 0} opération(s) expirée(s) candidate(s) à l'abandon.`);
   if (DRY_RUN) {
@@ -114,8 +119,7 @@ async function phaseAbandonDomain({ label, listFn, abandonFn, describeRow }) {
 }
 
 async function phaseDeleteStaleKeys() {
-  const { data: staleKeys, error: listError } = await service.rpc("list_stale_media_keys");
-  if (listError) throw new Error(`list_stale_media_keys: ${listError.message}`);
+  const staleKeys = await readAllRpc(service, "list_stale_media_keys");
 
   console.log(`Phase B — sélection : ${staleKeys?.length ?? 0} clé(s) tracée(s) non encore nettoyée(s).`);
   if (DRY_RUN) {
@@ -202,8 +206,7 @@ async function phaseReconcile() {
   // Limite résiduelle assumée, faute de politique de rétention explicitement
   // demandée : aucune borne n'arrête cette revérification (coût croissant
   // avec l'historique de nettoyage) — voir migration 20260926120000.
-  const { data: candidates, error: listError } = await service.rpc("list_recently_cleaned_media_keys");
-  if (listError) throw new Error(`list_recently_cleaned_media_keys: ${listError.message}`);
+  const candidates = await readAllRpc(service, "list_recently_cleaned_media_keys");
 
   console.log(`Phase C — sélection : ${candidates?.length ?? 0} clé(s) nettoyée(s) à revérifier (contrôle récurrent, aucune exclusion définitive).`);
 
