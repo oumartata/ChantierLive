@@ -18,13 +18,15 @@
 // 3. Script réel : la clé rangée en dernier est nettoyée, l'écriture tardive
 //    rangée en dernier est supprimée, le fichier du document finalisé reste
 //    intact (même empreinte), même si une trace erronée pointe vers lui.
+// 4. Conservation (D190) : une trace nettoyée depuis moins de 7 jours est
+//    revérifiée, une trace plus ancienne est ignorée ; aucune trace supprimée.
 //
 // Usage : node --env-file=.env.local scripts/test-cleanup-pagination.mjs
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readAllRpc } from "./lib/paginated-rpc.mjs";
+import { readAllRpc, listKeysToReconcile, RECONCILE_WINDOW_DAYS } from "./lib/paginated-rpc.mjs";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -99,12 +101,20 @@ try {
   for (let i = 0; i < SYNTHETIC_PER_LIST - 1; i++) rows.push({ private_object_upload_id: refId, storage_key: `${prefix}/syn-n-${randomUUID()}`, kind: "candidate", cleaned_at: new Date().toISOString() });
   rows.push({ id: lastPending.id, private_object_upload_id: refId, storage_key: lastPending.key, kind: "candidate" });
   rows.push({ id: lastCleaned.id, private_object_upload_id: refId, storage_key: lastCleaned.key, kind: "candidate", cleaned_at: new Date().toISOString() });
+  // Conservation (D190) : nettoyée il y a 6 jours (revérifiée) et il y a 8 jours (ignorée).
+  const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+  const within = { id: lastId(), key: `${prefix}/nettoyee-il-y-a-6-jours-${randomUUID()}` };
+  const beyond = { id: lastId(), key: `${prefix}/nettoyee-il-y-a-8-jours-${randomUUID()}` };
+  rows.push({ id: within.id, private_object_upload_id: refId, storage_key: within.key, kind: "candidate", cleaned_at: daysAgo(RECONCILE_WINDOW_DAYS - 1) });
+  rows.push({ id: beyond.id, private_object_upload_id: refId, storage_key: beyond.key, kind: "candidate", cleaned_at: daysAgo(RECONCILE_WINDOW_DAYS + 1) });
   // Trace ERRONÉE pointant vers le fichier finalisé : il ne doit jamais être touché.
   const wrongTrace = { id: lastId(), private_object_upload_id: legit.prep.id, storage_key: legitKey, kind: "candidate", cleaned_at: new Date().toISOString() };
   rows.push(wrongTrace);
   for (let i = 0; i < rows.length; i += 500) await must(service.from("private_object_stale_keys").insert(rows.slice(i, i + 500)), "traces synthétiques");
-  // Écriture tardive sur la clé déjà nettoyée rangée en dernier.
-  await must(service.storage.from(BUCKET).upload(lastCleaned.key, Buffer.from("%PDF-1.4 écriture tardive"), { contentType: "application/pdf", upsert: true }), "écriture tardive");
+  // Écritures tardives : clé nettoyée rangée en dernier, clés nettoyées il y a 6 et 8 jours.
+  for (const k of [lastCleaned.key, within.key, beyond.key]) {
+    await must(service.storage.from(BUCKET).upload(k, Buffer.from("%PDF-1.4 écriture tardive"), { contentType: "application/pdf", upsert: true }), "écriture tardive");
+  }
 
   // 1. Cause et lecture complète.
   const pendingCount = await countWhere(false);
@@ -116,6 +126,10 @@ try {
   const pagedCleaned = await readAllRpc(service, "list_recently_cleaned_media_keys");
   const cleanedPos = pagedCleaned.findIndex((k) => k.id === lastCleaned.id);
   record("Lecture paginée : clés nettoyées au-delà de 1 000, la nôtre au-delà de la 1 000e ; le fichier finalisé exclu", pagedCleaned.length > 1000 && cleanedPos >= 1000 && new Set(pagedCleaned.map((k) => k.id)).size === pagedCleaned.length && !pagedCleaned.some((k) => k.id === wrongTrace.id), `${pagedCleaned.length} lignes, position ${cleanedPos + 1}`);
+  const toReconcile = await listKeysToReconcile(service);
+  const reconcileIds = toReconcile.keys.map((k) => k.id);
+  const reconcilePos = reconcileIds.indexOf(lastCleaned.id);
+  record(`Conservation : sélection = clés nettoyées depuis moins de ${RECONCILE_WINDOW_DAYS} jours (6 jours retenue, 8 jours écartée), toujours au-delà de 1 000`, reconcileIds.includes(within.id) && !reconcileIds.includes(beyond.id) && reconcileIds.length > 1000 && reconcilePos >= 1000 && toReconcile.ignored === pagedCleaned.length - reconcileIds.length, `${reconcileIds.length} à revérifier, ${toReconcile.ignored} écartées, position ${reconcilePos + 1}`);
   const tooBig = await readAllRpc(service, "list_stale_media_keys", {}, { pageSize: 1000 }).then(() => null, (e) => e.message);
   record("Page refusée si elle atteint le plafond du serveur (aucun plafond silencieux)", !!tooBig && /taille de page/.test(tooBig), tooBig ?? "acceptée");
 
@@ -123,7 +137,8 @@ try {
   const dry = await runCleanup(["--dry-run"]);
   const pendingAfterDry = (await service.from("private_object_stale_keys").select("cleaned_at").eq("id", lastPending.id).single()).data;
   record("--dry-run : phase B sélectionne toutes les clés à nettoyer et cite la dernière", dry.code === 0 && selected(dry.out, "B") === pendingCount && dry.out.includes(lastPending.key), `sélection ${selected(dry.out, "B")}/${pendingCount}`);
-  record("--dry-run : phase C revérifie au-delà de 1 000 et détecte l'écriture tardive rangée en dernier", selected(dry.out, "C") === pagedCleaned.length && dry.out.includes(`écriture tardive détectée, supprimerait à nouveau : (candidate) ${lastCleaned.key}`), `sélection ${selected(dry.out, "C")}`);
+  record("--dry-run : phase C revérifie au-delà de 1 000 et détecte l'écriture tardive rangée en dernier", selected(dry.out, "C") === reconcileIds.length && dry.out.includes(`écriture tardive détectée, supprimerait à nouveau : (candidate) ${lastCleaned.key}`), `sélection ${selected(dry.out, "C")}/${reconcileIds.length}`);
+  record("--dry-run : conservation — écriture tardive à 6 jours détectée, à 8 jours non revérifiée", dry.out.includes(`supprimerait à nouveau : (candidate) ${within.key}`) && !dry.out.includes(beyond.key));
   record("--dry-run : rien n'est modifié (écriture tardive présente, trace non nettoyée, fichier finalisé intact)", (await exists(lastCleaned.key)) && pendingAfterDry.cleaned_at === null && (await hashOf(legitKey)) === legitHash);
 
   // 3. Script réel : traitement au-delà de 1 000 lignes, fichier légitime intact.
@@ -133,6 +148,8 @@ try {
   record("Nettoyage réel : la clé rangée en dernier (au-delà de 1 000) est nettoyée", pendingAfter.cleaned_at !== null);
   record("Nettoyage réel : l'écriture tardive rangée en dernier est supprimée", !(await exists(lastCleaned.key)));
   record("Nettoyage réel : fichier du document finalisé intact (même empreinte), malgré une trace erronée", (await hashOf(legitKey)) === legitHash);
+  const beyondTrace = (await service.from("private_object_stale_keys").select("id, cleaned_at").eq("id", beyond.id).maybeSingle()).data;
+  record("Conservation réelle : écriture tardive à 6 jours supprimée ; à 8 jours ignorée (objet présent), sa trace conservée", !(await exists(within.key)) && (await exists(beyond.key)) && !!beyondTrace?.cleaned_at);
   const { count: leftSynthetic } = await service.from("private_object_stale_keys").select("id", { count: "exact", head: true }).eq("private_object_upload_id", refId).is("cleaned_at", null);
   record(`Nettoyage réel : les ${SYNTHETIC_PER_LIST} traces synthétiques à nettoyer sont toutes traitées`, leftSynthetic === 0, String(leftSynthetic));
 
@@ -142,7 +159,10 @@ try {
   if (delErr) throw new Error(`retrait des traces du test : ${delErr.message}`);
   if (removed !== rows.length) throw new Error(`retrait des traces du test : ${removed} au lieu de ${rows.length}`);
   if ((await hashOf(legitKey)) !== legitHash) throw new Error("fichier finalisé modifié après le retrait des traces");
-  console.log(`Données du test : ${removed} traces créées par cette exécution retirées ; fichier finalisé intact.`);
+  // Objet créé par le test pour la trace à 8 jours (ignoré par la règle) : retiré par le test lui-même.
+  const { error: rmErr } = await service.storage.from(BUCKET).remove([beyond.key]);
+  if (rmErr || (await exists(beyond.key))) throw new Error(`retrait de l'écriture tardive du test : ${rmErr?.message ?? "toujours présente"}`);
+  console.log(`Données du test : ${removed} traces et 1 écriture tardive créées par cette exécution retirées ; fichier finalisé intact.`);
 } catch (e) {
   console.error("ERREUR:", e.message);
   results.push(false);

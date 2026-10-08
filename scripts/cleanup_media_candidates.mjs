@@ -35,9 +35,11 @@
 //   réclamée (porte CAS), puis réellement supprimée de Storage ; le marquage
 //   "cleaned" n'intervient qu'après ce succès confirmé.
 //   Phase C — RÉCONCILIATION : chaque clé nettoyée non liée à une candidate
-//   FINALIZED est REVÉRIFIÉE RÉCURREMMENT dans Storage à chaque exécution
-//   (aucune fenêtre de temps, aucune exclusion définitive — revue v3.1, §2)
-//   et resupprimée si une écriture tardive l'a recréée.
+//   FINALIZED est REVÉRIFIÉE dans Storage à chaque exécution pendant 7 jours
+//   après son nettoyage, puis plus jamais (D190, boucle 29 ; remplace la
+//   règle « aucune fenêtre de temps » de la revue v3.1, §2), et resupprimée
+//   si une écriture tardive l'a recréée. Aucune trace n'est supprimée par
+//   cette règle.
 //
 // Local uniquement. Usage :
 //   node scripts/cleanup_media_candidates.mjs --dry-run   (lecture seule, RIEN n'est muté)
@@ -48,7 +50,7 @@
 // était plafonnée par PostgREST à 1 000 lignes, sans erreur : au-delà, des
 // clés n'étaient ni supprimées (phase B) ni revérifiées (phase C).
 import { createClient } from "@supabase/supabase-js";
-import { readAllRpc } from "./lib/paginated-rpc.mjs";
+import { listKeysToReconcile, readAllRpc, RECONCILE_WINDOW_DAYS } from "./lib/paginated-rpc.mjs";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "http://127.0.0.1:54321";
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -203,12 +205,14 @@ async function phaseReconcile() {
   // réseau/Storage) n'est plus traitée comme une absence confirmée — seul un
   // code service explicite (NoSuchKey/404) l'est.
   //
-  // Limite résiduelle assumée, faute de politique de rétention explicitement
-  // demandée : aucune borne n'arrête cette revérification (coût croissant
-  // avec l'historique de nettoyage) — voir migration 20260926120000.
-  const candidates = await readAllRpc(service, "list_recently_cleaned_media_keys");
+  // Conservation (D190, boucle 29) : la revérification est limitée aux traces
+  // nettoyées depuis moins de RECONCILE_WINDOW_DAYS jours ; au-delà, plus
+  // jamais revérifiées (la trace reste en base). L'exclusion des fichiers
+  // FINALIZED reste décidée par list_recently_cleaned_media_keys.
+  const { keys: candidates, ignored, cutoff } = await listKeysToReconcile(service);
+  console.log(`Phase C — conservation : ${ignored} clé(s) nettoyée(s) avant le ${cutoff} (plus de ${RECONCILE_WINDOW_DAYS} jours) non revérifiée(s).`);
 
-  console.log(`Phase C — sélection : ${candidates?.length ?? 0} clé(s) nettoyée(s) à revérifier (contrôle récurrent, aucune exclusion définitive).`);
+  console.log(`Phase C — sélection : ${candidates?.length ?? 0} clé(s) nettoyée(s) à revérifier (nettoyées depuis moins de ${RECONCILE_WINDOW_DAYS} jours).`);
 
   let recreated = 0;
   let uncertain = 0;

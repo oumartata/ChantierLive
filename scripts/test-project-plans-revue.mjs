@@ -64,18 +64,53 @@ async function setVerified(profileId, verified) {
   if (error) throw new Error(`setVerified: ${error.message}`);
 }
 
-// Tient un verrou réel depuis une connexion psql SÉPARÉE (même mécanisme que
-// test-catalog-concurrency.mjs) pendant holdSeconds, puis COMMIT.
-function holdLock(lockSql, holdSeconds) {
-  const sql = `begin;\n${lockSql};\nselect pg_sleep(${holdSeconds});\ncommit;\n`;
-  return new Promise((resolve, reject) => {
-    const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"], { stdio: ["pipe", "pipe", "pipe"] });
-    let stderr = "";
-    proc.stderr.on("data", (d) => (stderr += d.toString()));
-    proc.on("close", (code) => (code === 0 ? resolve() : reject(new Error(`holdLock exit ${code}: ${stderr}`))));
-    proc.stdin.write(sql);
-    proc.stdin.end();
+// Tient un verrou réel depuis une connexion psql SÉPARÉE, jusqu'à ce que le
+// test le relâche (D190, boucle 29). Plus aucun délai fixe : « locked » se
+// résout quand psql a RÉELLEMENT obtenu le verrou (il renvoie alors son pid),
+// « release » valide la transaction et attend la fin de psql.
+const LOCK_TIMEOUT_MS = 30000;
+function openLock(lockSql) {
+  const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-At", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres"], { stdio: ["pipe", "pipe", "pipe"] });
+  let stdout = "";
+  let stderr = "";
+  let resolveLocked;
+  let rejectLocked;
+  const locked = new Promise((res, rej) => { resolveLocked = res; rejectLocked = rej; });
+  const timer = setTimeout(() => rejectLocked(new Error(`verrou non obtenu en ${LOCK_TIMEOUT_MS} ms : ${stderr}`)), LOCK_TIMEOUT_MS);
+  proc.stdout.on("data", (d) => {
+    stdout += d.toString();
+    const m = stdout.match(/VERROU_PRIS (\d+)/);
+    if (m) { clearTimeout(timer); resolveLocked(Number(m[1])); }
   });
+  proc.stderr.on("data", (d) => (stderr += d.toString()));
+  const closed = new Promise((res, rej) => proc.on("close", (code) => (code === 0 ? res() : rej(new Error(`verrou : psql exit ${code}: ${stderr}`)))));
+  closed.catch((e) => { clearTimeout(timer); rejectLocked(e); });
+  proc.stdin.write(`begin;\n${lockSql};\nselect 'VERROU_PRIS ' || pg_backend_pid();\n`);
+  return {
+    locked,
+    release: async () => {
+      proc.stdin.write("commit;\n");
+      proc.stdin.end();
+      await closed;
+    },
+  };
+}
+
+// Attente RÉELLE constatée : une autre connexion est bloquée par celle qui
+// tient le verrou (pg_blocking_pids), interrogée jusqu'à l'observer.
+async function waitUntilBlockedBy(blockerPid, timeoutMs = LOCK_TIMEOUT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const out = await new Promise((resolve, reject) => {
+      const proc = spawn("docker", ["exec", "-i", "supabase_db_ChantierLive", "psql", "-At", "-v", "ON_ERROR_STOP=1", "-U", "postgres", "-d", "postgres", "-c",
+        `select count(*) from pg_stat_activity where ${Number(blockerPid)} = any(pg_blocking_pids(pid))`], { stdio: ["ignore", "pipe", "pipe"] });
+      let o = "";
+      proc.stdout.on("data", (d) => (o += d.toString()));
+      proc.on("close", (code) => (code === 0 ? resolve(o.trim()) : reject(new Error(`pg_blocking_pids : psql exit ${code}`))));
+    });
+    if (Number(out) >= 1) return true;
+  }
+  return false;
 }
 const advisoryLockSql = (projectId) => `select pg_advisory_xact_lock(hashtext('invitation_quota:${projectId}')::bigint)`;
 const rowLockSql = (table, id) => `select 1 from public.${table} where id = '${id}' for update`;
@@ -83,20 +118,24 @@ const rowLockSql = (table, id) => `select 1 from public.${table} where id = '${i
 // Appel RPC lancé PENDANT qu'une autre connexion tient le verrou ; la
 // vérification est retirée pendant que l'appel attend, puis le verrou tombe.
 async function callDuringRealWait(user, lockSql, rpcCall) {
-  const blocker = holdLock(lockSql, 4);
-  await sleep(700); // le verrou est réellement acquis avant l'appel
+  const lock = openLock(lockSql);
+  const blockerPid = await lock.locked; // verrou réellement obtenu, aucun délai supposé
   const start = Date.now();
   // Les appels supabase-js sont paresseux : .then() force l'envoi IMMÉDIAT,
   // sans quoi la requête ne partirait qu'au await, après la perte de
   // vérification (l'attente ne serait alors pas réellement testée).
   const pending = rpcCall().then((r) => r);
-  await sleep(1000); // l'appel est en attente sur le verrou
-  await setVerified(user.id, false);
+  let waited = false;
+  try {
+    waited = await waitUntilBlockedBy(blockerPid); // l'appel est constaté en attente sur ce verrou
+    await setVerified(user.id, false);
+  } finally {
+    await lock.release();
+  }
   const res = await pending;
   const elapsed = Date.now() - start;
-  await blocker;
   await setVerified(user.id, true);
-  return { res, elapsed };
+  return { res, elapsed, waited };
 }
 
 async function createDraftProject(client, role, label) {
@@ -232,15 +271,14 @@ async function main() {
   // =========================================================================
   // 2b. Perte de vérification PENDANT une attente réelle
   // =========================================================================
-  const WAIT_MIN_MS = 2500;
   // prepare : attente sur l'avisoire du chantier (le contrôle était avant, il est après).
   const waitOp = randomUUID();
   const w1 = await callDuringRealWait(contractor, advisoryLockSql(pid), () =>
     contractor.client.rpc("prepare_project_plan_upload", { ...unclaimedParams, p_operation_uuid: waitOp })
   );
   record("2b. prepare — attente réelle sur l'avisoire, refus account_provisional, aucune opération créée",
-    w1.elapsed >= WAIT_MIN_MS && w1.res.error?.message === "account_provisional" && (await uploadRow(waitOp)) === null,
-    `${w1.elapsed}ms ${w1.res.error?.message}`);
+    w1.waited && w1.res.error?.message === "account_provisional" && (await uploadRow(waitOp)) === null,
+    `attente ${w1.waited ? "constatée" : "NON constatée"}, ${w1.elapsed}ms ${w1.res.error?.message}`);
 
   // claim : attente sur l'avisoire, candidate jamais revendiquée.
   const w2 = await callDuringRealWait(contractor, advisoryLockSql(pid), () =>
@@ -248,8 +286,8 @@ async function main() {
   );
   const unclaimedAfter = await uploadRow(unclaimedOp);
   record("2b. claim — attente réelle, refus account_provisional, write_claimed_at toujours null",
-    w2.elapsed >= WAIT_MIN_MS && w2.res.error?.message === "account_provisional" && unclaimedAfter.write_claimed_at === null,
-    `${w2.elapsed}ms ${w2.res.error?.message}`);
+    w2.waited && w2.res.error?.message === "account_provisional" && unclaimedAfter.write_claimed_at === null,
+    `attente ${w2.waited ? "constatée" : "NON constatée"}, ${w2.elapsed}ms ${w2.res.error?.message}`);
 
   // recover : attente sur l'avisoire, aucune nouvelle tentative ouverte.
   const w3 = await callDuringRealWait(contractor, advisoryLockSql(pid), () =>
@@ -257,8 +295,8 @@ async function main() {
   );
   const expiredAfter = await uploadRow(expiredOp.op);
   record("2b. recover — attente réelle, refus account_provisional, attempt_id inchangé",
-    w3.elapsed >= WAIT_MIN_MS && w3.res.error?.message === "account_provisional" && expiredAfter.attempt_id === beforeDirect.expired.attempt_id,
-    `${w3.elapsed}ms ${w3.res.error?.message}`);
+    w3.waited && w3.res.error?.message === "account_provisional" && expiredAfter.attempt_id === beforeDirect.expired.attempt_id,
+    `attente ${w3.waited ? "constatée" : "NON constatée"}, ${w3.elapsed}ms ${w3.res.error?.message}`);
 
   // attach : attente sur le verrou ORGANISATION (le contrôle était avant, il est après).
   const plansBeforeAttach = await planCount(pid);
@@ -266,8 +304,8 @@ async function main() {
     contractor.client.rpc("attach_catalog_plan_to_project", { p_project_id: pid, p_catalog_item_id: catalogItemId })
   );
   record("2b. attach — attente réelle sur l'organisation, refus account_provisional, aucun plan créé",
-    w4.elapsed >= WAIT_MIN_MS && w4.res.error?.message === "account_provisional" && (await planCount(pid)) === plansBeforeAttach,
-    `${w4.elapsed}ms ${w4.res.error?.message}`);
+    w4.waited && w4.res.error?.message === "account_provisional" && (await planCount(pid)) === plansBeforeAttach,
+    `attente ${w4.waited ? "constatée" : "NON constatée"}, ${w4.elapsed}ms ${w4.res.error?.message}`);
 
   // set_retained : attente sur le verrou CHANTIER (le contrôle était avant, il est après).
   const projBeforeRetain = await projectRow(pid);
@@ -275,8 +313,8 @@ async function main() {
     owner.client.rpc("set_retained_project_plan_version", { p_project_id: pid, p_version_id: ownerVersion.id, p_expected_revision: projBeforeRetain.revision })
   );
   record("2b. set_retained — attente réelle sur le chantier, refus account_provisional, pointeur et révision inchangés",
-    w5.elapsed >= WAIT_MIN_MS && w5.res.error?.message === "account_provisional" && same(projBeforeRetain, await projectRow(pid)),
-    `${w5.elapsed}ms ${w5.res.error?.message}`);
+    w5.waited && w5.res.error?.message === "account_provisional" && same(projBeforeRetain, await projectRow(pid)),
+    `attente ${w5.waited ? "constatée" : "NON constatée"}, ${w5.elapsed}ms ${w5.res.error?.message}`);
 
   // Contrôle positif : compte rétabli, les chemins corrigés fonctionnent toujours.
   const { data: attached, error: attachOkErr } = await contractor.client.rpc("attach_catalog_plan_to_project", { p_project_id: pid, p_catalog_item_id: catalogItemId });
