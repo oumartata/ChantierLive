@@ -129,6 +129,17 @@ async function attachExpenseReceipt(client, projectId) {
   const receipt = await must(client.rpc("finalize_expense_receipt_upload", { p_operation_uuid: op }), "finalize expense receipt");
   return { expenseId: expense.id, id: receipt.id, key: claim.candidate_key };
 }
+// B048 (M048) : preuve de paiement de licence déclarée par le propriétaire, même discipline.
+async function declareLicensePayment(client, projectId) {
+  const bytes = PDF("preuve-licence");
+  const op = randomUUID();
+  const prep = await must(client.rpc("prepare_license_payment_upload", { p_operation_uuid: op, p_project_id: projectId, p_amount_fcfa: "100000", p_operator: "ORANGE_MONEY", p_payment_reference: "MP-B029-LICENCE", p_paid_on: new Date(Date.now() - 86400000).toISOString().slice(0, 10), p_payer_name: null, p_disclaimer_ack: true, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" }), "prepare license proof");
+  const claim = await must(client.rpc("claim_upload_attempt", { p_operation_uuid: op, p_expected_attempt_id: prep.attempt_id }), "claim license proof");
+  await must(service.storage.from("license-proofs").upload(claim.candidate_key, bytes, { contentType: "application/pdf", upsert: false }), "write license proof");
+  await must(service.rpc("attest_storage_verified", { p_operation_uuid: op, p_attempt_id: claim.attempt_id, p_actual_checksum: sha(bytes), p_actual_size_bytes: bytes.length, p_actual_mime_type: "application/pdf" }), "attest license proof");
+  const payment = await must(client.rpc("finalize_license_payment_upload", { p_operation_uuid: op }), "finalize license proof");
+  return { id: payment.id, key: claim.candidate_key };
+}
 const objectExists = async (bucket, key) => {
   const { data, error } = await service.storage.from(bucket).download(key);
   return !error && !!data;
@@ -190,6 +201,7 @@ try {
   const docPrinc = await depositDocument(contractorA.client, pidA, "PRINCIPAUX");
   const docEnt = await depositDocument(contractorA.client, pidA, "ENTREPRISE");
   const expReceipt = await attachExpenseReceipt(contractorA.client, pidA);
+  const licenseProof = await declareLicensePayment(ownerA.client, pidA);
   // Ex-membre : accès retiré avant les essais.
   await must(service.from("project_memberships").update({ revoked_at: new Date().toISOString() }).eq("project_id", pidA).eq("profile_id", exMember.id), "révocation ex-membre");
   console.log(`Chantier A ${pidA} (organisation ${orgA}) ; chantier B ${pidB} (organisation ${orgB}).`);
@@ -202,6 +214,7 @@ try {
     { bucket: "project-documents", key: docPrinc.key, what: "document PRINCIPAUX" },
     { bucket: "project-documents", key: docEnt.key, what: "document ENTREPRISE" },
     { bucket: "expense-receipts", key: expReceipt.key, what: "reçu de dépense interne" },
+    { bucket: "license-proofs", key: licenseProof.key, what: "preuve de paiement de licence" },
   ];
   for (const f of files) {
     if (!(await objectExists(f.bucket, f.key))) throw new Error(`fixture absente : ${f.bucket}/${f.key}`);
@@ -330,6 +343,17 @@ try {
   const anonEr = await erKey(anon);
   record("Reçu de dépense A — visiteur sans session : refusé", !!anonEr.error && !anonEr.data, errCode(anonEr));
 
+  // Preuve de paiement de licence (B048, M048 ; D193 L4) : le déclarant seul.
+  const lpKey = (u) => u.client.rpc("get_license_proof_file_key", { p_payment_id: licenseProof.id });
+  const lpOwner = await lpKey(ownerA);
+  record("Preuve de licence A — propriétaire déclarant : délivrée", !lpOwner.error && (Array.isArray(lpOwner.data) ? lpOwner.data[0] : lpOwner.data)?.storage_key === licenseProof.key, lpOwner.error?.message);
+  for (const s of [contractorA, smA, ...strangers]) {
+    const k = await lpKey(s);
+    record(`Preuve de licence A (déclarant seul) — ${s.label} : refusée`, k.error?.message === "not_authorized" && !k.data, errCode(k));
+  }
+  const anonLp = await lpKey(anon);
+  record("Preuve de licence A — visiteur sans session : refusée", !!anonLp.error && !anonLp.data, errCode(anonLp));
+
   // ------------------------------------------------------------------------
   // 3. Envoyer / remplacer par le chemin applicatif : préparation refusée,
   //    opération d'autrui jamais revendiquée ni consultée.
@@ -347,6 +371,10 @@ try {
   for (const s of [ownerA, ...strangers, anon]) {
     const er = await s.client.rpc("prepare_expense_receipt_upload", { p_operation_uuid: randomUUID(), p_expense_id: expReceipt.expenseId, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
     record(`Envoyer un reçu sur une dépense de A — ${s.label} : refusé`, !!er.error && !er.data, errCode(er));
+  }
+  for (const s of [smA, ...strangers, anon]) {
+    const lp = await s.client.rpc("prepare_license_payment_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_amount_fcfa: "100000", p_operator: "ORANGE_MONEY", p_payment_reference: "MP-B029-LICENCE", p_paid_on: new Date(Date.now() - 86400000).toISOString().slice(0, 10), p_payer_name: null, p_disclaimer_ack: true, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+    record(`Déclarer un paiement de licence pour A — ${s.label} : refusé`, !!lp.error && !lp.data, errCode(lp));
   }
   const ownerCat = await ownerA.client.rpc("prepare_catalog_item_upload", { p_operation_uuid: randomUUID(), p_organization_id: orgA, p_catalog_item_id: item.id, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
   record("Envoyer dans le catalogue de l'entreprise — propriétaire du chantier : refusé", !!ownerCat.error, errCode(ownerCat));
@@ -391,6 +419,11 @@ try {
   const erForgedPath = `${prefixOf(expReceipt.key)}/force-${randomUUID()}`;
   const erForgedUp = await contractorB.client.storage.from("expense-receipts").uploadToSignedUrl(erForgedPath, signedB.token, PDF("intrus"), { contentType: "application/pdf", upsert: true });
   record("Chemin forgé : jeton d'envoi du chantier B vers le dossier d'un reçu de A refusé", !!erForgedUp.error && !(await objectExists("expense-receipts", erForgedPath)), errCode(erForgedUp));
+
+  // h) Déclaration de licence pour le chantier A demandée depuis le chantier B, et clé de la preuve de A.
+  const forgedLp = await contractorB.client.rpc("prepare_license_payment_upload", { p_operation_uuid: randomUUID(), p_project_id: pidA, p_amount_fcfa: "100000", p_operator: "ORANGE_MONEY", p_payment_reference: "MP-B029-LICENCE", p_paid_on: new Date(Date.now() - 86400000).toISOString().slice(0, 10), p_payer_name: null, p_disclaimer_ack: true, p_expected_checksum: sha(bytes), p_expected_size_bytes: bytes.length, p_expected_mime_type: "application/pdf" });
+  const forgedLpKey = await lpKey(contractorB);
+  record("Chemin forgé : déclaration de licence et preuve de A demandées depuis le chantier B refusées", forgedLp.error?.message === "not_authorized" && forgedLpKey.error?.message === "not_authorized", `${errCode(forgedLp)} / ${errCode(forgedLpKey)}`);
 
   // ------------------------------------------------------------------------
   // 4b. Audit (D186, M044) : les traces des fichiers privés (documents

@@ -94,6 +94,8 @@ export default async function ChantierLayout({
         { href: `/chantiers/${id}/documents`, label: "Documents" },
         { href: `/chantiers/${id}/catalogue`, label: "Catalogue" },
         { href: `/chantiers/${id}/plans`, label: "Plans" },
+        // B048 (D193) : état de la licence pour tout membre actif.
+        { href: `/chantiers/${id}/licence`, label: "Licence" },
       ]
     : [
         { href: `/chantiers/${id}`, label: "Chantier" },
@@ -125,6 +127,8 @@ export default async function ChantierLayout({
         // B031 : dépenses internes, entreprise et chef de chantier (D183,
         // D187) ; jamais dans le menu du propriétaire.
         ...(isContractor || role === "SITE_MANAGER" ? [{ href: `/chantiers/${id}/depenses`, label: "Dépenses" }] : []),
+        // B048 (D193) : état de la licence pour tout membre actif.
+        ...(role ? [{ href: `/chantiers/${id}/licence`, label: "Licence" }] : []),
       ];
 
   return (
