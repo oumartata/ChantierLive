@@ -117,7 +117,7 @@ FR115,dashboard,SiteManager,"Voir tâches de saisie; incidents et éléments non
 FR116,dashboard,AuthorizedMember,"Ouvrir le détail depuis chaque indicateur du tableau de bord.",SHOULD,BR068,AC116
 FR117,dashboard,System,"Afficher la date de dernière synchronisation des données visibles.",MUST,BR069,AC117
 FR118,dashboard,System,"Afficher un état vide compréhensible lorsqu'aucune donnée n'existe.",MUST,BR070,AC118
-FR119,notification,System,"Créer une notification interne pour les événements configurés.",MUST,BR061,AC119
+FR119,notification,System,"Créer une notification interne pour les événements configurés (liste et destinataires : D199 ; créée dans la transaction de l'action, une par événement et par destinataire).",MUST,BR061,AC119
 FR120,notification,User,"Marquer une notification comme lue et ouvrir son objet.",MUST,BR061,AC120
 FR121,notification,User,"Configurer les notifications non critiques.",SHOULD,BR071,AC121
 FR122,notification,System,"Envoyer un e-mail seulement aux comptes ayant un e-mail vérifié.",MUST,BR071,AC122
@@ -142,7 +142,7 @@ FR140,report,System,"Afficher un avertissement indiquant que le rapport n'est pa
 FR141,license,Owner|Contractor,"Consulter les formules et payer une licence chantier par le moyen proposé.",MUST,BR081,AC141
 FR142,license,System,"Permettre qu'une seule partie paie sans modifier ses permissions.",MUST,BR082,AC142
 FR143,license,PlatformAdmin,"Activer manuellement une licence après vérification du paiement.",MUST,BR083,AC143
-FR144,license,System,"Notifier avant expiration puis appliquer trente jours de grâce.",MUST,BR084,AC144
+FR144,license,System,"Notifier avant expiration (rappels à 30 jours, 7 jours et le jour même, calculés à l'ouverture de l'application, sans doublon, D199) puis appliquer trente jours de grâce.",MUST,BR084,AC144
 FR145,license,System,"Passer le chantier en lecture seule après la grâce.",MUST,BR084,AC145
 FR146,license,AuthorizedMember,"Continuer à consulter et exporter en lecture seule.",MUST,BR084,AC146
 FR147,license,Owner|Contractor,"Renouveler la licence pour réactiver les écritures.",MUST,BR084,AC147

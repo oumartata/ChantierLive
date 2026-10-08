@@ -187,8 +187,22 @@ try {
   record("Licences à vérifier : sans contenu privé", !review.error && scan(review.data).length === 0, scan(review.data).join(", ") || "rien");
   const proof = await admin.client.rpc("get_license_proof_file_key_for_admin", { p_payment_id: payment.id });
   const proofRow = one(proof.data);
-  const { storage_key: proofKey, bucket: proofBucket, ...proofRest } = proofRow ?? {};
-  record("Preuve de licence (L5) : seule la clé du compartiment license-proofs, aucun autre contenu privé", !proof.error && proofBucket === "license-proofs" && proofKey?.includes("/license_proof/") && scan(proofRest).length === 0, err(proof));
+  // Contrôle de la preuve (déplacé en 35b) : le compartiment est vérifié à part,
+  // tout le reste de la réponse passe au scanner.
+  const proofCheck = (row) => {
+    const { storage_key: key, bucket, ...rest } = row ?? {};
+    return bucket === "license-proofs" && !!key?.includes("/license_proof/") && scan(rest).length === 0;
+  };
+  record("Preuve de licence (L5) : seule la clé du compartiment license-proofs, aucun autre contenu privé", !proof.error && proofCheck(proofRow), err(proof));
+  // R15 (boucle 36) : le même contrôle échoue sur des réponses altérées.
+  const altered = [
+    { ...proofRow, payer_email: owner.email },
+    { ...proofRow, project_id: pid },
+    { ...proofRow, bucket: "project-documents" },
+    { ...proofRow, storage_key: `${pid}/_private/expense_receipt/x.pdf` },
+    { ...proofRow, note: M.journal },
+  ];
+  record("Contrôle positif (R15) : le contrôle de la preuve échoue sur 5 réponses altérées (e-mail, identifiant de chantier, autre compartiment, autre clé, contenu de chantier)", altered.every((r) => !proofCheck(r)), altered.map((r) => proofCheck(r)).join(","));
   const rejected = await admin.client.rpc("reject_license_payment", { p_payment_id: payment.id, p_reason: "Test M050 : référence introuvable" });
   record("Rejet par l'administrateur : réponse sans contenu privé", !rejected.error && scan(rejected.data).length === 0, scan(rejected.data).join(", ") || err(rejected));
 

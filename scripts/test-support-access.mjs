@@ -313,10 +313,15 @@ try {
   record("Journal vu du propriétaire : aucun contenu lu, aucun titre (même du document « entreprise »), aucune description de dossier", journalHits.length === 0, journalHits.join(", ") || "rien");
   const hidden = await Promise.all([coOwner, sm, outsider].flatMap((u) => [
     u.client.rpc("support_list_access_journal", { p_project_id: pid }),
-    u.client.rpc("support_active_access", { p_project_id: pid }),
     u.client.rpc("support_list_project_requests", { p_project_id: pid }),
   ]));
-  record("Copropriétaire, chef de chantier et compte hors chantier : ni journal, ni bandeau, ni dossiers", hidden.every((r) => r.error?.message === "not_authorized"), hidden.map(err).join(","));
+  record("Copropriétaire, chef de chantier et compte hors chantier : ni journal, ni dossiers", hidden.every((r) => r.error?.message === "not_authorized"), hidden.map(err).join(","));
+  // D198 (boucle 36, M052) : bandeau pour tous les membres actifs, sans détail.
+  const memberBanners = await Promise.all([coOwner, sm].map((u) => u.client.rpc("support_active_access", { p_project_id: pid })));
+  const outsiderBanner = await outsider.client.rpc("support_active_access", { p_project_id: pid });
+  record("D198 : copropriétaire et chef voient le bandeau réduit à l'heure de fin (ni module, ni dossier, ni partie) ; hors-chantier refusé",
+    memberBanners.every((r) => r.data?.length === 1 && r.data[0].grant_id === null && r.data[0].modules === null && r.data[0].granted_by_party === null && !!r.data[0].expires_at_server)
+      && outsiderBanner.error?.message === "not_authorized", memberBanners.map((r) => JSON.stringify(r.data)).join(" / "));
   const reqsOwner = (await owner.client.rpc("support_list_project_requests", { p_project_id: pid })).data ?? [];
   record("Dossiers : chaque partie ne lit que la description qu'elle a écrite", reqsOwner.find((r) => r.request_id === reqO.request_id)?.description === M.description && reqsOwner.find((r) => r.request_id === reqC.request_id)?.description === null);
   const direct = await Promise.all(["support_requests", "support_access_grants", "support_access_events"].map((t) => owner.client.from(t).select("id").eq("project_id", pid)));

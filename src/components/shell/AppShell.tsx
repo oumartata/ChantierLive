@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/cn";
-import { getVerifiedUser } from "@/lib/supabase/server";
+import { createClient, getVerifiedUser } from "@/lib/supabase/server";
 import { NavLink } from "./NavLink";
 import { SectionNavLink } from "./SectionNavLink";
 import { AccountMenuFooter } from "./AccountMenuFooter";
@@ -15,13 +15,18 @@ export interface AppShellProps {
 // Connexion/Inscription ne sont proposées qu'à un visiteur non connecté :
 // une session valide n'a jamais besoin de ces deux routes, et les montrer
 // quand même prêterait à confusion (aucun intérêt à s'inscrire à nouveau).
-function navItems(homeHref: string, authenticated: boolean) {
+function navItems(homeHref: string, authenticated: boolean, unread: number) {
   // Authentifié : "Accueil" et "Tableau de bord" mèneraient au même endroit
   // — une seule entrée ("Tableau de bord", plus explicite), jamais deux
   // liens différents vers la même href (source du doublon de clé React
   // constaté). Le logo de l'en-tête pointe aussi vers homeHref séparément.
   if (authenticated) {
-    return [{ href: homeHref, label: "Tableau de bord" }];
+    // B045 (D199) : notifications internes, compteur des non lues (les
+    // échéances dues sont calculées à cette lecture, en base).
+    return [
+      { href: homeHref, label: "Tableau de bord" },
+      { href: "/notifications", label: unread > 0 ? `Notifications (${unread})` : "Notifications" },
+    ];
   }
   return [
     { href: homeHref, label: "Accueil" },
@@ -44,7 +49,8 @@ export async function AppShell({ children }: AppShellProps) {
   // session valide (évite un aller-retour par "/" qui redirige de toute
   // façon) ; sinon vers "/", qui redirige lui-même vers la connexion.
   const homeHref = authenticated ? "/tableau-de-bord" : "/";
-  const items = navItems(homeHref, authenticated);
+  const unread = authenticated ? (((await (await createClient()).rpc("count_my_unread_notifications")).data as number | null) ?? 0) : 0;
+  const items = navItems(homeHref, authenticated, unread);
   const identity = user?.email ?? user?.phone ?? null;
 
   return (
