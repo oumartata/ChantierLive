@@ -59,6 +59,9 @@ export default async function TableauDeBordPage({ searchParams }: { searchParams
     .eq("owner_profile_id", user.id)
     .is("archived_at", null);
 
+  // B049 (D194) : lien d'administration pour le seul administrateur de plateforme.
+  const { data: isPlatformAdmin } = await supabase.rpc("is_platform_admin");
+
   // Cartes par rôle, chantier par chantier (T1 A, T7 A).
   const readAt = new Date();
   const today = readAt.toISOString().slice(0, 10);
@@ -216,6 +219,12 @@ export default async function TableauDeBordPage({ searchParams }: { searchParams
             ))}
           </Card>
         </section>
+      ) : null}
+
+      {isPlatformAdmin === true ? (
+        <Link href="/admin/licences" className="text-label font-semibold text-primary" data-testid="lien-admin-licences">
+          Administration : licences à vérifier
+        </Link>
       ) : null}
 
       {/* Parcours ingénieur (validations-plans) : toujours affiché, sans

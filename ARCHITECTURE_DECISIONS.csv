@@ -14,4 +14,4 @@ A012,"Historique append-only pour données publiées sensibles",PROPOSED,"Prése
 A013,"Paris ou Francfort à étudier pour Supabase",OPEN,"Les deux régions sont documentées mais la conformité ne se déduit pas de la région","Transfert international non conforme","Avis juridique APDP, DPA et registre des traitements",5A
 A014,"Hébergeur frontal non verrouillé",OPEN,"Évite une dépendance prématurée","Choix tardif","Comparer coût, région, logs, sauvegarde et déploiement avant MVP",5A
 A015,"SMS, e-mail, paiement et monitoring derrière des adaptateurs",PROPOSED,"Permet de remplacer un fournisseur indisponible au Mali","Sur-abstraction","Interfaces minimales basées sur les seuls besoins MVP",5A
-A016,"Activation Mobile Money manuelle au MVP",VALIDATED,"Réduit le risque d'intégration au lancement","Travail administratif","Journal d'activation, justificatif et double contrôle",5A
+A016,"Activation Mobile Money manuelle au MVP",VALIDATED,"Réduit le risque d'intégration au lancement","Travail administratif","Journal d'activation, justificatif et double contrôle (au pilote : preuve + audit, un seul administrateur suffit, D194 A3)",5A

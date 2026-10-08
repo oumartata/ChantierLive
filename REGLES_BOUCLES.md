@@ -51,6 +51,10 @@ tranche ; l'agent s'arrête et signale.
   possibilités de récupération préservées.
 - **R14** Langue : bilans, messages et documents toujours en français
   (fondateur, 2026-10-07).
+- **R15** Tests : ne jamais écrire ni modifier un test de façon à exclure le
+  cas qu'il doit vérifier, ni écrire un contrôle toujours vrai. Tout
+  assouplissement d'une attente ou d'un contrôle est signalé dans le bilan
+  avec sa justification (fondateur, 2026-10-08).
 
 ### Métier, sécurité, interface
 - **R11** Séparation métier : le propriétaire voit prix convenu,

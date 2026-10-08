@@ -81,7 +81,7 @@ BR079,report,"Le PDF est généré depuis un instantané autorisé et possède u
 BR080,legal,"Le rapport est un outil de suivi; pas une expertise; certification ou garantie de conformité."
 BR081,license,"Prix affiché; durée; contenu; statut et référence de paiement sont présentés avant confirmation."
 BR082,license,"Le payeur peut être OWNER ou CONTRACTOR; la transaction ne modifie jamais rôle ou permission."
-BR083,license,"Activation manuelle exige référence; montant; date; opérateur; vérificateur et audit; aucun secret Mobile Money n'est stocké."
+BR083,license,"Activation manuelle exige référence; montant; date; opérateur (moyen de paiement déclaré); vérificateur (l'administrateur qui active) et audit; aucun secret Mobile Money n'est stocké (D194 A3)."
 BR084,license,"Expiration: notifications; grâce 30 jours; lecture seule; renouvellement réactive les écritures autorisées."
 BR085,retention,"Aucune suppression à l'expiration; conservation et éventuelle purge future suivent une politique notifiée et validée juridiquement."
 BR086,audit,"Un événement d'audit utilise l'heure serveur et contient acteur; action; objet; résultat; contexte minimal et motif requis."

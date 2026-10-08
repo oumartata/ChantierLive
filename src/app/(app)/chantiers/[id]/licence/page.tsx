@@ -44,6 +44,8 @@ interface MyPayment {
   cancelled_at_server: string | null;
   cancel_reason: string | null;
   can_cancel: boolean;
+  decided_at_server: string | null;
+  decision_note: string | null;
 }
 
 const LICENSE_STATUS: Record<string, { label: string; chip: StatusChipVariant; text: string }> = {
@@ -58,6 +60,8 @@ const LICENSE_STATUS: Record<string, { label: string; chip: StatusChipVariant; t
 const PAYMENT_STATUS: Record<string, { label: string; chip: StatusChipVariant }> = {
   PENDING_REVIEW: { label: "En attente de vérification", chip: "attention" },
   CANCELLED: { label: "Annulée", chip: "neutral" },
+  ACTIVATED: { label: "Vérifiée — licence activée", chip: "success" },
+  REJECTED: { label: "Rejetée", chip: "danger" },
 };
 const OPERATOR: Record<string, string> = { ORANGE_MONEY: "Orange Money", MOOV_MONEY: "Moov Money", OTHER: "Autre" };
 const day = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("fr-FR", { timeZone: "UTC", day: "numeric", month: "long", year: "numeric" });
@@ -175,6 +179,12 @@ export default async function LicensePage({ params }: { params: Promise<{ id: st
                 {p.cancelled_at_server ? (
                   <p className="break-words text-caption text-ink">
                     Annulée le {stamp(p.cancelled_at_server)} — motif : {p.cancel_reason}
+                  </p>
+                ) : null}
+                {p.decided_at_server ? (
+                  <p className="break-words text-caption text-ink" data-testid="decision-licence">
+                    {p.status === "REJECTED" ? "Rejetée" : "Vérifiée"} par ChantierLive le {stamp(p.decided_at_server)}
+                    {p.decision_note ? ` — ${p.status === "REJECTED" ? "motif" : "note"} : ${p.decision_note}` : ""}
                   </p>
                 ) : null}
                 {p.can_cancel ? (
