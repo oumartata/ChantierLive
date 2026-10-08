@@ -222,8 +222,8 @@ export default async function TableauDeBordPage({ searchParams }: { searchParams
       ) : null}
 
       {isPlatformAdmin === true ? (
-        <Link href="/admin/licences" className="text-label font-semibold text-primary" data-testid="lien-admin-licences">
-          Administration : licences à vérifier
+        <Link href="/admin" className="text-label font-semibold text-primary" data-testid="lien-admin">
+          Administration de la plateforme
         </Link>
       ) : null}
 

@@ -153,10 +153,10 @@ FR151,audit,OwnerPrimary|Contractor,"Consulter les événements autorisés de so
 FR152,audit,System,"Interdire la modification du journal d'audit par les rôles métier.",MUST,BR087,AC152
 FR153,audit,PlatformAdmin,"Consulter les événements techniques de plateforme sans ouvrir les contenus privés.",MUST,BR088,AC153
 FR154,audit,PlatformAdmin,"Utiliser un accès exceptionnel temporaire et motivé pour le support privé.",MUST,BR089,AC154
-FR155,admin,PlatformAdmin,"Gérer statuts de comptes; licences et paramètres globaux autorisés.",MUST,BR088,AC155
-FR156,admin,PlatformAdmin,"Suspendre un compte ou chantier avec motif et notification.",MUST,BR090,AC156
-FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support.",MUST,BR088,AC157
-FR158,admin,PlatformAdmin,"Révoquer une session compromise.",MUST,BR008|BR088,AC158
+FR155,admin,PlatformAdmin,"Gérer statuts de comptes; licences et paramètres globaux autorisés (B050 : licences, prix de la licence et métadonnées ; statuts de comptes avant le pilote, D195 E1).",MUST,BR088,AC155
+FR156,admin,PlatformAdmin,"Suspendre un compte ou chantier avec motif et notification (reporté avant le pilote, avec la notification, D195 E1).",MUST,BR090,AC156
+FR157,admin,PlatformAdmin,"Consulter les signalements et demandes de support (avec l'accès support, B051 ; D195 E1).",MUST,BR088,AC157
+FR158,admin,PlatformAdmin,"Révoquer une session compromise (reporté avant le pilote, D195 E1).",MUST,BR008|BR088,AC158
 FR159,admin,PlatformAdmin,"Définir la durée et le périmètre d'un accès exceptionnel.",MUST,BR089,AC159
 FR160,admin,System,"Notifier et journaliser tout accès exceptionnel selon la politique applicable.",MUST,BR089,AC160
 FR161,commercial,OrganizationOwner,"Déposer, faire valider techniquement et publier un modèle au catalogue de son agence.",MUST,BR091|BR092,AC161

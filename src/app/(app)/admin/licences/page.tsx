@@ -3,6 +3,7 @@ import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, EmptyState, StatusChip, type StatusChipVariant } from "@/components/ui";
 import { formatFcfa } from "@/lib/entreprise/chantierSummary";
 import { ActivateForm, RejectForm } from "./AdminLicenseForms";
+import { LicenseOfferForm } from "../AdminForms";
 
 // SCR062 « Licences à vérifier » — B049 (M049, M049b ; D194). Réservée à
 // l'administrateur de plateforme : tout autre compte obtient une page
@@ -61,6 +62,9 @@ export default async function AdminLicensesPage() {
     );
   }
   const rows = (data ?? []) as Row[];
+  // B050 (D195 E7) : prix courant, modifiable ici ; audit en base.
+  const { data: offerData } = await supabase.rpc("get_license_offer");
+  const offer = (Array.isArray(offerData) ? offerData[0] : offerData) as { label: string; duration_months: number; price_fcfa: number | string; price_is_demo: boolean } | undefined;
   const pending = rows.filter((r) => r.status === "PENDING_REVIEW");
   const decided = rows.filter((r) => r.status !== "PENDING_REVIEW").slice(0, 20);
 
@@ -144,6 +148,18 @@ export default async function AdminLicensesPage() {
           licence ne donne aucun droit au payeur.
         </p>
       </div>
+      {offer ? (
+        <Card className="flex flex-col gap-3" data-testid="admin-prix-licence">
+          <div className="flex flex-col gap-1">
+            <h2 className="text-h2 font-semibold text-ink">Prix de la licence</h2>
+            <p className="text-caption text-muted">
+              {offer.label}, {offer.duration_months} mois : {formatFcfa(String(offer.price_fcfa))}
+              {offer.price_is_demo ? " (prix de démonstration)" : ""}
+            </p>
+          </div>
+          <LicenseOfferForm price={Number(offer.price_fcfa)} isDemo={offer.price_is_demo} />
+        </Card>
+      ) : null}
       <section className="flex flex-col gap-3" data-testid="admin-a-verifier">
         <h2 className="text-h2 font-semibold text-ink">À vérifier ({pending.length})</h2>
         {pending.length === 0 ? <EmptyState title="Rien à vérifier" description="Les nouvelles déclarations de paiement apparaîtront ici." /> : pending.map(card)}
