@@ -134,7 +134,7 @@ FR132,offline,System,"Exiger une connexion pour toute action sensible.",MUST,BR0
 FR133,offline,System,"Avertir avant déconnexion si des données locales risquent d'être perdues.",MUST,BR078,AC133
 FR134,offline,System,"Conserver la file après fermeture normale de la PWA selon les capacités du navigateur.",MUST,BR078,AC134
 FR135,report,Owner|Contractor,"Générer un rapport PDF simple d'un chantier et d'une période.",MUST,BR079,AC135
-FR136,report,System,"Inclure résumé; phases; journaux; dépenses autorisées; incidents et décisions.",MUST,BR079,AC136
+FR136,report,System,"Inclure avancement déclaré et avancement validé (séparés); journaux publiés; incidents; documents partagés visibles; photos en liste; prix convenu, versements et reste dû selon le rôle; aucune dépense ni finance interne, même pour l'entreprise; pas de commentaires (D200).",MUST,BR079,AC136
 FR137,report,System,"Identifier la date de génération et la période couverte.",MUST,BR079,AC137
 FR138,report,User,"Télécharger ou partager manuellement le rapport.",MUST,BR072|BR079,AC138
 FR139,report,System,"Respecter les permissions du générateur dans le contenu exporté.",MUST,BR016|BR079,AC139

@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // B046 (D200) : rapport PDF généré côté serveur avec pdfkit, qui lit ses
+  // fichiers de métriques et la police intégrée (via fontkit) sur le disque ;
+  // ces deux paquets restent donc chargés par Node, hors du regroupement.
+  serverExternalPackages: ["pdfkit", "fontkit"],
   // "Body exceeded 1 MB limit" sur le dépôt de plan (constat fondateur) :
   // Next.js limite par défaut le corps d'une Server Action à 1 Mo — une
   // limite de TRANSPORT du framework, sans rapport avec le flux

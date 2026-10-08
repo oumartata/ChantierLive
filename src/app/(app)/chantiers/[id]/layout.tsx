@@ -96,6 +96,8 @@ export default async function ChantierLayout({
         { href: `/chantiers/${id}/plans`, label: "Plans" },
         // B048 (D193) : état de la licence pour tout membre actif.
         { href: `/chantiers/${id}/licence`, label: "Licence" },
+        // B046 (D200) : rapport de suivi, chacun limité à ce qu'il voit.
+        { href: `/chantiers/${id}/rapports`, label: "Rapports" },
         // B051 (D197 S2) : aide et accès support, parties principales seulement.
         ...(isOwnerPrimary ? [{ href: `/chantiers/${id}/support`, label: "Aide et support" }] : []),
       ]
@@ -131,6 +133,7 @@ export default async function ChantierLayout({
         ...(isContractor || role === "SITE_MANAGER" ? [{ href: `/chantiers/${id}/depenses`, label: "Dépenses" }] : []),
         // B048 (D193) : état de la licence pour tout membre actif.
         ...(role ? [{ href: `/chantiers/${id}/licence`, label: "Licence" }] : []),
+        ...(role ? [{ href: `/chantiers/${id}/rapports`, label: "Rapports" }] : []),
         ...(isContractor ? [{ href: `/chantiers/${id}/support`, label: "Aide et support" }] : []),
       ];
 

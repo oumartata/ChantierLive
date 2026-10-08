@@ -77,7 +77,7 @@ BR075,offline,"Réessayer est idempotent: un même UUID ne crée jamais deux op�
 BR076,offline,"UUID est créé avant stockage local et conservé lors de chaque tentative."
 BR077,concurrency,"Toute mise à jour de brouillon serveur compare une révision contrôlée par le serveur; conflit bloque l'écriture."
 BR078,offline,"L'utilisateur est averti avant action susceptible d'effacer une file non synchronisée; aucune promesse de conservation illimitée locale."
-BR079,report,"Le PDF est généré depuis un instantané autorisé et possède un identifiant; sa régénération peut différer si les données évoluent."
+BR079,report,"Le PDF est généré depuis un instantané autorisé et possède un identifiant; sa régénération peut différer si les données évoluent (D200 : régénéré à chaque demande, jamais stocké, identifiant et empreinte des données dans le document, trace visible de son seul auteur)."
 BR080,legal,"Le rapport est un outil de suivi; pas une expertise; certification ou garantie de conformité."
 BR081,license,"Prix affiché; durée; contenu; statut et référence de paiement sont présentés avant confirmation."
 BR082,license,"Le payeur peut être OWNER ou CONTRACTOR; la transaction ne modifie jamais rôle ou permission."

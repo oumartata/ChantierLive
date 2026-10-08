@@ -254,6 +254,38 @@ try {
   const outList = await mine(outsider);
   record("Ex-membre : toujours un seul message après tous les événements ; hors-chantier : aucune notification", exAfter.length === 1 && outList.length === 0, `${exAfter.length} / ${outList.length}`);
 
+  // 11b. Liste blanche (boucle 37) : tout type d'audit non prévu ne produit
+  // AUCUNE notification. Tous les types d'audit existants non retenus par
+  // M052, plus deux types inventés, sont injectés ; contrôle positif (R15) :
+  // la même injection d'un type prévu en produit.
+  const HANDLED = new Set(["DAILY_LOG_PUBLISH", "INCIDENT_CREATE", "INCIDENT_ASSIGN", "INCIDENT_TRANSITION", "COMMENT_ADDED", "DOCUMENT_PUBLISH", "MEDIA_PUBLISHED",
+    "PHASE_DECLARED_COMPLETE", "PHASE_VALIDATED", "PHASE_REFUSED", "QUOTE_PROPOSED", "QUOTE_ACCEPTED", "QUOTE_REFUSED", "CHANGE_ORDER_PROPOSED", "CHANGE_ORDER_ACCEPTED",
+    "CHANGE_ORDER_REFUSED", "ADVANCE_DECLARED", "ADVANCE_CONFIRMED", "ADVANCE_DISPUTED", "EXPENSE_SUBMITTED", "EXPENSE_APPROUVEE", "EXPENSE_REFUSEE", "EXPENSE_CONTESTEE",
+    "LICENSE_PAYMENT_DECLARED", "PARTICIPANT_REMOVED", "ROLE_TRANSFER_REQUESTED", "ROLE_TRANSFER_CONFIRMED"]);
+  const EXISTING = ["ADVANCE_CANCELLED", "ADVANCE_CONFIRMED", "ADVANCE_DECLARED", "ADVANCE_DISPUTED", "ADVANCE_RECEIPT_ATTACHED", "ADVANCE_REQUIREMENT_SET", "CHANGE_ORDER_ACCEPTED",
+    "CHANGE_ORDER_EXECUTION_AUTHORIZED", "CHANGE_ORDER_PROPOSED", "CHANGE_ORDER_REFUSED", "COMMENT_ADDED", "COMMENT_CORRECTED", "COMMENT_MODERATED", "COMMENT_RETRACTED",
+    "DAILY_LOG_CORRECT", "DAILY_LOG_DRAFT_ARCHIVE", "DAILY_LOG_DRAFT_CREATE", "DAILY_LOG_PUBLISH", "DELEGATION_GRANTED", "DELEGATION_REVOKED", "DOCUMENT_ARCHIVE",
+    "DOCUMENT_DRAFT_CREATE", "DOCUMENT_NEW_VERSION", "DOCUMENT_PUBLISH", "EXPENSE_APPROUVEE", "EXPENSE_CANCELLED", "EXPENSE_CONTESTEE", "EXPENSE_CORRECTED",
+    "EXPENSE_PUBLISHED_APPROVED", "EXPENSE_RECEIPT_ATTACHED", "EXPENSE_RECEIPT_POLICY_SET", "EXPENSE_RECEIPT_WITHDRAWN", "EXPENSE_REFUSEE", "EXPENSE_SUBMITTED",
+    "INCIDENT_ASSIGN", "INCIDENT_CORRECT", "INCIDENT_CREATE", "INCIDENT_TRANSITION", "INTERNAL_BUDGET_REVISED", "INTERNAL_BUDGET_SET", "LICENSE_PAYMENT_CANCELLED",
+    "LICENSE_PAYMENT_DECLARED", "MEDIA_PUBLISHED", "MEDIA_UPLOAD_ATTEMPT_ABANDONED", "MEDIA_UPLOAD_FINALIZED", "PARTICIPANT_REMOVED", "PHASE_DECLARED_COMPLETE",
+    "PHASE_REFUSED", "PHASE_VALIDATED", "PLAN_PUBLISHED", "PLAN_VALIDATION_DECIDED", "QUOTE_ACCEPTED", "QUOTE_PROPOSED", "QUOTE_REFUSED", "ROLE_TRANSFER_CANCELLED",
+    "ROLE_TRANSFER_CONFIRMED", "ROLE_TRANSFER_REQUESTED", "WORK_START_AUTHORIZE"];
+  const unplanned = [...EXISTING.filter((a) => !HANDLED.has(a)), "EVENEMENT_NON_PREVU_TEST", "notification_forcee"];
+  const countProjectNotifs = async () => (await service.from("notifications").select("id", { count: "exact", head: true }).eq("project_id", pid)).count;
+  const inject = (action) => service.from("audit_events").insert({ project_id: pid, actor_kind: "HUMAN", actor_profile_id: contractor.id, action, target_table: "projects", target_id: pid, result: "SUCCESS", context: { severity: "URGENTE", to: "CLOS", target_type: "INCIDENT" }, reason: "test liste blanche" });
+  const countAccountNotifs = async () => (await service.from("notifications").select("id", { count: "exact", head: true }).in("recipient_profile_id", [contractor.id, owner.id, coOwner.id, sm.id, exMember.id, outsider.id, admin.id]).is("project_id", null)).count;
+  const beforeUnplanned = await countProjectNotifs();
+  const beforeAccount = await countAccountNotifs();
+  const injected = await Promise.all(unplanned.map(inject));
+  const afterUnplanned = await countProjectNotifs();
+  const afterAccount = await countAccountNotifs();
+  record(`Liste blanche : ${unplanned.length} types d'audit non prévus (dont 2 inventés, budget, reçus, brouillons, modération) injectés → aucune notification`,
+    injected.every((r) => !r.error) && afterUnplanned === beforeUnplanned && afterAccount === beforeAccount, `chantier ${beforeUnplanned} → ${afterUnplanned} ; compte ${beforeAccount} → ${afterAccount} ; ${injected.filter((r) => r.error).map(err).join(",")}`);
+  const ctl = await inject("DAILY_LOG_PUBLISH");
+  const afterPlanned = await countProjectNotifs();
+  record("Contrôle positif (R15) : la même injection d'un type prévu (journal publié) produit des notifications", !ctl.error && afterPlanned > afterUnplanned, `${afterUnplanned} → ${afterPlanned}`);
+
   // 12. Scanner de confidentialité (R15).
   const forbidden = [M.address, M.journal, M.incident, M.urgent, M.comment, M.supplier, M.expense, M.budget, M.docInternal, M.docShared, M.docAll, M.paymentRef,
     contractor.email, owner.email, coOwner.email, sm.email, exMember.email, contractor.id, owner.id, coOwner.id, sm.id, exMember.id, admin.id, "100000"];
