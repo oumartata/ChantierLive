@@ -14,6 +14,7 @@ import {
 } from "./IncidentForms";
 import { STATUS, formatDay, formatStamp, roleLabel, severityOf, typeLabel } from "./labels";
 import { getPhaseOptions, phaseLinkLabel } from "@/lib/phases/phaseOptions";
+import { CommentThread } from "../commentaires/CommentThread";
 
 // SCR042 — B024 (M038/M038b/M038c, D159–D167). Lecture par tout membre
 // actif, propriétaires compris (list_project_incidents) ; chaque action
@@ -267,6 +268,8 @@ export default async function IncidentsPage({ params }: { params: Promise<{ id: 
                 </ol>
               </details>
               {terminal ? <p className="text-caption text-muted">{r.status === "CLOS" ? "Clos" : "Annulé"} le {r.closed_at_server ? formatStamp(r.closed_at_server) : "—"}.</p> : null}
+              {/* B023 (D191) : commentaires ; plus d'ajout une fois clos ou annulé (C6). */}
+              <CommentThread projectId={id} section="incidents" targetType="INCIDENT" targetId={r.id} open={!terminal} />
             </Card>
           );
         })

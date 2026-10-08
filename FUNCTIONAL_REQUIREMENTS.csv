@@ -57,7 +57,7 @@ FR055,journal,Contractor|SiteManager,"Modifier ou supprimer son brouillon non pu
 FR056,journal,Contractor|SiteManager,"Publier un journal attribué et horodaté.",MUST,BR037,AC056
 FR057,journal,AuthorizedMember,"Consulter les journaux publiés dans l'ordre chronologique.",MUST,BR016,AC057
 FR058,journal,AuthorizedAuthor,"Corriger un journal publié par nouvelle version motivée.",MUST,BR038,AC058
-FR059,journal,Owner|Contractor,"Commenter un journal publié.",SHOULD,BR039,AC059
+FR059,journal,Owner|Contractor|SiteManager,"Commenter un journal publié (tout membre actif qui le voit, D191).",SHOULD,BR039,AC059
 FR060,media,Contractor|SiteManager,"Capturer une photo depuis l'application.",MUST,BR040,AC060
 FR061,media,Contractor|SiteManager,"Importer une photo depuis la galerie.",MUST,BR040,AC061
 FR062,media,System,"Marquer distinctement photo capturée et photo importée.",MUST,BR041,AC062

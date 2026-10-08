@@ -4,6 +4,7 @@ import { getVerifiedUser, createClient } from "@/lib/supabase/server";
 import { AlertBanner, Card, EmptyState, StatusChip } from "@/components/ui";
 import { CorrectionForm, DailyLogForm, type DailyLogDraftView } from "./DailyLogForm";
 import { getPhaseOptions, phaseLinkLabel } from "@/lib/phases/phaseOptions";
+import { CommentThread } from "../commentaires/CommentThread";
 
 // B021 (M036) + B022 (M037, D151–D156). Brouillons : visibles et modifiables
 // par leur auteur SEUL (list_my_daily_log_drafts). Journaux publiés : lus
@@ -224,6 +225,8 @@ export default async function JournalPage({
                     </div>
                   </details>
                 ) : null}
+                {/* B023 (D191) : commentaires d'un journal publié, tout membre actif. */}
+                <CommentThread projectId={project.id} section="journal" targetType="DAILY_LOG" targetId={l.daily_log_id} open />
               </Card>
             );
           })
