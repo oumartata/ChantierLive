@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Button, AlertBanner } from "@/components/ui";
-import { signOut, type AuthActionState } from "@/app/(app)/(auth)/actions";
+import { OfflineLogoutForm } from "@/components/offline/OfflineLogoutForm";
 import {
   acceptInvitationAction,
   refuseInvitationAction,
@@ -16,18 +16,19 @@ import {
 // d'invitation est préservé pour revenir sur cette même page après
 // connexion avec un autre compte. Jamais de déconnexion automatique à la
 // simple ouverture du lien — uniquement sur ce clic explicite.
+// L06 (O6) : même déconnexion, avec effacement de la base locale du compte.
 function ChangeAccountButton({ token }: { token: string }) {
-  const [state, formAction, pending] = useActionState<AuthActionState, FormData>(signOut, null);
   return (
-    <form action={formAction}>
-      <input type="hidden" name="invitation" value={token} />
-      {state?.error ? (
-        <AlertBanner variant="error" title="Déconnexion impossible" explanation={state.error} />
-      ) : null}
-      <Button type="submit" variant="ghost" size="compact" loading={pending} className="w-full">
-        Utiliser un autre compte
-      </Button>
-    </form>
+    <OfflineLogoutForm>
+      {(pending) => (
+        <>
+          <input type="hidden" name="invitation" value={token} />
+          <Button type="submit" variant="ghost" size="compact" loading={pending} className="w-full">
+            Utiliser un autre compte
+          </Button>
+        </>
+      )}
+    </OfflineLogoutForm>
   );
 }
 

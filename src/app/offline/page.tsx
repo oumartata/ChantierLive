@@ -13,6 +13,10 @@ export default function OfflinePage() {
       <p className="text-body text-muted">
         Cette page nécessite une connexion. Réessayez lorsque le réseau sera de retour.
       </p>
+      {/* L06 (B036) : brouillons hors ligne, page disponible sans réseau. */}
+      <a href="/hors-ligne" className="text-label font-semibold text-primary underline">
+        Créer un brouillon hors ligne
+      </a>
     </div>
   );
 }

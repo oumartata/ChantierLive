@@ -25,7 +25,10 @@
 // Version renouvelée pour que les utilisateurs déjà installés reçoivent les
 // nouvelles icônes au lieu de servir indéfiniment les anciennes depuis le
 // cache précédent. Portée inchangée : toujours aucune route Auth/session.
-const CACHE_VERSION = "chantierlive-shell-v5";
+// v6 (L06, B036) : « /hors-ligne » précachée — page STATIQUE sans aucune
+// donnée ni session dans son HTML (tout vient d'IndexedDB) ; une navigation
+// sans réseau vers une page précachée sert cette page, sinon « /offline ».
+const CACHE_VERSION = "chantierlive-shell-v6";
 const OFFLINE_URL = "/offline";
 
 // Shell + ressources publiques précachées à l'installation. Ne jamais y
@@ -33,6 +36,7 @@ const OFFLINE_URL = "/offline";
 // session/l'authentification.
 const PRECACHE_URLS = [
   OFFLINE_URL,
+  "/hors-ligne",
   "/manifest.webmanifest",
   "/icon.svg",
   "/icons/icon-192.png",
@@ -148,7 +152,9 @@ async function networkFirstNavigation(request) {
     return await fetch(request);
   } catch {
     const cache = await caches.open(CACHE_VERSION);
-    const cached = await cache.match(OFFLINE_URL);
+    const url = new URL(request.url);
+    const own = url.search === "" && PRECACHE_URLS.includes(url.pathname) ? await cache.match(url.pathname) : null;
+    const cached = own || (await cache.match(OFFLINE_URL));
     return cached || Response.error();
   }
 }

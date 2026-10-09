@@ -130,6 +130,25 @@ async function run() {
     console.log("OK: navigation hors ligne -> Response /offline");
   }
 
+  // 1b. L06 (B036) : navigation hors ligne vers une page précachée
+  // (/hors-ligne) -> cette page, jamais /offline.
+  {
+    const { listeners, memoryCache, sandbox } = createSwSandbox();
+    memoryCache.set("/offline", new sandbox.Response("hors ligne"));
+    memoryCache.set("/hors-ligne", new sandbox.Response("brouillons hors ligne"));
+    sandbox.fetch = async () => {
+      throw new Error("réseau indisponible");
+    };
+    const event = makeEvent(makeRequest({ url: "http://localhost:3200/hors-ligne", mode: "navigate" }));
+    listeners.fetch(event);
+    const response = await event.responded;
+    assert.equal(response.body, "brouillons hors ligne");
+    const other = makeEvent(makeRequest({ url: "http://localhost:3200/hors-ligne?x=1", mode: "navigate" }));
+    listeners.fetch(other);
+    assert.equal((await other.responded).body, "hors ligne", "une URL avec paramètres n'est jamais servie depuis le cache de page");
+    console.log("OK: navigation hors ligne vers /hors-ligne -> page précachée ; avec paramètres -> /offline");
+  }
+
   // 2. Requête /?_rsc=abc -> non interceptée
   {
     const { listeners } = createSwSandbox();

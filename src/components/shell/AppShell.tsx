@@ -5,6 +5,7 @@ import { createClient, getVerifiedUser } from "@/lib/supabase/server";
 import { NavLink } from "./NavLink";
 import { SectionNavLink } from "./SectionNavLink";
 import { AccountMenuFooter } from "./AccountMenuFooter";
+import { OfflineSession } from "@/components/offline/OfflineSession";
 
 export interface AppShellProps {
   children: ReactNode;
@@ -26,6 +27,8 @@ function navItems(homeHref: string, authenticated: boolean, unread: number) {
     return [
       { href: homeHref, label: "Tableau de bord" },
       { href: "/notifications", label: unread > 0 ? `Notifications (${unread})` : "Notifications" },
+      // L06 (B036) : brouillons hors ligne de ce compte sur cet appareil.
+      { href: "/hors-ligne", label: "Hors ligne" },
     ];
   }
   return [
@@ -100,7 +103,10 @@ export async function AppShell({ children }: AppShellProps) {
           ) : null}
         </nav>
 
-        <main className="min-w-0 flex-1 pb-14 md:pb-0">{children}</main>
+        <main className="min-w-0 flex-1 pb-14 md:pb-0">
+          {user ? <OfflineSession profileId={user.id} /> : null}
+          {children}
+        </main>
       </div>
     </div>
   );
