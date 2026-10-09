@@ -60,3 +60,6 @@ exports/
 # sauvegardes pg_dump locales (avant migration) — jamais commitées, peuvent
 # contenir des données de test/démo réelles de l'instance locale
 .local_backups/
+
+# Artefacts de l'outil MCP Playwright (journaux, captures, téléchargements) — décision du fondateur, boucle 38
+.playwright-mcp/

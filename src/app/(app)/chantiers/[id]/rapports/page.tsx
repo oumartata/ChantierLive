@@ -1,8 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient, getVerifiedUser } from "@/lib/supabase/server";
 import { AlertBanner, Card, EmptyState } from "@/components/ui";
-import { buttonClassName } from "@/components/ui/Button";
 import { defaultPeriod } from "@/lib/report/report";
+import { ReportActions } from "./ReportActions";
 
 // SCR046 « Rapports » — B046 (M053 ; D200, D034). Un seul rapport de suivi
 // pour les 4 rôles, chacun limité à ce qu'il voit ; régénéré à chaque demande
@@ -15,7 +15,6 @@ const ERRORS: Record<string, string> = {
   period_in_future: "La date de fin ne peut pas être dans le futur.",
   generation_failed: "Le rapport n'a pas pu être généré. Réessayez.",
 };
-const FIELD = "w-full rounded-small border border-muted/40 bg-surface px-4 py-2 text-body text-ink h-12";
 
 interface Trace {
   report_id: string;
@@ -61,25 +60,8 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
       {erreur ? <AlertBanner variant="error" title="Rapport non généré" explanation={ERRORS[erreur] ?? ERRORS.generation_failed} /> : null}
 
       <Card className="flex flex-col gap-3">
-        <h2 className="text-h2 font-semibold text-ink">Générer le rapport</h2>
-        <form action={`/chantiers/${id}/rapports/pdf`} method="get" className="flex flex-col gap-3" data-testid="form-rapport">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-label font-semibold text-ink">
-              Du
-              <input type="date" name="du" required defaultValue={from} max={to} className={FIELD} />
-            </label>
-            <label className="flex flex-col gap-1 text-label font-semibold text-ink">
-              Au
-              <input type="date" name="au" required defaultValue={to} max={to} className={FIELD} />
-            </label>
-          </div>
-          <p className="text-caption text-muted">Par défaut, les 30 derniers jours ; 12 mois au plus.</p>
-          <div>
-            <button type="submit" className={buttonClassName("primary", "regular")}>
-              Générer le rapport
-            </button>
-          </div>
-        </form>
+        <h2 className="text-h2 font-semibold text-ink">Générer ou partager le rapport</h2>
+        <ReportActions projectId={id} defaultFrom={from} defaultTo={to} />
         <p className="text-caption text-muted">
           Outil de suivi : ni expertise, ni certification, ni garantie de conformité. Aucune preuve n&apos;est garantie authentique par ChantierLive.
         </p>
@@ -97,9 +79,9 @@ export default async function ReportsPage({ params, searchParams }: { params: Pr
                 <p className="text-label font-semibold text-ink">
                   Du {dLong(t.period_from)} au {dLong(t.period_to)}
                 </p>
-                <p className="break-all text-caption text-muted">
-                  Généré le {stamp(t.generated_at_server)} · {(t.file_size_bytes / 1024).toFixed(1)} Ko · identifiant {t.report_id} · empreinte{" "}
-                  {t.content_sha256.slice(0, 16)}…
+                <p className="break-words text-caption text-muted">
+                  Généré le {stamp(t.generated_at_server)} · {(t.file_size_bytes / 1024).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} Ko · identifiant{" "}
+                  <span className="break-all font-mono">{t.report_id}</span> · empreinte <span className="font-mono">{t.content_sha256.slice(0, 16)}…</span>
                 </p>
               </li>
             ))}
